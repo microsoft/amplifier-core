@@ -1,0 +1,10 @@
+pydantic>=2.0
+tomli>=2.0
+typing-extensions>=4.0
+
+[dev]
+pytest>=7.0
+pytest-asyncio>=0.21
+black>=23.0
+mypy>=1.0
+ruff>=0.1

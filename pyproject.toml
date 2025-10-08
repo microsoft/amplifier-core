@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amplifier-core"
+version = "1.0.0"
+description = "Ultra-thin core for Amplifier modular AI agent system"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Amplifier Team", email = "amplifier@example.com"}
+]
+dependencies = [
+    "pydantic>=2.0",
+    "tomli>=2.0",
+    "typing-extensions>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "black>=23.0",
+    "mypy>=1.0",
+    "ruff>=0.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/microsoft/amplifier-core"
+Documentation = "https://amplifier.readthedocs.io"
+Repository = "https://github.com/microsoft/amplifier-core"
