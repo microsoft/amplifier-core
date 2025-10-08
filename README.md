@@ -159,8 +159,6 @@ result = await session.execute("Your prompt here")
 
 ## For Module Developers
 
-See the [Module Development Guide](https://github.com/microsoft/amplifier-dev) for creating new modules.
-
 Key principles:
 - Modules are self-contained packages
 - Implement one of the core interfaces
