@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock
 
 from amplifier_core import HookResult
 from amplifier_core import ModuleCoordinator
-from amplifier_core import ProviderResponse
 from amplifier_core import ToolResult
 
 
@@ -31,26 +30,6 @@ class TestCoordinator(ModuleCoordinator):
         """Track unmount operations."""
         self.unmount_history.append({"mount_point": mount_point, "name": name})
         await super().unmount(mount_point, name)
-
-
-class MockProvider:
-    """Mock provider for testing without API calls."""
-
-    name = "mock"
-
-    def __init__(self, responses: list[str] | None = None):
-        self.responses = responses or ["Test response"]
-        self.call_count = 0
-        self.complete = AsyncMock(side_effect=self._complete)
-
-    async def _complete(self, messages: list[dict], **kwargs):
-        response = self.responses[self.call_count % len(self.responses)]
-        self.call_count += 1
-
-        return ProviderResponse(content=response, raw=None, usage={"input": 10, "output": 20})
-
-    def parse_tool_calls(self, response: ProviderResponse):
-        return []
 
 
 class MockTool:
@@ -132,9 +111,6 @@ class ScriptedOrchestrator:
 def create_test_coordinator() -> TestCoordinator:
     """Create a test coordinator with basic setup."""
     coordinator = TestCoordinator()
-
-    # Add a mock provider by default
-    coordinator.mount_points["providers"]["mock"] = MockProvider()
 
     # Add mock tools
     coordinator.mount_points["tools"]["echo"] = MockTool("echo", "Echo response")

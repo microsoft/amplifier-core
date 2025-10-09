@@ -7,7 +7,24 @@ from unittest.mock import Mock
 
 import pytest
 from amplifier_core import AmplifierSession
-from amplifier_core.testing import MockProvider
+from amplifier_core import ProviderResponse
+
+
+class MockProvider:
+    """Minimal mock provider for testing."""
+
+    name = "mock"
+
+    def __init__(self):
+        self.call_count = 0
+        self.complete = AsyncMock(side_effect=self._complete)
+
+    async def _complete(self, messages, **kwargs):
+        self.call_count += 1
+        return ProviderResponse(content="Test response", raw=None, usage={"input": 10, "output": 20})
+
+    def parse_tool_calls(self, response):
+        return []
 
 
 @pytest.fixture
