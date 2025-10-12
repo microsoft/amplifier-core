@@ -30,6 +30,9 @@ class ModuleCoordinator:
         }
         self._cleanup_functions = []
 
+        # Make hooks accessible as an attribute for backward compatibility
+        self.hooks = self.mount_points["hooks"]
+
     async def mount(self, mount_point: str, module: Any, name: str | None = None) -> None:
         """
         Mount a module at a specific mount point.
