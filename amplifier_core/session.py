@@ -72,7 +72,10 @@ class AmplifierSession:
             logger.info(f"Loading orchestrator: {orchestrator_id}")
 
             try:
-                orchestrator_mount = await self.loader.load(orchestrator_id)
+                # Get orchestrator config if present
+                orchestrator_config = self.config.get("orchestrator", {}).get("config", {})
+                orchestrator_mount = await self.loader.load(orchestrator_id, orchestrator_config)
+                # Note: config is already embedded in orchestrator_mount by the loader
                 cleanup = await orchestrator_mount(self.coordinator)
                 if cleanup:
                     self.coordinator.register_cleanup(cleanup)

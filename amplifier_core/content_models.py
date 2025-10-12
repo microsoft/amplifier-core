@@ -28,8 +28,7 @@ class ContentBlock:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         result: dict[str, Any] = {"type": self.type.value}
-        if self.raw:
-            result["raw"] = self.raw
+        # Don't include raw field as it may contain non-serializable provider objects
         return result
 
 
