@@ -20,6 +20,11 @@ PROVIDER_REQUEST = "provider:request"
 PROVIDER_RESPONSE = "provider:response"
 PROVIDER_ERROR = "provider:error"
 
+# Content Block Events (for real-time display)
+CONTENT_BLOCK_START = "content_block:start"
+CONTENT_BLOCK_DELTA = "content_block:delta"
+CONTENT_BLOCK_END = "content_block:end"
+
 # Tool invocations
 TOOL_PRE = "tool:pre"
 TOOL_POST = "tool:post"

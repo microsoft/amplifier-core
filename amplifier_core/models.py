@@ -58,6 +58,9 @@ class ProviderResponse(BaseModel):
     raw: Any | None = Field(default=None, description="Raw provider response object")
     usage: dict[str, int] | None = Field(default=None, description="Token usage statistics")
     tool_calls: list[ToolCall] | None = Field(default=None, description="Parsed tool calls from response")
+    content_blocks: list[Any] | None = Field(
+        default=None, description="Structured content blocks (TextContent, ThinkingContent, ToolCallContent, etc.)"
+    )
 
 
 class ModuleInfo(BaseModel):
