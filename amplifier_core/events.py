@@ -44,10 +44,18 @@ APPROVAL_REQUIRED = "approval:required"
 APPROVAL_GRANTED = "approval:granted"
 APPROVAL_DENIED = "approval:denied"
 
+SESSION_RESUME = "session:resume"
+LLM_REQUEST = "llm:request"
+LLM_RESPONSE = "llm:response"
+THINKING_DELTA = "thinking:delta"
+THINKING_FINAL = "thinking:final"
+CONTEXT_INCLUDE = "context:include"
+
 # All canonical events (for iteration and validation)
 ALL_EVENTS = [
     SESSION_START,
     SESSION_END,
+    SESSION_RESUME,
     PROMPT_SUBMIT,
     PROMPT_COMPLETE,
     PLAN_START,
@@ -55,14 +63,19 @@ ALL_EVENTS = [
     PROVIDER_REQUEST,
     PROVIDER_RESPONSE,
     PROVIDER_ERROR,
+    LLM_REQUEST,
+    LLM_RESPONSE,
     CONTENT_BLOCK_START,
     CONTENT_BLOCK_DELTA,
     CONTENT_BLOCK_END,
+    THINKING_DELTA,
+    THINKING_FINAL,
     TOOL_PRE,
     TOOL_POST,
     TOOL_ERROR,
     CONTEXT_PRE_COMPACT,
     CONTEXT_POST_COMPACT,
+    CONTEXT_INCLUDE,
     ARTIFACT_WRITE,
     ARTIFACT_READ,
     POLICY_VIOLATION,
