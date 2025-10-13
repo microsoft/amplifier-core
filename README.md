@@ -39,14 +39,29 @@ Only code that **must** be in the kernel:
 
 Everything else lives in modules.
 
+## Prerequisites
+
+- **Python 3.11+**
+- **[UV](https://github.com/astral-sh/uv)** - Fast Python package manager
+
+### Installing UV
+
+```bash
+# macOS/Linux/WSL
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
 ## Installation
 
 ```bash
 # Install from PyPI (when published)
-pip install amplifier-core
+uv pip install amplifier-core
 
 # Install from source
-pip install -e .
+uv pip install -e .
 
 # Or use with uvx
 uvx --from git+https://github.com/microsoft/amplifier-core amplifier-core --help

@@ -18,7 +18,7 @@ class ModuleCoordinator:
     Provides mount points where modules can attach themselves.
     """
 
-    def __init__(self):
+    def __init__(self: "ModuleCoordinator"):
         """Initialize mount points for different module types."""
         self.mount_points = {
             "orchestrator": None,  # Single orchestrator

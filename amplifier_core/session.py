@@ -208,15 +208,15 @@ class AmplifierSession:
             logger.error(f"Execution failed: {e}")
             raise
 
-    async def cleanup(self) -> None:
+    async def cleanup(self: "AmplifierSession") -> None:
         """Clean up session resources."""
         await self.coordinator.cleanup()
 
-    async def __aenter__(self):
+    async def __aenter__(self: "AmplifierSession"):
         """Async context manager entry."""
         await self.initialize()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self: "AmplifierSession", exc_type, exc_val, exc_tb):
         """Async context manager exit."""
         await self.cleanup()
