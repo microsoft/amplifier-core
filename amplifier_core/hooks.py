@@ -93,6 +93,9 @@ class HookRegistry:
 
         return unregister
 
+    # Alias for backwards compatibility
+    on = register
+
     async def emit(self, event: str, data: dict[str, Any]) -> HookResult:
         """
         Emit an event to all registered handlers.
@@ -113,7 +116,7 @@ class HookRegistry:
 
         if not handlers:
             logger.debug(f"No handlers for event '{event}'")
-            return HookResult(action="continue")
+            return HookResult(action="continue", data=data)
 
         logger.debug(f"Emitting event '{event}' to {len(handlers)} handlers")
 
