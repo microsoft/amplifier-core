@@ -186,3 +186,36 @@ async def test_no_handlers():
     assert result.action == "continue"
     assert result.data is not None
     assert result.data["data"] == "value"
+
+
+@pytest.mark.asyncio
+async def test_default_fields():
+    """Test set_default_fields merges defaults with event data."""
+    registry = HookRegistry()
+
+    # Set default fields (e.g., session_id for traceability)
+    registry.set_default_fields(session_id="test-session-123", env="test")
+
+    captured_data = []
+
+    async def capture_handler(event: str, data: dict):
+        captured_data.append(data.copy())
+        return HookResult(action="continue")
+
+    registry.register("test:event", capture_handler)
+
+    # Test 1: Defaults are merged with explicit data
+    await registry.emit("test:event", {"custom": "value"})
+    assert captured_data[0]["session_id"] == "test-session-123"
+    assert captured_data[0]["env"] == "test"
+    assert captured_data[0]["custom"] == "value"
+
+    # Test 2: Explicit event data overrides defaults
+    await registry.emit("test:event", {"session_id": "override-456"})
+    assert captured_data[1]["session_id"] == "override-456"
+    assert captured_data[1]["env"] == "test"  # Non-overridden default persists
+
+    # Test 3: Empty data still gets defaults
+    await registry.emit("test:event", {})
+    assert captured_data[2]["session_id"] == "test-session-123"
+    assert captured_data[2]["env"] == "test"

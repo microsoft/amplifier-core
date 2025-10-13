@@ -82,8 +82,8 @@ async def test_session_execute_requires_modules(minimal_config):
     """Test session execution requires modules to be mounted."""
     session = AmplifierSession(minimal_config)
 
-    # Without initialization, should fail (modules not actually available in test)
-    with pytest.raises(RuntimeError, match="Cannot initialize without orchestrator"):
+    # Config has no providers, so execution should fail when checking for providers
+    with pytest.raises(RuntimeError, match="No providers mounted"):
         await session.execute("Test prompt")
 
 
