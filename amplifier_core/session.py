@@ -41,6 +41,8 @@ class AmplifierSession:
 
         self.session_id = str(uuid.uuid4())
         self.coordinator = ModuleCoordinator()
+        # Ensure all events carry the session_id for traceability
+        self.coordinator.hooks.set_default_fields(session_id=self.session_id)
         self.loader = loader or ModuleLoader()
         self.config = config
         self.status = SessionStatus(session_id=self.session_id)

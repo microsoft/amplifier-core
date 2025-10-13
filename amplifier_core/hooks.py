@@ -96,6 +96,16 @@ class HookRegistry:
     # Alias for backwards compatibility
     on = register
 
+    def set_default_fields(self, **defaults):
+        """
+        Set default fields that will be merged with all emitted events.
+
+        Args:
+            **defaults: Key-value pairs to include in all events
+        """
+        self._defaults = defaults
+        logger.debug(f"Set default fields: {list(defaults.keys())}")
+
     async def emit(self, event: str, data: dict[str, Any]) -> HookResult:
         """
         Emit an event to all registered handlers.
@@ -120,7 +130,10 @@ class HookRegistry:
 
         logger.debug(f"Emitting event '{event}' to {len(handlers)} handlers")
 
-        current_data = data.copy()
+        # Merge default fields (e.g., session_id) with explicit event data.
+        # Explicit event data takes precedence over defaults.
+        defaults = getattr(self, "_defaults", {})
+        current_data = {**(defaults or {}), **(data or {})}
 
         for hook_handler in handlers:
             try:
