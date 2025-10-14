@@ -20,13 +20,14 @@ class AmplifierSession:
     This is the main entry point for users.
     """
 
-    def __init__(self, config: dict[str, Any], loader: ModuleLoader | None = None):
+    def __init__(self, config: dict[str, Any], loader: ModuleLoader | None = None, session_id: str | None = None):
         """
         Initialize an Amplifier session with explicit configuration.
 
         Args:
             config: Required mount plan with orchestrator and context
             loader: Optional module loader (creates default if None)
+            session_id: Optional session ID (generates UUID if not provided)
 
         Raises:
             ValueError: If config missing required fields
@@ -39,7 +40,8 @@ class AmplifierSession:
         if not config.get("session", {}).get("context"):
             raise ValueError("Configuration must specify session.context")
 
-        self.session_id = str(uuid.uuid4())
+        # Use provided session_id or generate a new one
+        self.session_id = session_id if session_id else str(uuid.uuid4())
         self.coordinator = ModuleCoordinator()
         # Ensure all events carry the session_id for traceability
         self.coordinator.hooks.set_default_fields(session_id=self.session_id)
