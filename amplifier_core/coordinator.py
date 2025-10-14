@@ -29,6 +29,7 @@ class ModuleCoordinator:
             "hooks": HookRegistry(),  # Hook registry (built-in)
         }
         self._cleanup_functions = []
+        self._capabilities = {}  # Capability registry for inter-module communication
 
         # Make hooks accessible as an attribute for backward compatibility
         self.hooks = self.mount_points["hooks"]
@@ -116,6 +117,32 @@ class ModuleCoordinator:
     def register_cleanup(self, cleanup_fn):
         """Register a cleanup function to be called on shutdown."""
         self._cleanup_functions.append(cleanup_fn)
+
+    def register_capability(self, name: str, value: Any) -> None:
+        """
+        Register a capability that other modules can access.
+
+        Capabilities provide a mechanism for inter-module communication
+        without direct dependencies.
+
+        Args:
+            name: Capability name (e.g., 'agents.list', 'agents.get')
+            value: The capability (typically a callable)
+        """
+        self._capabilities[name] = value
+        logger.debug(f"Registered capability: {name}")
+
+    def get_capability(self, name: str) -> Any | None:
+        """
+        Get a registered capability.
+
+        Args:
+            name: Capability name
+
+        Returns:
+            The capability if registered, None otherwise
+        """
+        return self._capabilities.get(name)
 
     async def cleanup(self):
         """Call all registered cleanup functions."""

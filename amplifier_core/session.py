@@ -193,6 +193,11 @@ class AmplifierSession:
         if not providers:
             raise RuntimeError("No providers mounted")
 
+        # Debug: Log what we're passing to orchestrator
+        logger.debug(f"Passing providers to orchestrator: {list(providers.keys())}")
+        for name, provider in providers.items():
+            logger.debug(f"  Provider '{name}': type={type(provider).__name__}")
+
         tools = self.coordinator.get("tools") or {}
         hooks = self.coordinator.get("hooks")
 
