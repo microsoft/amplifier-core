@@ -64,13 +64,8 @@ class AmplifierSession:
         # Set default fields for all events (infrastructure propagation)
         self.coordinator.hooks.set_default_fields(session_id=self.session_id, parent_id=self.parent_id)
 
-        # Mount default module source resolver (if not already mounted)
-        if not self.coordinator.get("module-source-resolver"):
-            from .module_sources import StandardModuleSourceResolver
-
-            self.coordinator.mount("module-source-resolver", StandardModuleSourceResolver())
-
         # Create loader with coordinator (for resolver injection)
+        # Note: Resolver will be mounted during initialize() since mount() is async
         self.loader = loader or ModuleLoader(coordinator=self.coordinator)
 
     def _merge_configs(self, base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -92,6 +87,15 @@ class AmplifierSession:
         """
         if self._initialized:
             return
+
+        # Mount default module source resolver if not already mounted
+        try:
+            self.coordinator.get("module-source-resolver")
+        except ValueError:
+            # Not mounted, mount default resolver
+            from .module_sources import StandardModuleSourceResolver
+
+            await self.coordinator.mount("module-source-resolver", StandardModuleSourceResolver())
 
         try:
             # Load orchestrator (required)

@@ -51,6 +51,7 @@ class ModuleCoordinator:
             "tools": {},  # Multiple tools by name
             "context": None,  # Single context manager
             "hooks": HookRegistry(),  # Hook registry (built-in)
+            "module-source-resolver": None,  # Optional custom source resolver (kernel extension point)
         }
         self._cleanup_functions = []
         self._capabilities = {}  # Capability registry for inter-module communication

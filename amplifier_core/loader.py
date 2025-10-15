@@ -59,6 +59,8 @@ class ModuleLoader:
 
         # Fallback to entry point resolver if no custom resolver
         if not self._source_resolver:
+            from .module_sources import EntryPointResolver
+
             self._source_resolver = EntryPointResolver()
 
     async def discover(self) -> list[ModuleInfo]:
@@ -175,13 +177,17 @@ class ModuleLoader:
                 source = self._source_resolver.resolve(module_id, profile_source)
                 module_path = source.resolve()
                 logger.info(f"[module:mount] {module_id} from {source}")
-            except SourceNotFoundError:
-                # Fall back to legacy discovery
-                logger.debug(f"Source resolution failed for '{module_id}', trying legacy discovery")
-                mount_fn = await self._legacy_load(module_id, config)
-                if mount_fn:
-                    return mount_fn
-                raise
+            except Exception as resolve_error:
+                # Import here to avoid circular dependency
+                from .module_sources import ModuleNotFoundError as SourceNotFoundError
+
+                if isinstance(resolve_error, SourceNotFoundError):
+                    # Fall back to legacy discovery
+                    logger.debug(f"Source resolution failed for '{module_id}', trying legacy discovery")
+                    mount_fn = await self._legacy_load(module_id, config)
+                    if mount_fn:
+                        return mount_fn
+                raise resolve_error
 
             # Add module path to sys.path temporarily if needed
             path_str = str(module_path)
