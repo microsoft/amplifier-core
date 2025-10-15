@@ -1,6 +1,11 @@
 """
 Module loader for discovering and loading Amplifier modules.
 Supports both entry points and filesystem discovery.
+
+With module source resolution:
+- Uses ModuleSourceResolver if mounted in coordinator
+- Falls back to EntryPointResolver if no resolver provided
+- Supports flexible module sourcing (git, local, packages)
 """
 
 import importlib
@@ -21,27 +26,40 @@ logger = logging.getLogger(__name__)
 
 class ModuleLoader:
     """
-    Discovers and loads Amplifier modules from:
+    Discovers and loads Amplifier modules.
+
+    Supports source resolution:
+    - Uses ModuleSourceResolver from coordinator if available
+    - Falls back to EntryPointResolver if no resolver mounted
+    - Backward compatible with existing entry point discovery
+
+    Legacy discovery (if no resolver):
     1. Python entry points (installed packages)
     2. Environment variables (AMPLIFIER_MODULES)
     3. Filesystem paths
     """
 
-    def __init__(self, search_paths: list[Path] | None = None):
+    def __init__(self, coordinator: ModuleCoordinator | None = None, search_paths: list[Path] | None = None):
         """
-        Initialize module loader with explicit search paths.
-
-        Discovery order:
-        1. Python entry points (always checked)
-        2. Provided search_paths (if any)
-        3. AMPLIFIER_MODULES env var (only if search_paths is None)
+        Initialize module loader.
 
         Args:
-            search_paths: Optional list of filesystem paths to search for modules
+            coordinator: Optional coordinator (for resolver injection)
+            search_paths: Optional list of filesystem paths (legacy)
         """
         self._loaded_modules: dict[str, Any] = {}
         self._module_info: dict[str, ModuleInfo] = {}
         self._search_paths = search_paths
+        self._coordinator = coordinator
+
+        # Get source resolver from coordinator (if provided)
+        self._source_resolver = None
+        if coordinator:
+            self._source_resolver = coordinator.get("module-source-resolver")
+
+        # Fallback to entry point resolver if no custom resolver
+        if not self._source_resolver:
+            self._source_resolver = EntryPointResolver()
 
     async def discover(self) -> list[ModuleInfo]:
         """
@@ -131,40 +149,94 @@ class ModuleLoader:
         return modules
 
     async def load(
-        self, module_id: str, config: dict[str, Any] | None = None
+        self, module_id: str, config: dict[str, Any] | None = None, profile_source: str | dict | None = None
     ) -> Callable[[ModuleCoordinator], Awaitable[Callable | None]]:
         """
-        Load a specific module.
+        Load a specific module using source resolution.
 
         Args:
             module_id: Module identifier
             config: Optional module configuration
+            profile_source: Optional source URI/object from profile
 
         Returns:
             Mount function for the module
+
+        Raises:
+            ValueError: Module not found or failed to load
         """
         if module_id in self._loaded_modules:
             logger.debug(f"Module '{module_id}' already loaded")
             return self._loaded_modules[module_id]
 
         try:
-            # Try to load via entry point first
-            mount_fn = self._load_entry_point(module_id, config)
-            if mount_fn:
-                self._loaded_modules[module_id] = mount_fn
-                return mount_fn
+            # Resolve module source
+            try:
+                source = self._source_resolver.resolve(module_id, profile_source)
+                module_path = source.resolve()
+                logger.info(f"[module:mount] {module_id} from {source}")
+            except SourceNotFoundError:
+                # Fall back to legacy discovery
+                logger.debug(f"Source resolution failed for '{module_id}', trying legacy discovery")
+                mount_fn = await self._legacy_load(module_id, config)
+                if mount_fn:
+                    return mount_fn
+                raise
 
-            # Try filesystem loading
-            mount_fn = self._load_filesystem(module_id, config)
-            if mount_fn:
-                self._loaded_modules[module_id] = mount_fn
-                return mount_fn
+            # Add module path to sys.path temporarily if needed
+            path_str = str(module_path)
+            path_added = False
+            if path_str not in os.sys.path:
+                os.sys.path.insert(0, path_str)
+                path_added = True
 
-            raise ValueError(f"Module '{module_id}' not found")
+            try:
+                # Try to load via entry point first
+                mount_fn = self._load_entry_point(module_id, config)
+                if mount_fn:
+                    self._loaded_modules[module_id] = mount_fn
+                    return mount_fn
+
+                # Try filesystem loading
+                mount_fn = self._load_filesystem(module_id, config)
+                if mount_fn:
+                    self._loaded_modules[module_id] = mount_fn
+                    return mount_fn
+
+                raise ValueError(f"Module '{module_id}' found at {module_path} but failed to load")
+
+            finally:
+                # Clean up sys.path
+                if path_added and path_str in os.sys.path:
+                    os.sys.path.remove(path_str)
 
         except Exception as e:
             logger.error(f"Failed to load module '{module_id}': {e}")
             raise
+
+    async def _legacy_load(self, module_id: str, config: dict[str, Any] | None = None) -> Callable | None:
+        """Legacy loading without source resolution (backward compat).
+
+        Args:
+            module_id: Module identifier
+            config: Optional module configuration
+
+        Returns:
+            Mount function if found, None otherwise
+        """
+        # Try entry point
+        mount_fn = self._load_entry_point(module_id, config)
+        if mount_fn:
+            self._loaded_modules[module_id] = mount_fn
+            return mount_fn
+
+        # Try filesystem
+        mount_fn = self._load_filesystem(module_id, config)
+        if mount_fn:
+            self._loaded_modules[module_id] = mount_fn
+            return mount_fn
+
+        return None
 
     def _load_entry_point(self, module_id: str, config: dict[str, Any] | None = None) -> Callable | None:
         """Load module via entry point."""

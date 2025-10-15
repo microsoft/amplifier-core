@@ -54,7 +54,6 @@ class AmplifierSession:
         # Use provided session_id or generate a new one
         self.session_id = session_id if session_id else str(uuid.uuid4())
         self.parent_id = parent_id  # Track parent for child sessions
-        self.loader = loader or ModuleLoader()
         self.config = config
         self.status = SessionStatus(session_id=self.session_id)
         self._initialized = False
@@ -64,6 +63,15 @@ class AmplifierSession:
 
         # Set default fields for all events (infrastructure propagation)
         self.coordinator.hooks.set_default_fields(session_id=self.session_id, parent_id=self.parent_id)
+
+        # Mount default module source resolver (if not already mounted)
+        if not self.coordinator.get("module-source-resolver"):
+            from .module_sources import StandardModuleSourceResolver
+
+            self.coordinator.mount("module-source-resolver", StandardModuleSourceResolver())
+
+        # Create loader with coordinator (for resolver injection)
+        self.loader = loader or ModuleLoader(coordinator=self.coordinator)
 
     def _merge_configs(self, base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
         """Deep merge two config dicts."""
@@ -124,7 +132,9 @@ class AmplifierSession:
 
                 try:
                     logger.info(f"Loading provider: {module_id}")
-                    provider_mount = await self.loader.load(module_id, provider_config.get("config", {}))
+                    provider_mount = await self.loader.load(
+                        module_id, provider_config.get("config", {}), profile_source=provider_config.get("source")
+                    )
                     cleanup = await provider_mount(self.coordinator)
                     if cleanup:
                         self.coordinator.register_cleanup(cleanup)
@@ -139,7 +149,9 @@ class AmplifierSession:
 
                 try:
                     logger.info(f"Loading tool: {module_id}")
-                    tool_mount = await self.loader.load(module_id, tool_config.get("config", {}))
+                    tool_mount = await self.loader.load(
+                        module_id, tool_config.get("config", {}), profile_source=tool_config.get("source")
+                    )
                     cleanup = await tool_mount(self.coordinator)
                     if cleanup:
                         self.coordinator.register_cleanup(cleanup)
@@ -157,7 +169,9 @@ class AmplifierSession:
 
                 try:
                     logger.info(f"Loading hook: {module_id}")
-                    hook_mount = await self.loader.load(module_id, hook_config.get("config", {}))
+                    hook_mount = await self.loader.load(
+                        module_id, hook_config.get("config", {}), profile_source=hook_config.get("source")
+                    )
                     cleanup = await hook_mount(self.coordinator)
                     if cleanup:
                         self.coordinator.register_cleanup(cleanup)
