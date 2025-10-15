@@ -6,8 +6,6 @@ __version__ = "1.0.0"
 
 from .coordinator import ModuleCoordinator
 from .hooks import HookRegistry
-from .interfaces import Agent
-from .interfaces import AgentContext
 from .interfaces import ApprovalProvider
 from .interfaces import ApprovalRequest
 from .interfaces import ApprovalResponse
@@ -17,7 +15,6 @@ from .interfaces import Orchestrator
 from .interfaces import Provider
 from .interfaces import Tool
 from .loader import ModuleLoader
-from .models import AgentResult
 from .models import HookResult
 from .models import ModuleInfo
 from .models import ProviderResponse
@@ -34,7 +31,6 @@ __all__ = [
     "ToolCall",
     "ToolResult",
     "HookResult",
-    "AgentResult",
     "ProviderResponse",
     "ModuleInfo",
     "SessionStatus",
@@ -43,9 +39,7 @@ __all__ = [
     "Orchestrator",
     "Provider",
     "Tool",
-    "Agent",
     "ContextManager",
     "HookHandler",
     "ApprovalProvider",
-    "AgentContext",
 ]

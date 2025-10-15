@@ -20,7 +20,13 @@ class AmplifierSession:
     This is the main entry point for users.
     """
 
-    def __init__(self, config: dict[str, Any], loader: ModuleLoader | None = None, session_id: str | None = None):
+    def __init__(
+        self,
+        config: dict[str, Any],
+        loader: ModuleLoader | None = None,
+        session_id: str | None = None,
+        parent_id: str | None = None,
+    ):
         """
         Initialize an Amplifier session with explicit configuration.
 
@@ -28,9 +34,14 @@ class AmplifierSession:
             config: Required mount plan with orchestrator and context
             loader: Optional module loader (creates default if None)
             session_id: Optional session ID (generates UUID if not provided)
+            parent_id: Optional parent session ID (None for top-level, UUID for child sessions)
 
         Raises:
             ValueError: If config missing required fields
+
+        When parent_id is set, the session is a child session (forked from parent).
+        The kernel will emit a session:fork event during initialization and include
+        parent_id in all events for lineage tracking.
         """
         # Validate required config fields
         if not config:
@@ -42,13 +53,17 @@ class AmplifierSession:
 
         # Use provided session_id or generate a new one
         self.session_id = session_id if session_id else str(uuid.uuid4())
-        self.coordinator = ModuleCoordinator()
-        # Ensure all events carry the session_id for traceability
-        self.coordinator.hooks.set_default_fields(session_id=self.session_id)
+        self.parent_id = parent_id  # Track parent for child sessions
         self.loader = loader or ModuleLoader()
         self.config = config
         self.status = SessionStatus(session_id=self.session_id)
         self._initialized = False
+
+        # Create coordinator with infrastructure context (provides IDs, config, session to modules)
+        self.coordinator = ModuleCoordinator(session=self)
+
+        # Set default fields for all events (infrastructure propagation)
+        self.coordinator.hooks.set_default_fields(session_id=self.session_id, parent_id=self.parent_id)
 
     def _merge_configs(self, base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
         """Deep merge two config dicts."""
@@ -131,20 +146,8 @@ class AmplifierSession:
                 except Exception as e:
                     logger.warning(f"Failed to load tool '{module_id}': {e}")
 
-            # Load agents
-            for agent_config in self.config.get("agents", []):
-                module_id = agent_config.get("module")
-                if not module_id:
-                    continue
-
-                try:
-                    logger.info(f"Loading agent: {module_id}")
-                    agent_mount = await self.loader.load(module_id, agent_config.get("config", {}))
-                    cleanup = await agent_mount(self.coordinator)
-                    if cleanup:
-                        self.coordinator.register_cleanup(cleanup)
-                except Exception as e:
-                    logger.warning(f"Failed to load agent '{module_id}': {e}")
+            # Note: agents section is app-layer data (config overlays), not modules to mount
+            # The kernel passes agents through in the mount plan without interpretation
 
             # Load hooks
             for hook_config in self.config.get("hooks", []):
@@ -162,6 +165,13 @@ class AmplifierSession:
                     logger.warning(f"Failed to load hook '{module_id}': {e}")
 
             self._initialized = True
+
+            # Emit session:fork event if this is a child session
+            if self.parent_id:
+                from .events import SESSION_FORK
+
+                await self.coordinator.hooks.emit(SESSION_FORK, {"data": {"parent": self.parent_id}})
+
             logger.info(f"Session {self.session_id} initialized successfully")
 
         except Exception as e:

@@ -11,7 +11,6 @@ from typing import runtime_checkable
 from pydantic import BaseModel
 from pydantic import Field
 
-from .models import AgentResult
 from .models import HookResult
 from .models import ProviderResponse
 from .models import ToolCall
@@ -112,34 +111,6 @@ class Tool(Protocol):
 
 
 @runtime_checkable
-class Agent(Protocol):
-    """Interface for specialized agent modules."""
-
-    @property
-    def name(self) -> str:
-        """Agent name."""
-        ...
-
-    @property
-    def description(self) -> str:
-        """Agent description and capabilities."""
-        ...
-
-    async def execute(self, task: dict[str, Any], context: "AgentContext") -> AgentResult:
-        """
-        Execute agent task.
-
-        Args:
-            task: Task specification
-            context: Agent execution context
-
-        Returns:
-            Agent execution result
-        """
-        ...
-
-
-@runtime_checkable
 class ContextManager(Protocol):
     """Interface for context management modules."""
 
@@ -224,12 +195,3 @@ class ApprovalProvider(Protocol):
             Exception: If provider encounters an error
         """
         ...
-
-
-class AgentContext:
-    """Context provided to agent modules."""
-
-    def __init__(self, tools: dict[str, Tool], providers: dict[str, Provider], hooks: "HookRegistry"):
-        self.tools = tools
-        self.providers = providers
-        self.hooks = hooks

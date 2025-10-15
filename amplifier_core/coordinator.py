@@ -1,30 +1,54 @@
 """
 Module coordination system - the heart of amplifier-core.
-This is the ONLY business logic in core - how modules connect.
+
+Coordinator provides infrastructure context to all modules including:
+- Identity: session_id, parent_id (and future: turn_id, span_id)
+- Configuration: mount plan access
+- Session reference: for spawning child sessions
+- Module loader: for dynamic loading
+
+This embodies kernel philosophy's "minimal context plumbing" - providing
+identifiers and basic state necessary to make module boundaries work.
 """
 
 import inspect
 import logging
+from typing import TYPE_CHECKING
 from typing import Any
 
 from .hooks import HookRegistry
+
+if TYPE_CHECKING:
+    from .loader import ModuleLoader
+    from .session import AmplifierSession
 
 logger = logging.getLogger(__name__)
 
 
 class ModuleCoordinator:
     """
-    Central coordination point for all modules.
-    Provides mount points where modules can attach themselves.
+    Central coordination and infrastructure context for all modules.
+
+    Provides:
+    - Mount points for module attachment
+    - Infrastructure context (IDs, config, session reference)
+    - Capability registry for inter-module communication
+    - Event system with default field injection
     """
 
-    def __init__(self: "ModuleCoordinator"):
-        """Initialize mount points for different module types."""
+    def __init__(self: "ModuleCoordinator", session: "AmplifierSession"):
+        """
+        Initialize coordinator with session providing infrastructure context.
+
+        Args:
+            session: Parent AmplifierSession providing infrastructure
+        """
+        self._session = session  # Infrastructure reference
+
         self.mount_points = {
             "orchestrator": None,  # Single orchestrator
             "providers": {},  # Multiple providers by name
             "tools": {},  # Multiple tools by name
-            "agents": {},  # Multiple agents by name
             "context": None,  # Single context manager
             "hooks": HookRegistry(),  # Hook registry (built-in)
         }
@@ -33,6 +57,38 @@ class ModuleCoordinator:
 
         # Make hooks accessible as an attribute for backward compatibility
         self.hooks = self.mount_points["hooks"]
+
+    @property
+    def session(self) -> "AmplifierSession":
+        """Parent session reference (infrastructure for spawning children)."""
+        return self._session
+
+    @property
+    def session_id(self) -> str:
+        """Current session ID (infrastructure for persistence/correlation)."""
+        return self._session.session_id
+
+    @property
+    def parent_id(self) -> str | None:
+        """Parent session ID for child sessions (infrastructure for lineage tracking)."""
+        return self._session.parent_id
+
+    @property
+    def config(self) -> dict:
+        """
+        Session configuration/mount plan (infrastructure).
+
+        Includes:
+        - session: orchestrator and context settings
+        - providers, tools, hooks: module configurations
+        - agents: config overlays for sub-session spawning (app-layer data)
+        """
+        return self._session.config
+
+    @property
+    def loader(self) -> "ModuleLoader":
+        """Module loader (infrastructure for dynamic module loading)."""
+        return self._session.loader
 
     async def mount(self, mount_point: str, module: Any, name: str | None = None) -> None:
         """

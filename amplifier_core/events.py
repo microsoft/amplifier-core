@@ -6,6 +6,7 @@ Stable surface for hooks and observability.
 # Session lifecycle
 SESSION_START = "session:start"
 SESSION_END = "session:end"
+SESSION_FORK = "session:fork"
 
 # Prompt lifecycle
 PROMPT_SUBMIT = "prompt:submit"
@@ -55,6 +56,7 @@ CONTEXT_INCLUDE = "context:include"
 ALL_EVENTS = [
     SESSION_START,
     SESSION_END,
+    SESSION_FORK,
     SESSION_RESUME,
     PROMPT_SUBMIT,
     PROMPT_COMPLETE,

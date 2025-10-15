@@ -42,15 +42,6 @@ class HookResult(BaseModel):
     reason: str | None = Field(default=None, description="Reason for deny or modification")
 
 
-class AgentResult(BaseModel):
-    """Result from agent execution."""
-
-    success: bool = Field(default=True, description="Whether agent succeeded")
-    text: str | None = Field(default=None, description="Agent response text")
-    data: dict[str, Any] | None = Field(default=None, description="Structured output data")
-    error: dict[str, Any] | None = Field(default=None, description="Error details if failed")
-
-
 class ProviderResponse(BaseModel):
     """Response from LLM provider."""
 
