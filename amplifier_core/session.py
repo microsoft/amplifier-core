@@ -65,7 +65,6 @@ class AmplifierSession:
         self.coordinator.hooks.set_default_fields(session_id=self.session_id, parent_id=self.parent_id)
 
         # Create loader with coordinator (for resolver injection)
-        # Note: Resolver will be mounted during initialize() since mount() is async
         self.loader = loader or ModuleLoader(coordinator=self.coordinator)
 
     def _merge_configs(self, base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
