@@ -92,13 +92,20 @@ class AmplifierSession:
 
         try:
             # Load orchestrator (required)
-            orchestrator_id = self.config.get("session", {}).get("orchestrator", "loop-basic")
-            orchestrator_source = self.config.get("session", {}).get("orchestrator_source")
+            # Handle both dict (ModuleConfig) and string formats
+            orchestrator_spec = self.config.get("session", {}).get("orchestrator", "loop-basic")
+            if isinstance(orchestrator_spec, dict):
+                orchestrator_id = orchestrator_spec.get("module", "loop-basic")
+                orchestrator_source = orchestrator_spec.get("source")
+                orchestrator_config = orchestrator_spec.get("config", {})
+            else:
+                orchestrator_id = orchestrator_spec
+                orchestrator_source = self.config.get("session", {}).get("orchestrator_source")
+                orchestrator_config = self.config.get("orchestrator", {}).get("config", {})
+
             logger.info(f"Loading orchestrator: {orchestrator_id}")
 
             try:
-                # Get orchestrator config if present
-                orchestrator_config = self.config.get("orchestrator", {}).get("config", {})
                 orchestrator_mount = await self.loader.load(
                     orchestrator_id, orchestrator_config, profile_source=orchestrator_source
                 )
@@ -111,12 +118,20 @@ class AmplifierSession:
                 raise RuntimeError(f"Cannot initialize without orchestrator: {e}")
 
             # Load context manager (required)
-            context_id = self.config.get("session", {}).get("context", "context-simple")
-            context_source = self.config.get("session", {}).get("context_source")
+            # Handle both dict (ModuleConfig) and string formats
+            context_spec = self.config.get("session", {}).get("context", "context-simple")
+            if isinstance(context_spec, dict):
+                context_id = context_spec.get("module", "context-simple")
+                context_source = context_spec.get("source")
+                context_config = context_spec.get("config", {})
+            else:
+                context_id = context_spec
+                context_source = self.config.get("session", {}).get("context_source")
+                context_config = self.config.get("context", {}).get("config", {})
+
             logger.info(f"Loading context manager: {context_id}")
 
             try:
-                context_config = self.config.get("context", {}).get("config", {})
                 context_mount = await self.loader.load(context_id, context_config, profile_source=context_source)
                 cleanup = await context_mount(self.coordinator)
                 if cleanup:
