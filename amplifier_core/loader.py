@@ -198,32 +198,26 @@ class ModuleLoader:
                         return mount_fn
                 raise resolve_error
 
-            # Add module path to sys.path temporarily if needed
+            # Add module path to sys.path if needed
+            # Path must STAY in sys.path for module's dependencies to be importable
             path_str = str(module_path)
-            path_added = False
             if path_str not in sys.path:
                 sys.path.insert(0, path_str)
-                path_added = True
+                logger.debug(f"Added '{path_str}' to sys.path for module '{module_id}'")
 
-            try:
-                # Try to load via entry point first
-                mount_fn = self._load_entry_point(module_id, config)
-                if mount_fn:
-                    self._loaded_modules[module_id] = mount_fn
-                    return mount_fn
+            # Try to load via entry point first
+            mount_fn = self._load_entry_point(module_id, config)
+            if mount_fn:
+                self._loaded_modules[module_id] = mount_fn
+                return mount_fn
 
-                # Try filesystem loading
-                mount_fn = self._load_filesystem(module_id, config)
-                if mount_fn:
-                    self._loaded_modules[module_id] = mount_fn
-                    return mount_fn
+            # Try filesystem loading
+            mount_fn = self._load_filesystem(module_id, config)
+            if mount_fn:
+                self._loaded_modules[module_id] = mount_fn
+                return mount_fn
 
-                raise ValueError(f"Module '{module_id}' found at {module_path} but failed to load")
-
-            finally:
-                # Clean up sys.path
-                if path_added and path_str in sys.path:
-                    sys.path.remove(path_str)
+            raise ValueError(f"Module '{module_id}' found at {module_path} but failed to load")
 
         except Exception as e:
             logger.error(f"Failed to load module '{module_id}': {e}")
