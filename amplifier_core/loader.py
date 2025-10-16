@@ -53,11 +53,6 @@ class ModuleLoader:
         self._search_paths = search_paths
         self._coordinator = coordinator
 
-        # Get source resolver from coordinator (if provided)
-        self._source_resolver = None
-        if coordinator:
-            self._source_resolver = coordinator.get("module-source-resolver")
-
     async def discover(self) -> list[ModuleInfo]:
         """
         Discover all available modules using configured search strategy.
@@ -169,13 +164,20 @@ class ModuleLoader:
         try:
             # Resolve module source
             try:
-                if self._source_resolver is None:
-                    # No resolver mounted - app layer should mount one before loading modules
-                    raise ValueError(
-                        f"No module source resolver mounted. App layer should mount a resolver "
-                        f"before loading module '{module_id}'"
-                    )
-                source = self._source_resolver.resolve(module_id, profile_source)
+                # Get source resolver from coordinator when needed (lazy loading)
+                source_resolver = None
+                if self._coordinator:
+                    try:
+                        source_resolver = self._coordinator.get("module-source-resolver")
+                    except ValueError:
+                        # Mount point doesn't exist or nothing mounted
+                        pass
+
+                if source_resolver is None:
+                    # No resolver mounted - fall back to legacy loading
+                    logger.debug(f"No source resolver mounted, using legacy load for '{module_id}'")
+                    raise ValueError("No resolver for fallback to legacy")
+                source = source_resolver.resolve(module_id, profile_source)
                 module_path = source.resolve()
                 logger.info(f"[module:mount] {module_id} from {source}")
             except Exception as resolve_error:
