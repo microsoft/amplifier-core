@@ -161,7 +161,7 @@ class ModuleCoordinator:
         if mount_point not in self.mount_points:
             raise ValueError(f"Unknown mount point: {mount_point}")
 
-        if mount_point in ["orchestrator", "context", "hooks"]:
+        if mount_point in ["orchestrator", "context", "hooks", "module-source-resolver"]:
             return self.mount_points[mount_point]
 
         if mount_point in ["providers", "tools", "agents"]:
