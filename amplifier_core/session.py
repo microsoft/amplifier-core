@@ -155,7 +155,7 @@ class AmplifierSession:
                     if cleanup:
                         self.coordinator.register_cleanup(cleanup)
                 except Exception as e:
-                    logger.warning(f"Failed to load provider '{module_id}': {e}")
+                    logger.warning(f"Failed to load provider '{module_id}': {e}", exc_info=True)
 
             # Load tools
             for tool_config in self.config.get("tools", []):
@@ -172,7 +172,7 @@ class AmplifierSession:
                     if cleanup:
                         self.coordinator.register_cleanup(cleanup)
                 except Exception as e:
-                    logger.warning(f"Failed to load tool '{module_id}': {e}")
+                    logger.warning(f"Failed to load tool '{module_id}': {e}", exc_info=True)
 
             # Note: agents section is app-layer data (config overlays), not modules to mount
             # The kernel passes agents through in the mount plan without interpretation
@@ -192,7 +192,7 @@ class AmplifierSession:
                     if cleanup:
                         self.coordinator.register_cleanup(cleanup)
                 except Exception as e:
-                    logger.warning(f"Failed to load hook '{module_id}': {e}")
+                    logger.warning(f"Failed to load hook '{module_id}': {e}", exc_info=True)
 
             self._initialized = True
 
