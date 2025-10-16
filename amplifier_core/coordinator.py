@@ -103,7 +103,7 @@ class ModuleCoordinator:
         if mount_point not in self.mount_points:
             raise ValueError(f"Unknown mount point: {mount_point}")
 
-        if mount_point in ["orchestrator", "context"]:
+        if mount_point in ["orchestrator", "context", "module-source-resolver"]:
             # Single module mount points
             if self.mount_points[mount_point] is not None:
                 logger.warning(f"Replacing existing {mount_point}")
@@ -136,7 +136,7 @@ class ModuleCoordinator:
         if mount_point not in self.mount_points:
             raise ValueError(f"Unknown mount point: {mount_point}")
 
-        if mount_point in ["orchestrator", "context"]:
+        if mount_point in ["orchestrator", "context", "module-source-resolver"]:
             self.mount_points[mount_point] = None
             logger.info(f"Unmounted {mount_point}")
 
