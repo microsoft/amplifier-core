@@ -82,6 +82,21 @@ async def test_session_execute_requires_modules(minimal_config):
     """Test session execution requires modules to be mounted."""
     session = AmplifierSession(minimal_config)
 
+    # Create mock orchestrator and context to bypass loader
+    mock_orchestrator = AsyncMock()
+    mock_orchestrator.execute = AsyncMock(return_value="Test response")
+
+    mock_context = Mock()
+    mock_context.add_message = AsyncMock()
+    mock_context.get_messages = AsyncMock(return_value=[])
+
+    # Mount mocks directly (bypassing loader for testing)
+    session.coordinator.mount_points["orchestrator"] = mock_orchestrator
+    session.coordinator.mount_points["context"] = mock_context
+    # Don't mount any providers
+
+    session._initialized = True
+
     # Config has no providers, so execution should fail when checking for providers
     with pytest.raises(RuntimeError, match="No providers mounted"):
         await session.execute("Test prompt")
