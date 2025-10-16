@@ -4,6 +4,7 @@ The main entry point for using the Amplifier system.
 """
 
 import logging
+import sys
 import uuid
 from typing import Any
 
