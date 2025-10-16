@@ -151,7 +151,9 @@ class AmplifierSession:
                     provider_mount = await self.loader.load(
                         module_id, provider_config.get("config", {}), profile_source=provider_config.get("source")
                     )
+                    logger.debug(f"Provider mount function loaded, calling mount for '{module_id}'")
                     cleanup = await provider_mount(self.coordinator)
+                    logger.debug(f"Provider '{module_id}' mounted successfully, cleanup={cleanup is not None}")
                     if cleanup:
                         self.coordinator.register_cleanup(cleanup)
                 except Exception as e:
