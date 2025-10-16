@@ -18,7 +18,7 @@ class TestCoordinator(ModuleCoordinator):
 
     def __init__(self):
         # Create a mock session for testing
-        from .session import AmplifierSession
+        from amplifier_core.session import AmplifierSession
 
         mock_session = AmplifierSession(config={}, session_id="test-session")
         super().__init__(session=mock_session)

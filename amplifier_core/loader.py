@@ -12,6 +12,7 @@ import importlib
 import importlib.metadata
 import logging
 import os
+import sys
 from collections.abc import Awaitable
 from collections.abc import Callable
 from pathlib import Path
@@ -56,12 +57,6 @@ class ModuleLoader:
         self._source_resolver = None
         if coordinator:
             self._source_resolver = coordinator.get("module-source-resolver")
-
-        # Fallback to entry point resolver if no custom resolver
-        if not self._source_resolver:
-            from .module_sources import EntryPointResolver
-
-            self._source_resolver = EntryPointResolver()
 
     async def discover(self) -> list[ModuleInfo]:
         """
@@ -174,6 +169,12 @@ class ModuleLoader:
         try:
             # Resolve module source
             try:
+                if self._source_resolver is None:
+                    # No resolver mounted - app layer should mount one before loading modules
+                    raise ValueError(
+                        f"No module source resolver mounted. App layer should mount a resolver "
+                        f"before loading module '{module_id}'"
+                    )
                 source = self._source_resolver.resolve(module_id, profile_source)
                 module_path = source.resolve()
                 logger.info(f"[module:mount] {module_id} from {source}")
@@ -192,8 +193,8 @@ class ModuleLoader:
             # Add module path to sys.path temporarily if needed
             path_str = str(module_path)
             path_added = False
-            if path_str not in os.sys.path:
-                os.sys.path.insert(0, path_str)
+            if path_str not in sys.path:
+                sys.path.insert(0, path_str)
                 path_added = True
 
             try:
@@ -213,8 +214,8 @@ class ModuleLoader:
 
             finally:
                 # Clean up sys.path
-                if path_added and path_str in os.sys.path:
-                    os.sys.path.remove(path_str)
+                if path_added and path_str in sys.path:
+                    sys.path.remove(path_str)
 
         except Exception as e:
             logger.error(f"Failed to load module '{module_id}': {e}")

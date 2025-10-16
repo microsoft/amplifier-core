@@ -88,14 +88,8 @@ class AmplifierSession:
         if self._initialized:
             return
 
-        # Mount default module source resolver if not already mounted
-        try:
-            self.coordinator.get("module-source-resolver")
-        except ValueError:
-            # Not mounted, mount default resolver
-            from .module_sources import StandardModuleSourceResolver
-
-            await self.coordinator.mount("module-source-resolver", StandardModuleSourceResolver())
+        # Note: Module source resolver should be mounted by app layer before initialization
+        # The loader will use entry point fallback if no resolver is mounted
 
         try:
             # Load orchestrator (required)
