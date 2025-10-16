@@ -271,7 +271,7 @@ class ModuleLoader:
                     return mount_with_config
 
         except Exception as e:
-            logger.debug(f"Could not load '{module_id}' via entry point: {e}")
+            logger.error(f"Could not load '{module_id}' via entry point: {e}", exc_info=True)
 
         return None
 
