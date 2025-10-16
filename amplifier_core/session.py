@@ -148,15 +148,26 @@ class AmplifierSession:
 
                 try:
                     logger.info(f"Loading provider: {module_id}")
+                    print(f"DEBUG session: About to load provider '{module_id}'", file=sys.stderr)
                     provider_mount = await self.loader.load(
                         module_id, provider_config.get("config", {}), profile_source=provider_config.get("source")
                     )
-                    logger.debug(f"Provider mount function loaded, calling mount for '{module_id}'")
+                    print(
+                        f"DEBUG session: Provider mount function loaded for '{module_id}', calling mount",
+                        file=sys.stderr,
+                    )
                     cleanup = await provider_mount(self.coordinator)
+                    print(
+                        f"DEBUG session: Provider '{module_id}' mounted, cleanup={cleanup is not None}", file=sys.stderr
+                    )
                     logger.debug(f"Provider '{module_id}' mounted successfully, cleanup={cleanup is not None}")
                     if cleanup:
                         self.coordinator.register_cleanup(cleanup)
                 except Exception as e:
+                    print(f"DEBUG session: Exception loading provider '{module_id}': {e}", file=sys.stderr)
+                    import traceback
+
+                    traceback.print_exc(file=sys.stderr)
                     logger.warning(f"Failed to load provider '{module_id}': {e}", exc_info=True)
 
             # Load tools
