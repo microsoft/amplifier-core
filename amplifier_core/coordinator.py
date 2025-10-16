@@ -13,7 +13,6 @@ identifiers and basic state necessary to make module boundaries work.
 
 import inspect
 import logging
-import sys
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -109,12 +108,6 @@ class ModuleCoordinator:
             if self.mount_points[mount_point] is not None:
                 logger.warning(f"Replacing existing {mount_point}")
             self.mount_points[mount_point] = module
-            if mount_point == "module-source-resolver":
-                print(f"DEBUG coordinator.mount(): Stored {module} at {mount_point}", file=sys.stderr)
-                print(
-                    f"DEBUG coordinator.mount(): mount_points[{mount_point}] = {self.mount_points[mount_point]}",
-                    file=sys.stderr,
-                )
             logger.info(f"Mounted {module.__class__.__name__} at {mount_point}")
 
         elif mount_point in ["providers", "tools", "agents"]:
@@ -169,10 +162,7 @@ class ModuleCoordinator:
             raise ValueError(f"Unknown mount point: {mount_point}")
 
         if mount_point in ["orchestrator", "context", "hooks", "module-source-resolver"]:
-            result = self.mount_points[mount_point]
-            if mount_point == "module-source-resolver":
-                print(f"DEBUG coordinator.get(): mount_point={mount_point}, result={result}", file=sys.stderr)
-            return result
+            return self.mount_points[mount_point]
 
         if mount_point in ["providers", "tools", "agents"]:
             if name is None:

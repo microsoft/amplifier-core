@@ -8,6 +8,7 @@ With module source resolution:
 - Supports flexible module sourcing (git, local, packages)
 """
 
+import contextlib
 import importlib
 import importlib.metadata
 import logging
@@ -165,22 +166,14 @@ class ModuleLoader:
             # Resolve module source
             try:
                 # Get source resolver from coordinator when needed (lazy loading)
-                print(f"DEBUG loader.load(): Loading '{module_id}', coordinator={self._coordinator}", file=sys.stderr)
                 source_resolver = None
                 if self._coordinator:
-                    try:
+                    # Mount point doesn't exist or nothing mounted - suppress ValueError
+                    with contextlib.suppress(ValueError):
                         source_resolver = self._coordinator.get("module-source-resolver")
-                        print(f"DEBUG loader.load(): Got resolver: {source_resolver}", file=sys.stderr)
-                    except ValueError as e:
-                        # Mount point doesn't exist or nothing mounted
-                        print(f"DEBUG loader.load(): get() raised: {e}", file=sys.stderr)
-                        pass
-                else:
-                    print("DEBUG loader.load(): No coordinator", file=sys.stderr)
 
                 if source_resolver is None:
                     # No resolver mounted - fall back to legacy loading
-                    print("DEBUG loader.load(): Resolver is None, raising error", file=sys.stderr)
                     logger.debug(f"No source resolver mounted, using legacy load for '{module_id}'")
                     raise ValueError("No resolver for fallback to legacy")
                 source = source_resolver.resolve(module_id, profile_source)
