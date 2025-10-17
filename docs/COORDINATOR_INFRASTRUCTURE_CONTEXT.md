@@ -202,7 +202,8 @@ class SimpleContextManager:
     async def add_message(self, message):
         # Use session_id for persistence location
         session_id = self.coordinator.session_id
-        storage_path = Path("~/.amplifier/sessions") / session_id
+        project_slug = get_project_slug()  # From CWD
+        storage_path = Path.home() / ".amplifier" / "projects" / project_slug / "sessions" / session_id
         storage_path.mkdir(parents=True, exist_ok=True)
 
         with open(storage_path / "messages.jsonl", "a") as f:
