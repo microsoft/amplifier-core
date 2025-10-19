@@ -280,7 +280,7 @@ await parent.initialize()
 child = AmplifierSession(
     config={
         "session": {"orchestrator": "loop-basic", "context": "context-simple"},
-        "providers": [{"module": "provider-anthropic", "config": {"model": "claude-3-5-sonnet"}}]
+        "providers": [{"module": "provider-anthropic", "config": {"default_model": "claude-sonnet-4-5"}}]
     },
     loader=parent.loader,
     session_id="parent-123-child",
