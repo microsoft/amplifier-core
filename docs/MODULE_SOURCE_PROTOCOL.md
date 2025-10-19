@@ -40,6 +40,7 @@ class ModuleSource(Protocol):
 ```
 
 **Examples of conforming implementations (app-layer):**
+
 - FileSource: Resolves local filesystem paths
 - GitSource: Clones git repos, caches, returns cache path
 - PackageSource: Finds installed Python packages
@@ -74,6 +75,7 @@ class ModuleSourceResolver(Protocol):
 ```
 
 **The resolver is app-layer policy.** Different apps may use different resolution strategies:
+
 - Development app: Check workspace, then configs, then packages
 - Production app: Only use verified packages
 - Testing app: Use mock implementations
@@ -147,6 +149,7 @@ loader = AmplifierModuleLoader(coordinator)
 ## Kernel Responsibilities
 
 **The kernel:**
+
 - ✅ Defines ModuleSource and ModuleSourceResolver protocols
 - ✅ Accepts resolver via "module-source-resolver" mount point
 - ✅ Falls back to entry point discovery if no resolver
@@ -154,6 +157,7 @@ loader = AmplifierModuleLoader(coordinator)
 - ✅ Handles module import and mounting
 
 **The kernel does NOT:**
+
 - ❌ Define specific resolution strategies (6-layer, configs, etc.)
 - ❌ Parse configuration files (YAML, TOML, JSON, etc.)
 - ❌ Know about workspace conventions, git caching, or URIs
@@ -261,11 +265,14 @@ When implementing custom resolvers:
 ## Related Documentation
 
 **Kernel specifications:**
+
 - [SESSION_FORK_SPECIFICATION.md](./SESSION_FORK_SPECIFICATION.md) - Session forking contracts
 - [COORDINATOR_INFRASTRUCTURE_CONTEXT.md](./COORDINATOR_INFRASTRUCTURE_CONTEXT.md) - Mount point system
 
 **Reference implementation (app-layer):**
+
 - [amplifier-dev MODULE_SOURCE_SPECIFICATION.md](https://github.com/microsoft/amplifier-dev/blob/main/docs/MODULE_SOURCE_SPECIFICATION.md)
 
 **Philosophy:**
-- [KERNEL_PHILOSOPHY.md](https://github.com/microsoft/amplifier-dev/blob/main/docs/context/KERNEL_PHILOSOPHY.md)
+
+- [KERNEL_PHILOSOPHY.md](./KERNEL_PHILOSOPHY.md)

@@ -5,6 +5,7 @@
 ## Purpose
 
 Amplifier Core is the stable, minimal kernel that provides mechanisms for:
+
 - Module discovery and loading
 - Lifecycle coordination
 - Hook system and events
@@ -18,6 +19,7 @@ Following the **Linux kernel model**: a tiny, stable center that rarely changes,
 ### Mechanisms, Not Policies
 
 The kernel provides:
+
 - ✅ **Mechanisms**: Module loading, event dispatch, capability enforcement
 - ❌ **Not Policies**: Orchestration strategies, provider selection, tool behavior
 
@@ -31,6 +33,7 @@ The kernel provides:
 ### What Belongs Here
 
 Only code that **must** be in the kernel:
+
 - Module discovery and loading from entry points
 - Core interfaces (Tool, Provider, Context, Orchestrator, Hook)
 - Session lifecycle management
@@ -39,154 +42,105 @@ Only code that **must** be in the kernel:
 
 Everything else lives in modules.
 
-## Prerequisites
-
-- **Python 3.11+**
-- **[UV](https://github.com/astral-sh/uv)** - Fast Python package manager
-
-### Installing UV
-
-```bash
-# macOS/Linux/WSL
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Windows
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
 ## Installation
 
-```bash
-# Install from PyPI (when published)
-uv pip install amplifier-core
+For complete Amplifier installation and usage, see the main repository:
+**https://github.com/microsoft/amplifier** (branch: `next`)
 
-# Install from source
-uv pip install -e .
+## Core Concepts
 
-# Or use with uvx
-uvx --from git+https://github.com/microsoft/amplifier-core amplifier-core --help
-```
+### Modules
 
-## Architecture
+Everything is a module:
 
-```
-amplifier-core/
-├── amplifier_core/
-│   ├── __init__.py       # Public API
-│   ├── interfaces.py     # Stable contracts for modules
-│   ├── session.py        # Session lifecycle
-│   ├── coordinator.py    # Module coordination
-│   ├── loader.py         # Module discovery
-│   ├── hooks.py          # Hook system
-│   └── models.py         # Core data models
-└── tests/                # Core functionality tests
-```
+- **Providers** - AI service integrations (Anthropic Claude, OpenAI, Azure OpenAI, Ollama)
+- **Tools** - Capabilities (filesystem, bash, web, search)
+- **Orchestrators** - Execution loops (basic, streaming, events)
+- **Contexts** - Memory management (simple, persistent)
+- **Hooks** - Observability (logging, redaction, approval)
 
-## Core Interfaces
+### Mount Plans
 
-### Module Types
+Configuration that defines what modules to load and how to configure them. Profiles compile to Mount Plans.
 
-All modules implement one of these base interfaces:
+### Coordinator
 
-**Tool** - Capabilities for agents (filesystem, bash, web, etc.)
-```python
-from amplifier_core import Tool
+Central registry where modules are mounted and discovered. Provides dependency injection for modules.
 
-class MyTool(Tool):
-    async def execute(self, **kwargs) -> Any:
-        # Tool implementation
-        pass
-```
+### Session
 
-**Provider** - LLM integrations (Anthropic, OpenAI, etc.)
-```python
-from amplifier_core import Provider
+Execution context with mounted modules, manages conversation lifecycle.
 
-class MyProvider(Provider):
-    async def generate(self, prompt: str, **kwargs) -> str:
-        # Provider implementation
-        pass
-```
-
-**Context** - Conversation state management
-```python
-from amplifier_core import Context
-
-class MyContext(Context):
-    async def add_message(self, message: Message) -> None:
-        # Context implementation
-        pass
-```
-
-**Orchestrator** - Agent loop implementations
-```python
-from amplifier_core import Orchestrator
-
-class MyOrchestrator(Orchestrator):
-    async def run(self, session: Session) -> Result:
-        # Orchestration implementation
-        pass
-```
-
-**Hook** - Lifecycle event handlers
-```python
-from amplifier_core import Hook
-
-class MyHook(Hook):
-    async def on_tool_call(self, tool: str, args: dict) -> None:
-        # Hook implementation
-        pass
-```
-
-## Module Discovery
-
-Modules are discovered via Python entry points:
-
-```toml
-# In module's pyproject.toml
-[project.entry-points."amplifier.tools"]
-my-tool = "my_package:mount"
-
-[project.entry-points."amplifier.providers"]
-my-provider = "my_package:mount"
-```
-
-The kernel automatically discovers and loads all installed modules.
-
-## Usage Example
+## API Example
 
 ```python
-from amplifier_core import AmplifierSession, SessionConfig
+from amplifier_core import AmplifierSession, ModuleLoader
+
+# Load modules
+loader = ModuleLoader()
+mount_plan = {
+    "session": {
+        "orchestrator": "loop-basic",
+        "context": "context-simple"
+    },
+    "providers": [
+        {"module": "provider-anthropic"}
+    ],
+    "tools": [
+        {"module": "tool-filesystem"},
+        {"module": "tool-bash"}
+    ]
+}
 
 # Create session
-config = SessionConfig(
-    provider={"name": "anthropic", "model": "claude-sonnet-4.5"},
-    tools=["filesystem", "bash"],
-    orchestrator="loop-basic"
-)
+session = AmplifierSession(mount_plan, loader=loader)
 
-session = AmplifierSession(config)
+# Use session
 await session.initialize()
-
-# Execute with loaded modules
-result = await session.execute("Your prompt here")
+response = await session.execute("Hello!")
+await session.cleanup()
 ```
 
-## For Module Developers
+## Module Development
 
-Key principles:
-- Modules are self-contained packages
-- Implement one of the core interfaces
-- Register via entry points
-- Follow semantic versioning
-- Include tests and documentation
+**Quick example:**
 
-## Dependencies
+```python
+from amplifier_core.protocols import Tool
 
-Minimal by design:
-- `pydantic>=2.0` - Data validation
-- `tomli>=2.0` - TOML configuration
-- `typing-extensions>=4.0` - Type hints
+class MyTool(Tool):
+    def get_schema(self):
+        return {
+            "name": "my_tool",
+            "description": "Does something useful",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "param": {"type": "string"}
+                }
+            }
+        }
+
+    async def execute(self, **kwargs):
+        return {"result": f"Processed: {kwargs['param']}"}
+```
+
+For complete module development guide, see:
+**https://github.com/microsoft/amplifier** (branch: `next`)
+
+## Documentation
+
+- [Module Source Protocol](docs/MODULE_SOURCE_PROTOCOL.md) - Module loading specification
+- [Session Fork Specification](docs/SESSION_FORK_SPECIFICATION.md) - Agent delegation
+- [Coordinator Infrastructure](docs/COORDINATOR_INFRASTRUCTURE_CONTEXT.md) - Core architecture
+
+## Testing
+
+```bash
+cd amplifier-core
+uv run pytest
+uv run pytest --cov
+```
 
 ## Contributing
 
