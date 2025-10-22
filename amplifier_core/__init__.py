@@ -15,6 +15,23 @@ from .interfaces import Orchestrator
 from .interfaces import Provider
 from .interfaces import Tool
 from .loader import ModuleLoader
+from .message_models import ChatRequest
+from .message_models import ChatResponse
+from .message_models import Degradation
+from .message_models import ImageBlock
+from .message_models import Message
+from .message_models import ReasoningBlock
+from .message_models import RedactedThinkingBlock
+from .message_models import ResponseFormat
+from .message_models import ResponseFormatJson
+from .message_models import ResponseFormatJsonSchema
+from .message_models import ResponseFormatText
+from .message_models import TextBlock
+from .message_models import ThinkingBlock
+from .message_models import ToolCallBlock
+from .message_models import ToolResultBlock
+from .message_models import ToolSpec
+from .message_models import Usage
 from .models import HookResult
 from .models import ModuleInfo
 from .models import ProviderResponse
@@ -42,4 +59,21 @@ __all__ = [
     "ContextManager",
     "HookHandler",
     "ApprovalProvider",
+    "ChatRequest",
+    "ChatResponse",
+    "Message",
+    "TextBlock",
+    "ThinkingBlock",
+    "RedactedThinkingBlock",
+    "ToolCallBlock",
+    "ToolResultBlock",
+    "ImageBlock",
+    "ReasoningBlock",
+    "ToolSpec",
+    "Usage",
+    "Degradation",
+    "ResponseFormat",
+    "ResponseFormatText",
+    "ResponseFormatJson",
+    "ResponseFormatJsonSchema",
 ]
