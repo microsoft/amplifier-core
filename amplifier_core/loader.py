@@ -35,7 +35,7 @@ class ModuleLoader:
     - Falls back to EntryPointResolver if no resolver mounted
     - Backward compatible with existing entry point discovery
 
-    Legacy discovery (if no resolver):
+    Direct discovery (when no source resolver available):
     1. Python entry points (installed packages)
     2. Environment variables (AMPLIFIER_MODULES)
     3. Filesystem paths
@@ -47,7 +47,7 @@ class ModuleLoader:
 
         Args:
             coordinator: Optional coordinator (for resolver injection)
-            search_paths: Optional list of filesystem paths (legacy)
+            search_paths: Optional list of filesystem paths for direct discovery
         """
         self._loaded_modules: dict[str, Any] = {}
         self._module_info: dict[str, ModuleInfo] = {}
@@ -173,9 +173,12 @@ class ModuleLoader:
                         source_resolver = self._coordinator.get("module-source-resolver")
 
                 if source_resolver is None:
-                    # No resolver mounted - fall back to legacy loading
-                    logger.debug(f"No source resolver mounted, using legacy load for '{module_id}'")
-                    raise ValueError("No resolver for fallback to legacy")
+                    # No resolver mounted - use direct entry-point discovery
+                    logger.debug(f"No source resolver mounted, using direct discovery for '{module_id}'")
+                    mount_fn = await self._load_direct(module_id, config)
+                    if mount_fn:
+                        return mount_fn
+                    raise ValueError(f"Module '{module_id}' not found via entry points or filesystem")
                 source = source_resolver.resolve(module_id, profile_source)
                 module_path = source.resolve()
                 logger.info(f"[module:mount] {module_id} from {source}")
@@ -184,9 +187,9 @@ class ModuleLoader:
                 from .module_sources import ModuleNotFoundError as SourceNotFoundError
 
                 if isinstance(resolve_error, SourceNotFoundError):
-                    # Fall back to legacy discovery
-                    logger.debug(f"Source resolution failed for '{module_id}', trying legacy discovery")
-                    mount_fn = await self._legacy_load(module_id, config)
+                    # Fall back to direct entry-point discovery
+                    logger.debug(f"Source resolution failed for '{module_id}', trying direct discovery")
+                    mount_fn = await self._load_direct(module_id, config)
                     if mount_fn:
                         return mount_fn
                 raise resolve_error
@@ -216,8 +219,11 @@ class ModuleLoader:
             logger.error(f"Failed to load module '{module_id}': {e}")
             raise
 
-    async def _legacy_load(self, module_id: str, config: dict[str, Any] | None = None) -> Callable | None:
-        """Legacy loading without source resolution (backward compat).
+    async def _load_direct(self, module_id: str, config: dict[str, Any] | None = None) -> Callable | None:
+        """Direct loading via entry points and filesystem discovery.
+
+        Used when no source resolver is available (standalone tools, simple cases).
+        This is a permanent, first-class mechanism - not deprecated.
 
         Args:
             module_id: Module identifier
