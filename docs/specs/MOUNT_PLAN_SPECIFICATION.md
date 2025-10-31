@@ -114,7 +114,7 @@ The `agents` section has different semantics from other mount plan sections:
 - Used by app layer (task tool) for spawning child sessions
 - Kernel passes through without interpretation
 
-Agent configurations are partial mount plans that get merged with a parent session's config when creating a child session with `parent_id` parameter. See `docs/AGENT_DELEGATION.md` for complete specification.
+Agent configurations are partial mount plans that get merged with a parent session's config when creating a child session with `parent_id` parameter.
 
 ## Configuration Dictionaries
 
@@ -338,6 +338,6 @@ The Mount Plan embodies the kernel philosophy:
 
 ## Related Documentation
 
-- Profile System Design: `/docs/PROFILES.md` - How to create reusable configurations
-- Kernel Philosophy: `/docs/context/KERNEL_PHILOSOPHY.md` - Why the kernel is designed this way
-- Module Development: `/docs/MODULE_DEVELOPMENT.md` - How to create new modules
+- Kernel Philosophy: `../context/KERNEL_PHILOSOPHY.md` - Why the kernel is designed this way
+- **[Profile System](https://github.com/microsoft/amplifier-profiles)** - Library that compiles profiles to Mount Plans
+- **[Getting Started](https://github.com/microsoft/amplifier)** - User documentation
