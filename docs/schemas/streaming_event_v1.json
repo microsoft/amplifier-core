@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Amplifier StreamEvent (v1)",
+  "type": "object",
+  "required": ["type", "ts", "session_id", "seq"],
+  "properties": {
+    "type": {
+      "enum": [
+        "message.start",
+        "text.delta",
+        "tool_call.start",
+        "tool_call.delta",
+        "tool_call.end",
+        "message.end",
+        "error"
+      ]
+    },
+    "ts": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "turn_id": {
+      "type": "string"
+    },
+    "span_id": {
+      "type": "string"
+    },
+    "parent_span_id": {
+      "type": "string"
+    },
+    "seq": {
+      "type": "integer"
+    },
+    "visibility": {
+      "enum": ["internal", "developer", "user"]
+    },
+    "text": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "arguments_fragment": {
+      "type": "string"
+    },
+    "arguments": {
+      "type": "object"
+    },
+    "usage": {
+      "type": "object"
+    },
+    "degradations": {
+      "type": "array"
+    },
+    "error": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}
