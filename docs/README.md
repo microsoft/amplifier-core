@@ -52,15 +52,14 @@ Mount point system and coordinator architecture.
 
 ---
 
-## Reference Implementations
+## Philosophy
 
-Reference implementations and app-layer policies live in:
-- [amplifier-dev/docs](https://github.com/microsoft/amplifier-dev/tree/main/docs)
+These specifications implement the principles in:
+- [DESIGN_PHILOSOPHY.md](./DESIGN_PHILOSOPHY.md) - Kernel design principles and decision framework
 
 ---
 
-## Philosophy
+## Ecosystem
 
-These specifications align with:
-- [KERNEL_PHILOSOPHY.md](https://github.com/microsoft/amplifier-dev/blob/main/docs/context/KERNEL_PHILOSOPHY.md)
-- [AMPLIFIER_AS_LINUX_KERNEL.md](https://github.com/microsoft/amplifier-dev/blob/main/docs/AMPLIFIER_AS_LINUX_KERNEL.md)
+For user documentation and ecosystem overview:
+- [amplifier@next](https://github.com/microsoft/amplifier) - Entry point and getting started

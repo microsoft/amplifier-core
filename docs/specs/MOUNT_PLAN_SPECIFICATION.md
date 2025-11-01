@@ -338,6 +338,7 @@ The Mount Plan embodies the kernel philosophy:
 
 ## Related Documentation
 
-- Kernel Philosophy: `../context/KERNEL_PHILOSOPHY.md` - Why the kernel is designed this way
-- **[Profile System](https://github.com/microsoft/amplifier-profiles)** - Library that compiles profiles to Mount Plans
+- **[DESIGN_PHILOSOPHY.md](../DESIGN_PHILOSOPHY.md)** - Kernel design principles
 - **[Getting Started](https://github.com/microsoft/amplifier)** - User documentation
+
+**Note**: Applications compile Mount Plans from various sources (profiles, configuration files, CLI flags, etc.). The kernel validates the compiled plan structure.

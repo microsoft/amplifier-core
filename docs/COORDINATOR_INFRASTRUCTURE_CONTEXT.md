@@ -66,7 +66,7 @@ coordinator.loader: ModuleLoader       # Shared module loader
 
 ## Kernel Philosophy Alignment
 
-### "Minimal Context Plumbing" (KERNEL_PHILOSOPHY.md)
+### "Minimal Context Plumbing" (DESIGN_PHILOSOPHY.md)
 
 > "Passing identifiers and basic state necessary to make boundaries work"
 
@@ -83,7 +83,7 @@ coordinator.loader: ModuleLoader       # Shared module loader
 
 **Perfect boundary** - infrastructure only.
 
-### "Causality IDs" (KERNEL_PHILOSOPHY.md)
+### "Causality IDs" (DESIGN_PHILOSOPHY.md)
 
 > "Provide session/request/span identifiers so edges can correlate activity end-to-end"
 
@@ -96,7 +96,7 @@ coordinator.loader: ModuleLoader       # Shared module loader
 - Session lineage tracking
 - Debugging and observability
 
-### "Capability-Scoped" (KERNEL_PHILOSOPHY.md)
+### "Capability-Scoped" (DESIGN_PHILOSOPHY.md)
 
 > "Pass only the minimum capability a module needs"
 

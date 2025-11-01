@@ -269,10 +269,9 @@ When implementing custom resolvers:
 - [SESSION_FORK_SPECIFICATION.md](./SESSION_FORK_SPECIFICATION.md) - Session forking contracts
 - [COORDINATOR_INFRASTRUCTURE_CONTEXT.md](./COORDINATOR_INFRASTRUCTURE_CONTEXT.md) - Mount point system
 
-**Reference implementation (app-layer):**
+**Related Specifications:**
 
-- [amplifier-dev MODULE_SOURCE_SPECIFICATION.md](https://github.com/microsoft/amplifier-dev/blob/main/docs/MODULE_SOURCE_SPECIFICATION.md)
+- [DESIGN_PHILOSOPHY.md](./DESIGN_PHILOSOPHY.md) - Kernel design principles
+- [MOUNT_PLAN_SPECIFICATION.md](./specs/MOUNT_PLAN_SPECIFICATION.md) - Mount plan format
 
-**Philosophy:**
-
-- [KERNEL_PHILOSOPHY.md](./KERNEL_PHILOSOPHY.md)
+**Note**: Module source resolution implementation is application-layer policy. Applications may use libraries like amplifier-module-resolution or implement custom resolution strategies.
