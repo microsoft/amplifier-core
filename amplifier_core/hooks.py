@@ -137,6 +137,9 @@ class HookRegistry:
         defaults = getattr(self, "_defaults", {})
         current_data = {**(defaults or {}), **(data or {})}
 
+        # Track special actions to return
+        special_result = None
+
         for hook_handler in handlers:
             try:
                 # Call handler with event and current data
@@ -154,9 +157,18 @@ class HookRegistry:
                     current_data = result.data
                     logger.debug(f"Handler '{hook_handler.name}' modified event data")
 
+                # Preserve special actions (inject_context, ask_user) to return
+                if result.action in ("inject_context", "ask_user") and special_result is None:
+                    special_result = result
+                    logger.debug(f"Handler '{hook_handler.name}' returned special action: {result.action}")
+
             except Exception as e:
                 logger.error(f"Error in hook handler '{hook_handler.name}' for event '{event}': {e}")
                 # Continue with other handlers even if one fails
+
+        # Return special action if any hook requested it, otherwise continue
+        if special_result:
+            return special_result
 
         # Return final result with potentially modified data
         return HookResult(action="continue", data=current_data)
