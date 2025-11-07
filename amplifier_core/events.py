@@ -35,6 +35,12 @@ TOOL_ERROR = "tool:error"
 CONTEXT_PRE_COMPACT = "context:pre_compact"
 CONTEXT_POST_COMPACT = "context:post_compact"
 
+# Orchestrator lifecycle
+ORCHESTRATOR_COMPLETE = "orchestrator:complete"
+
+# User notifications
+USER_NOTIFICATION = "user:notification"
+
 # Artifacts (files, diffs, external blobs)
 ARTIFACT_WRITE = "artifact:write"
 ARTIFACT_READ = "artifact:read"
@@ -78,6 +84,8 @@ ALL_EVENTS = [
     CONTEXT_PRE_COMPACT,
     CONTEXT_POST_COMPACT,
     CONTEXT_INCLUDE,
+    ORCHESTRATOR_COMPLETE,
+    USER_NOTIFICATION,
     ARTIFACT_WRITE,
     ARTIFACT_READ,
     POLICY_VIOLATION,

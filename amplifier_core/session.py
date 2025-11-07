@@ -245,7 +245,12 @@ class AmplifierSession:
             self.status.status = "running"
 
             result = await orchestrator.execute(
-                prompt=prompt, context=context, providers=providers, tools=tools, hooks=hooks
+                prompt=prompt,
+                context=context,
+                providers=providers,
+                tools=tools,
+                hooks=hooks,
+                coordinator=self.coordinator,  # NEW: Pass coordinator for hook result processing
             )
 
             self.status.status = "completed"
