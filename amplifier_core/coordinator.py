@@ -6,6 +6,7 @@ Coordinator provides infrastructure context to all modules including:
 - Configuration: mount plan access
 - Session reference: for spawning child sessions
 - Module loader: for dynamic loading
+- Hook result processing: routing hook actions to subsystems
 
 This embodies kernel philosophy's "minimal context plumbing" - providing
 identifiers and basic state necessary to make module boundaries work.
@@ -13,16 +14,25 @@ identifiers and basic state necessary to make module boundaries work.
 
 import inspect
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Any
 
+from .approval import ApprovalTimeoutError
+from .approval import CLIApprovalSystem
+from .display import CLIDisplaySystem
 from .hooks import HookRegistry
+from .models import HookResult
 
 if TYPE_CHECKING:
     from .loader import ModuleLoader
     from .session import AmplifierSession
 
 logger = logging.getLogger(__name__)
+
+# Context injection limits
+MAX_INJECTION_SIZE = 10 * 1024  # 10KB
+INJECTION_BUDGET_PER_TURN = 1000  # tokens (rough)
 
 
 class ModuleCoordinator:
@@ -58,6 +68,11 @@ class ModuleCoordinator:
 
         # Make hooks accessible as an attribute for backward compatibility
         self.hooks = self.mount_points["hooks"]
+
+        # Hook result processing subsystems
+        self.approval_system = CLIApprovalSystem()
+        self.display_system = CLIDisplaySystem()
+        self._current_turn_injections = 0  # Token budget tracking
 
     @property
     def session(self) -> "AmplifierSession":
@@ -214,3 +229,148 @@ class ModuleCoordinator:
                             await result
             except Exception as e:
                 logger.error(f"Error during cleanup: {e}")
+
+    def reset_turn(self):
+        """Reset per-turn tracking. Call at turn boundaries."""
+        self._current_turn_injections = 0
+
+    async def process_hook_result(self, result: HookResult, event: str, hook_name: str = "unknown") -> HookResult:
+        """
+        Process HookResult and route actions to appropriate subsystems.
+
+        Handles:
+        - Context injection (route to context manager)
+        - Approval requests (delegate to approval system)
+        - User messages (route to display system)
+        - Output suppression (set flag for filtering)
+
+        Args:
+            result: HookResult from hook execution
+            event: Event name that triggered hook
+            hook_name: Name of hook for logging/audit
+
+        Returns:
+            Processed HookResult (may be modified by approval flow)
+        """
+        # 1. Handle context injection
+        if result.action == "inject_context" and result.context_injection:
+            await self._handle_context_injection(result, hook_name, event)
+
+        # 2. Handle approval request
+        if result.action == "ask_user":
+            return await self._handle_approval_request(result, hook_name)
+
+        # 3. Handle user message (separate from context injection)
+        if result.user_message:
+            self._handle_user_message(result, hook_name)
+
+        # 4. Output suppression handled by orchestrator (just log)
+        if result.suppress_output:
+            logger.debug(f"Hook '{hook_name}' requested output suppression")
+
+        return result
+
+    async def _handle_context_injection(self, result: HookResult, hook_name: str, event: str):
+        """Handle context injection action."""
+        content = result.context_injection
+        if not content:
+            return
+
+        # 1. Validate size
+        if len(content) > MAX_INJECTION_SIZE:
+            logger.error(f"Hook injection too large: {hook_name}", extra={"size": len(content)})
+            raise ValueError(f"Context injection exceeds {MAX_INJECTION_SIZE} bytes")
+
+        # 2. Check budget
+        tokens = len(content) // 4  # Rough estimate
+        if self._current_turn_injections + tokens > INJECTION_BUDGET_PER_TURN:
+            logger.warning(
+                "Hook injection budget exceeded",
+                extra={
+                    "hook": hook_name,
+                    "current": self._current_turn_injections,
+                    "attempted": tokens,
+                    "budget": INJECTION_BUDGET_PER_TURN,
+                },
+            )
+
+        self._current_turn_injections += tokens
+
+        # 3. Add to context with provenance
+        context = self.mount_points["context"]
+        if context and hasattr(context, "add_message"):
+            message = {
+                "role": result.context_injection_role,
+                "content": content,
+                "metadata": {
+                    "source": "hook",
+                    "hook_name": hook_name,
+                    "event": event,
+                    "timestamp": datetime.now().isoformat(),
+                },
+            }
+
+            await context.add_message(message)
+
+            # 4. Audit log
+            logger.info(
+                "Hook context injection",
+                extra={
+                    "hook": hook_name,
+                    "event": event,
+                    "size": len(content),
+                    "role": result.context_injection_role,
+                    "tokens": tokens,
+                },
+            )
+
+    async def _handle_approval_request(self, result: HookResult, hook_name: str) -> HookResult:
+        """Handle approval request action."""
+        prompt = result.approval_prompt or "Allow this operation?"
+        options = result.approval_options or ["Allow", "Deny"]
+
+        # Log request
+        logger.info(
+            "Approval requested",
+            extra={
+                "hook": hook_name,
+                "prompt": prompt,
+                "options": options,
+                "timeout": result.approval_timeout,
+                "default": result.approval_default,
+            },
+        )
+
+        try:
+            # Request approval from user
+            decision = await self.approval_system.request_approval(
+                prompt=prompt, options=options, timeout=result.approval_timeout, default=result.approval_default
+            )
+
+            # Log decision
+            logger.info("Approval decision", extra={"hook": hook_name, "decision": decision})
+
+            # Process decision
+            if decision == "Deny":
+                return HookResult(action="deny", reason=f"User denied: {prompt}")
+
+            # "Allow once" or "Allow always" → proceed
+            return HookResult(action="continue")
+
+        except ApprovalTimeoutError:
+            # Log timeout
+            logger.warning("Approval timeout", extra={"hook": hook_name, "default": result.approval_default})
+
+            # Apply default
+            if result.approval_default == "deny":
+                return HookResult(action="deny", reason=f"Approval timeout - denied by default: {prompt}")
+            return HookResult(action="continue")
+
+    def _handle_user_message(self, result: HookResult, hook_name: str):
+        """Handle user message display."""
+        if not result.user_message:
+            return
+
+        self.display_system.show_message(
+            message=result.user_message, level=result.user_message_level, source=f"hook:{hook_name}"
+        )
