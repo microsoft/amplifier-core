@@ -44,6 +44,8 @@ class HookRegistry:
     CONTEXT_PRE_COMPACT = "context:pre-compact"
     AGENT_SPAWN = "agent:spawn"
     AGENT_COMPLETE = "agent:complete"
+    ORCHESTRATOR_COMPLETE = "orchestrator:complete"
+    USER_NOTIFICATION = "user:notification"
 
     # Decision events
     DECISION_TOOL_RESOLUTION = "decision:tool_resolution"
