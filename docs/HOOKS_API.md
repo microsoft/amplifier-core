@@ -424,6 +424,6 @@ async def test_linter_hook():
 ## See Also
 
 - [Hooks Events Reference](./HOOKS_EVENTS.md) - Complete list of events and their data schemas
-- [Hook Patterns Guide](../../docs/guides/HOOK_PATTERNS.md) - Common patterns and examples
-- [Hook Security Guide](../../docs/guides/HOOK_SECURITY.md) - Security best practices
-- [Example Hooks](../../examples/hooks/) - Complete working examples
+- [Hooks Guide](./HOOKS_GUIDE.md) - Tutorial introduction to hooks
+- [Hook Patterns Guide](./HOOKS_PATTERNS.md) - Common patterns and examples
+- [Hook Security](./HOOKS_SECURITY.md) - Security best practices

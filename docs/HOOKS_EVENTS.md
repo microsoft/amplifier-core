@@ -637,5 +637,6 @@ registry.register(HookRegistry.USER_NOTIFICATION, my_notification_hook)
 ## See Also
 
 - [Hooks API Reference](./HOOKS_API.md) - Complete HookResult API documentation
-- [Hook Patterns Guide](../../docs/guides/HOOK_PATTERNS.md) - Common patterns and examples
-- [Example Hooks](../../examples/hooks/) - Complete working implementations
+- [Hooks Guide](./HOOKS_GUIDE.md) - Tutorial introduction to hooks
+- [Hook Patterns Guide](./HOOKS_PATTERNS.md) - Common patterns and examples
+- [Hook Security](./HOOKS_SECURITY.md) - Security best practices
