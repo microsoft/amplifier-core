@@ -117,16 +117,22 @@ Amplifier observability follows event-first principles:
 }
 ```
 
-**tool:pre/post/error**:
+**tool:pre/post/error** (JSONL output format):
 ```python
 {
   "event": "tool:pre",
-  "tool": "filesystem",
-  "operation": "write_file",
+  "session_id": "...",
+  "data": {
+    "tool_name": "filesystem",
+    "tool_input": {"path": "config.py", "content": "..."},
+    "parallel_group_id": "..."
+  },
   "span_id": "...",
   "parent_span_id": "..."
 }
 ```
+
+Note: Hook handlers receive flat structure. This nested format is the logged output after hooks-logging transforms it.
 
 **context:pre_compact/post_compact**:
 ```python
