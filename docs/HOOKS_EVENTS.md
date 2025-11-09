@@ -11,7 +11,24 @@ SESSION_START
     ↓
 PROMPT_SUBMIT
     ↓
-TOOL_PRE → [tool execution] → TOOL_POST
+┌─────────────────────────────────┐
+│  (Multi-step loop within turn)  │
+│                                  │
+│  PROVIDER_REQUEST                │
+│      ↓                           │
+│  [LLM call]                      │
+│      ↓                           │
+│  PROVIDER_RESPONSE/ERROR         │
+│      ↓                           │
+│  TOOL_PRE (if tool call)         │
+│      ↓                           │
+│  [tool execution]                │
+│      ↓                           │
+│  TOOL_POST                       │
+│      ↓                           │
+│  (loop back to PROVIDER_REQUEST) │
+│                                  │
+└─────────────────────────────────┘
     ↓
 ORCHESTRATOR_COMPLETE
     ↓
@@ -23,6 +40,8 @@ AGENT_SPAWN → [agent execution] → AGENT_COMPLETE
     ↓
 SESSION_END
 ```
+
+**Key insight:** `PROVIDER_REQUEST` fires multiple times per turn (before each LLM call), making it ideal for maintaining AI awareness throughout complex multi-step interactions.
 
 ---
 
@@ -148,6 +167,101 @@ async def datetime_injector(event: str, data: dict) -> HookResult:
         suppress_output=True
     )
 ```
+
+---
+
+## Provider Lifecycle Events
+
+### PROVIDER_REQUEST
+
+**Event name**: `provider:request`
+
+**When**: Before each LLM request (every step within a turn)
+
+**Data schema**:
+```python
+{
+    "session_id": str,
+    "provider": str,           # Provider name (e.g., "provider-anthropic")
+    "input_count": int,        # Number of messages in request
+    "timestamp": str
+}
+```
+
+**Use cases**:
+- Inject context before each LLM call (e.g., current todos, recent changes)
+- Log LLM requests for observability
+- Track provider usage patterns
+- Implement rate limiting or cost controls
+
+**Example**:
+```python
+async def todo_reminder(event: str, data: dict) -> HookResult:
+    """Inject current todo list before each LLM request."""
+    todos = get_current_todos()
+
+    if not todos:
+        return HookResult(action="continue")
+
+    formatted = format_todos(todos)
+    return HookResult(
+        action="inject_context",
+        context_injection=f"<current_plan>\n{formatted}\n</current_plan>",
+        suppress_output=True
+    )
+```
+
+**Key insight:** This event fires multiple times within a single conversation turn - once before each LLM call. When the orchestrator uses tools, it makes additional LLM calls after each tool execution. This makes `provider:request` ideal for maintaining AI awareness throughout complex multi-step interactions.
+
+---
+
+### PROVIDER_RESPONSE
+
+**Event name**: `provider:response`
+
+**When**: After LLM responds successfully
+
+**Data schema**:
+```python
+{
+    "session_id": str,
+    "provider": str,
+    "response": dict,          # Provider response content
+    "tokens_used": int,        # Total tokens consumed
+    "duration_ms": int,        # Request duration
+    "timestamp": str
+}
+```
+
+**Use cases**:
+- Log LLM responses
+- Track token usage and costs
+- Monitor response quality
+- Collect metrics
+
+---
+
+### PROVIDER_ERROR
+
+**Event name**: `provider:error`
+
+**When**: LLM request fails
+
+**Data schema**:
+```python
+{
+    "session_id": str,
+    "provider": str,
+    "error": dict,             # Error details
+    "timestamp": str
+}
+```
+
+**Use cases**:
+- Log provider failures
+- Implement retry logic
+- Send error notifications
+- Track reliability metrics
 
 ---
 

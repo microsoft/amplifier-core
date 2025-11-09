@@ -141,6 +141,14 @@ class HookResult(BaseModel):
             "System role recommended for most use cases."
         ),
     )
+    ephemeral: bool = Field(
+        default=False,
+        description=(
+            "If True, injection is temporary (only for current LLM call, not stored in history). "
+            "Use for transient state like todo reminders that update frequently. "
+            "Orchestrator must append ephemeral injection to messages without storing in context."
+        ),
+    )
 
     # Approval gate fields
     approval_prompt: str | None = Field(

@@ -38,6 +38,7 @@ class HookResult(BaseModel):
     # Context injection
     context_injection: str | None = None
     context_injection_role: Literal["system", "user", "assistant"] = "system"
+    ephemeral: bool = False
 
     # Approval gates
     approval_prompt: str | None = None
@@ -93,6 +94,13 @@ class HookResult(BaseModel):
 - Default: `"system"`
 - Description: Role for injected message. `"system"` (default) for environmental feedback, `"user"` to simulate user input, `"assistant"` for agent self-talk.
 - Recommendation: Use `"system"` for most cases
+
+**`ephemeral`** (optional)
+- Type: `bool`
+- Default: `False`
+- Description: If `True`, injection is temporary (only for current LLM call, not stored in conversation history). Use for transient state that updates frequently (todo reminders, live status). Orchestrator appends ephemeral injection to messages without storing in context.
+- Use Cases: Todo state, live metrics, temporary warnings
+- Not Recommended For: Persistent feedback, linter errors that need to stay visible
 
 #### Approval Gate Fields
 

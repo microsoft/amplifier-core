@@ -296,33 +296,35 @@ class ModuleCoordinator:
 
         self._current_turn_injections += tokens
 
-        # 3. Add to context with provenance
-        context = self.mount_points["context"]
-        if context and hasattr(context, "add_message"):
-            message = {
-                "role": result.context_injection_role,
-                "content": content,
-                "metadata": {
-                    "source": "hook",
-                    "hook_name": hook_name,
-                    "event": event,
-                    "timestamp": datetime.now().isoformat(),
-                },
-            }
-
-            await context.add_message(message)
-
-            # 4. Audit log
-            logger.info(
-                "Hook context injection",
-                extra={
-                    "hook": hook_name,
-                    "event": event,
-                    "size": len(content),
+        # 3. Add to context with provenance (ONLY if not ephemeral)
+        if not result.ephemeral:
+            context = self.mount_points["context"]
+            if context and hasattr(context, "add_message"):
+                message = {
                     "role": result.context_injection_role,
-                    "tokens": tokens,
-                },
-            )
+                    "content": content,
+                    "metadata": {
+                        "source": "hook",
+                        "hook_name": hook_name,
+                        "event": event,
+                        "timestamp": datetime.now().isoformat(),
+                    },
+                }
+
+                await context.add_message(message)
+
+        # 4. Audit log
+        logger.info(
+            "Hook context injection",
+            extra={
+                "hook": hook_name,
+                "event": event,
+                "size": len(content),
+                "role": result.context_injection_role,
+                "tokens": tokens,
+                "ephemeral": result.ephemeral,
+            },
+        )
 
     async def _handle_approval_request(self, result: HookResult, hook_name: str) -> HookResult:
         """Handle approval request action."""
