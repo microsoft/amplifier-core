@@ -4,81 +4,92 @@
 
 ## Purpose
 
-Amplifier Core is the stable, minimal kernel that provides mechanisms for:
+Amplifier Core provides the **mechanisms** for building modular AI agent systems. Following the Linux kernel model, it's a tiny, stable center (~2,600 lines) that rarely changes, with all policies and features implemented as replaceable modules at the edges.
 
+**Core responsibilities**:
 - Module discovery and loading
 - Lifecycle coordination
 - Hook system and events
-- Session and context management
-- Stable public APIs and interfaces
+- Session management
+- Stable contracts and APIs
 
-Following the **Linux kernel model**: a tiny, stable center that rarely changes, with all policies and features implemented as replaceable modules at the edges.
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ KERNEL (amplifier-core)                                     │
+│ • Module loading          • Event system                    │
+│ • Session lifecycle       • Coordinator                     │
+│ • Minimal dependencies    • Stable contracts                │
+└──────────────────┬──────────────────────────────────────────┘
+                   │ protocols (Tool, Provider, etc.)
+                   ▼
+┌─────────────────────────────────────────────────────────────┐
+│ MODULES (Userspace - Swappable)                             │
+│ • Providers: LLM backends (Anthropic, OpenAI, Azure, Ollama)│
+│ • Tools: Capabilities (filesystem, bash, web, search)       │
+│ • Orchestrators: Execution loops (basic, streaming, events) │
+│ • Contexts: Memory management (simple, persistent)          │
+│ • Hooks: Observability (logging, redaction, approval)       │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## Design Philosophy
 
 ### Mechanisms, Not Policies
 
-The kernel provides:
+The kernel provides **capabilities** without **decisions**:
 
-- ✅ **Mechanisms**: Module loading, event dispatch, capability enforcement
-- ❌ **Not Policies**: Orchestration strategies, provider selection, tool behavior
+| Kernel Provides (Mechanism) | Modules Decide (Policy) |
+|----------------------------|-------------------------|
+| Module loading | Which modules to load |
+| Event emission | What to log, where |
+| Session lifecycle | Orchestration strategy |
+| Hook registration | Security policies |
+
+**Litmus test**: "Could two teams want different behavior?" → If yes, it's policy → Module, not kernel.
 
 ### Stability Guarantees
 
-- **Backward compatible**: Modules continue to work across kernel updates
-- **Minimal dependencies**: Only essential libraries (pydantic, tomli, typing-extensions)
-- **Single maintainer**: Can be understood and maintained by one person
-- **Rare updates**: Changes are additive, not breaking
-
-### What Belongs Here
-
-Only code that **must** be in the kernel:
-
-- Module discovery and loading from entry points
-- Core interfaces (Tool, Provider, Context, Orchestrator, Hook)
-- Session lifecycle management
-- Event system for observability
-- Minimal coordination logic
-
-Everything else lives in modules.
+- **Backward compatible**: Existing modules continue working across kernel updates
+- **Minimal dependencies**: Only pydantic, tomli, pyyaml, typing-extensions
+- **Single maintainer scope**: Can be understood by one person
+- **Additive evolution**: Changes extend, don't break
 
 ## Installation
 
-For complete Amplifier installation and usage, see the main repository:
-**https://github.com/microsoft/amplifier** (branch: `next`)
+For complete Amplifier installation and usage:
+
+**→ https://github.com/microsoft/amplifier** (branch: `next`)
 
 ## Core Concepts
 
-### Modules
+### Session
+Execution context with mounted modules and conversation state. Lifespan: `initialize()` → `execute()` → `cleanup()`.
 
-Everything is a module:
-
-- **Providers** - AI service integrations (Anthropic Claude, OpenAI, Azure OpenAI, Ollama)
-- **Tools** - Capabilities (filesystem, bash, web, search)
-- **Orchestrators** - Execution loops (basic, streaming, events)
-- **Contexts** - Memory management (simple, persistent)
-- **Hooks** - Observability (logging, redaction, approval)
-
-### Mount Plans
-
-Configuration that defines what modules to load and how to configure them. Profiles compile to Mount Plans.
+### Mount Plan
+Configuration dictionary specifying which modules to load and their configuration. Apps/profiles compile to Mount Plans.
 
 ### Coordinator
+Infrastructure context providing session_id, config access, hooks, and mount points. Injected into all modules.
 
-Central registry where modules are mounted and discovered. Provides dependency injection for modules.
+### Module Types
 
-### Session
+All modules use Python `Protocol` (structural typing, no inheritance required):
 
-Execution context with mounted modules, manages conversation lifecycle.
+- **Provider** - LLM backends (name, complete(), parse_tool_calls())
+- **Tool** - Agent capabilities (name, description, execute())
+- **Orchestrator** - Execution loops (execute())
+- **ContextManager** - Memory (add_message(), get_messages(), compact())
+- **Hook** - Observability (async function with event, data → HookResult)
 
 ## API Example
 
 ```python
-from amplifier_core import AmplifierSession, ModuleLoader
+from amplifier_core import AmplifierSession
 
-# Load modules
-loader = ModuleLoader()
-mount_plan = {
+# Define mount plan (modules must be installed or discoverable)
+config = {
     "session": {
         "orchestrator": "loop-basic",
         "context": "context-simple"
@@ -92,47 +103,78 @@ mount_plan = {
     ]
 }
 
-# Create session
-session = AmplifierSession(mount_plan, loader=loader)
-
-# Use session
-await session.initialize()
-response = await session.execute("Hello!")
-await session.cleanup()
+# Create and use session
+async with AmplifierSession(config) as session:
+    response = await session.execute("List files in current directory")
 ```
 
 ## Module Development
 
-**Quick example:**
+Modules implement protocols via structural typing (duck typing):
 
 ```python
-from amplifier_core.protocols import Tool
+from amplifier_core.interfaces import Tool
+from amplifier_core.models import ToolResult
 
-class MyTool(Tool):
-    def get_schema(self):
-        return {
-            "name": "my_tool",
-            "description": "Does something useful",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "param": {"type": "string"}
-                }
-            }
-        }
+class MyTool:
+    """Implements Tool protocol without inheritance."""
 
-    async def execute(self, **kwargs):
-        return {"result": f"Processed: {kwargs['param']}"}
+    @property
+    def name(self) -> str:
+        return "my_tool"
+
+    @property
+    def description(self) -> str:
+        return "Does something useful"
+
+    async def execute(self, input: dict) -> ToolResult:
+        """Execute tool with input dict."""
+        return ToolResult(
+            output=f"Processed: {input.get('param')}",
+            error=None
+        )
+
+# Mount function (entry point)
+async def mount(coordinator, config):
+    tool = MyTool()
+    await coordinator.mount("tools", tool, name="my_tool")
+
+    async def cleanup():
+        pass  # Cleanup resources
+
+    return cleanup
 ```
 
-For complete module development guide, see:
-**https://github.com/microsoft/amplifier** (branch: `next`)
+**Entry point** (`pyproject.toml`):
+```toml
+[project.entry-points."amplifier.modules"]
+my-tool = "amplifier_module_my_tool:mount"
+```
+
+For complete module development guide:
+**→ https://github.com/microsoft/amplifier** (branch: `next`)
 
 ## Documentation
 
-- [Module Source Protocol](docs/MODULE_SOURCE_PROTOCOL.md) - Module loading specification
-- [Session Fork Specification](docs/SESSION_FORK_SPECIFICATION.md) - Agent delegation
-- [Coordinator Infrastructure](docs/COORDINATOR_INFRASTRUCTURE_CONTEXT.md) - Core architecture
+**For AI Assistants**:
+- [Complete Architecture Guide](docs/AMPLIFIER_CORE_ARCHITECTURE_FOR_AI.md) - Comprehensive reference (1,354 lines)
+- [Navigation Guide](docs/README_FOR_AI_ASSISTANTS.md) - Where to find what
+
+**Specifications** (Kernel Contracts):
+- [Mount Plan Specification](docs/specs/MOUNT_PLAN_SPECIFICATION.md) - Configuration format
+- [Context Specification](docs/specs/CONTEXT_SPECIFICATION.md) - Memory manager contract
+- [Provider Specification](docs/specs/PROVIDER_SPECIFICATION.md) - LLM provider contract
+- [Observability Specification](docs/specs/OBSERVABILITY_SPECIFICATION.md) - Events and hooks
+
+**Detailed Guides**:
+- [Hooks API](docs/HOOKS_API.md) - Complete hook system reference
+- [Hooks Events](docs/HOOKS_EVENTS.md) - Canonical event taxonomy (30+)
+- [Session Forking](docs/SESSION_FORK_SPECIFICATION.md) - Child sessions for delegation
+- [Module Source Protocol](docs/MODULE_SOURCE_PROTOCOL.md) - Custom module loading
+
+**Philosophy**:
+- [Design Philosophy](docs/DESIGN_PHILOSOPHY.md) - Kernel principles and patterns
+- [Coordinator Infrastructure](docs/COORDINATOR_INFRASTRUCTURE_CONTEXT.md) - What coordinator provides
 
 ## Testing
 
