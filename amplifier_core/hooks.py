@@ -139,6 +139,8 @@ class HookRegistry:
 
         # Track special actions to return
         special_result = None
+        # Collect ALL inject_context results to merge them
+        inject_context_results: list[HookResult] = []
 
         for hook_handler in handlers:
             try:
@@ -157,14 +159,24 @@ class HookRegistry:
                     current_data = result.data
                     logger.debug(f"Handler '{hook_handler.name}' modified event data")
 
-                # Preserve special actions (inject_context, ask_user) to return
-                if result.action in ("inject_context", "ask_user") and special_result is None:
+                # Collect inject_context actions for merging
+                if result.action == "inject_context" and result.context_injection:
+                    inject_context_results.append(result)
+                    logger.debug(f"Handler '{hook_handler.name}' returned inject_context")
+
+                # Preserve ask_user (only first one, can't merge approvals)
+                if result.action == "ask_user" and special_result is None:
                     special_result = result
-                    logger.debug(f"Handler '{hook_handler.name}' returned special action: {result.action}")
+                    logger.debug(f"Handler '{hook_handler.name}' returned ask_user")
 
             except Exception as e:
                 logger.error(f"Error in hook handler '{hook_handler.name}' for event '{event}': {e}")
                 # Continue with other handlers even if one fails
+
+        # If multiple inject_context results, merge them
+        if inject_context_results:
+            special_result = self._merge_inject_context_results(inject_context_results)
+            logger.debug(f"Merged {len(inject_context_results)} inject_context results")
 
         # Return special action if any hook requested it, otherwise continue
         if special_result:
@@ -172,6 +184,39 @@ class HookRegistry:
 
         # Return final result with potentially modified data
         return HookResult(action="continue", data=current_data)
+
+    def _merge_inject_context_results(self, results: list[HookResult]) -> HookResult:
+        """
+        Merge multiple inject_context results into a single result.
+
+        When multiple hooks return inject_context on the same event, combine their
+        injections into a single message to avoid losing any hook's contribution.
+
+        Args:
+            results: List of HookResult with action="inject_context"
+
+        Returns:
+            Single HookResult with combined injections
+        """
+        if not results:
+            return HookResult(action="continue")
+
+        if len(results) == 1:
+            return results[0]
+
+        # Combine all injections
+        combined_content = "\n\n".join(result.context_injection for result in results if result.context_injection)
+
+        # Use settings from first result (role, ephemeral, suppress_output)
+        first = results[0]
+
+        return HookResult(
+            action="inject_context",
+            context_injection=combined_content,
+            context_injection_role=first.context_injection_role,
+            ephemeral=first.ephemeral,
+            suppress_output=first.suppress_output,
+        )
 
     async def emit_and_collect(self, event: str, data: dict[str, Any], timeout: float = 1.0) -> list[Any]:
         """
