@@ -27,7 +27,8 @@ The Mount Plan is a Python dictionary with the following structure:
         "orchestrator": str,           # Required: orchestrator module ID
         "orchestrator_source": str,    # Optional: orchestrator source URI
         "context": str,                # Required: context manager module ID
-        "context_source": str          # Optional: context source URI
+        "context_source": str,         # Optional: context source URI
+        "injection_budget_per_turn": int | None  # Optional: max tokens hooks can inject per turn (default: 10000, None for unlimited)
     },
     "orchestrator": {
         "config": dict        # Optional: orchestrator-specific configuration
@@ -228,7 +229,8 @@ A production configuration with cost controls and safety:
 {
     "session": {
         "orchestrator": "loop-events",
-        "context": "context-persistent"
+        "context": "context-persistent",
+        "injection_budget_per_turn": 500  # Conservative limit for production
     },
     "context": {
         "config": {

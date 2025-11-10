@@ -30,9 +30,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Context injection limits
-MAX_INJECTION_SIZE = 10 * 1024  # 10KB
-INJECTION_BUDGET_PER_TURN = 1000  # tokens (rough)
+# Context injection size limit (kernel safety invariant)
+# Budget per turn is configurable policy via session.injection_budget_per_turn
+MAX_INJECTION_SIZE = 10 * 1024  # 10KB hard limit per injection
 
 
 class ModuleCoordinator:
@@ -88,6 +88,17 @@ class ModuleCoordinator:
     def parent_id(self) -> str | None:
         """Parent session ID for child sessions (infrastructure for lineage tracking)."""
         return self._session.parent_id
+
+    @property
+    def injection_budget_per_turn(self) -> int | None:
+        """
+        Get injection budget from session config (policy).
+
+        Returns:
+            Token budget per turn, or None for unlimited.
+            Default: 10,000 tokens if not configured.
+        """
+        return self._session.config.get("session", {}).get("injection_budget_per_turn", 10_000)
 
     @property
     def config(self) -> dict:
@@ -281,16 +292,19 @@ class ModuleCoordinator:
             logger.error(f"Hook injection too large: {hook_name}", extra={"size": len(content)})
             raise ValueError(f"Context injection exceeds {MAX_INJECTION_SIZE} bytes")
 
-        # 2. Check budget
+        # 2. Check budget (policy from session config)
+        budget = self.injection_budget_per_turn
         tokens = len(content) // 4  # Rough estimate
-        if self._current_turn_injections + tokens > INJECTION_BUDGET_PER_TURN:
+
+        # If budget is None, no limit (unlimited policy)
+        if budget is not None and self._current_turn_injections + tokens > budget:
             logger.warning(
                 "Hook injection budget exceeded",
                 extra={
                     "hook": hook_name,
                     "current": self._current_turn_injections,
                     "attempted": tokens,
-                    "budget": INJECTION_BUDGET_PER_TURN,
+                    "budget": budget,
                 },
             )
 

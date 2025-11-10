@@ -343,7 +343,7 @@ async def comprehensive_hook(event: str, data: dict) -> HookResult:
 1. **Quick validation**: Keep pre-tool hooks fast to avoid blocking
 2. **Async I/O**: Use `asyncio` for external calls (linters, APIs)
 3. **Timeouts**: Set reasonable `approval_timeout` (default 5 min)
-4. **Injection budget**: Consider token usage when injecting large feedback
+4. **Injection budget**: Consider token usage when injecting feedback - budget is configurable via `session.injection_budget_per_turn` (default: 10,000 tokens/turn)
 
 ### User Experience
 
