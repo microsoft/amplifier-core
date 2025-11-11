@@ -5,11 +5,16 @@ The main entry point for using the Amplifier system.
 
 import logging
 import uuid
+from typing import TYPE_CHECKING
 from typing import Any
 
 from .coordinator import ModuleCoordinator
 from .loader import ModuleLoader
 from .models import SessionStatus
+
+if TYPE_CHECKING:
+    from .approval import ApprovalSystem
+    from .display import DisplaySystem
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +31,8 @@ class AmplifierSession:
         loader: ModuleLoader | None = None,
         session_id: str | None = None,
         parent_id: str | None = None,
+        approval_system: "ApprovalSystem | None" = None,
+        display_system: "DisplaySystem | None" = None,
     ):
         """
         Initialize an Amplifier session with explicit configuration.
@@ -35,6 +42,8 @@ class AmplifierSession:
             loader: Optional module loader (creates default if None)
             session_id: Optional session ID (generates UUID if not provided)
             parent_id: Optional parent session ID (None for top-level, UUID for child sessions)
+            approval_system: Optional approval system (app-layer policy)
+            display_system: Optional display system (app-layer policy)
 
         Raises:
             ValueError: If config missing required fields
@@ -58,8 +67,12 @@ class AmplifierSession:
         self.status = SessionStatus(session_id=self.session_id)
         self._initialized = False
 
-        # Create coordinator with infrastructure context (provides IDs, config, session to modules)
-        self.coordinator = ModuleCoordinator(session=self)
+        # Create coordinator with infrastructure context and injected UX systems
+        self.coordinator = ModuleCoordinator(
+            session=self,
+            approval_system=approval_system,
+            display_system=display_system,
+        )
 
         # Set default fields for all events (infrastructure propagation)
         self.coordinator.hooks.set_default_fields(session_id=self.session_id, parent_id=self.parent_id)

@@ -18,9 +18,9 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Any
 
+from .approval import ApprovalSystem
 from .approval import ApprovalTimeoutError
-from .approval import CLIApprovalSystem
-from .display import CLIDisplaySystem
+from .display import DisplaySystem
 from .hooks import HookRegistry
 from .models import HookResult
 
@@ -46,12 +46,19 @@ class ModuleCoordinator:
     - Event system with default field injection
     """
 
-    def __init__(self: "ModuleCoordinator", session: "AmplifierSession"):
+    def __init__(
+        self: "ModuleCoordinator",
+        session: "AmplifierSession",
+        approval_system: "ApprovalSystem | None" = None,
+        display_system: "DisplaySystem | None" = None,
+    ):
         """
         Initialize coordinator with session providing infrastructure context.
 
         Args:
             session: Parent AmplifierSession providing infrastructure
+            approval_system: Optional approval system (app-layer policy)
+            display_system: Optional display system (app-layer policy)
         """
         self._session = session  # Infrastructure reference
 
@@ -69,10 +76,16 @@ class ModuleCoordinator:
         # Make hooks accessible as an attribute for backward compatibility
         self.hooks = self.mount_points["hooks"]
 
-        # Hook result processing subsystems
-        self.approval_system = CLIApprovalSystem()
-        self.display_system = CLIDisplaySystem()
+        # Hook result processing subsystems (injected by app layer)
+        self.approval_system = approval_system
+        self.display_system = display_system
         self._current_turn_injections = 0  # Token budget tracking
+
+        # Log warnings if systems not provided (kernel doesn't decide fallback - that's policy)
+        if self.approval_system is None:
+            logger.warning("No approval system provided - approval requests will fail")
+        if self.display_system is None:
+            logger.warning("No display system provided - hook messages will be logged only")
 
     @property
     def session(self) -> "AmplifierSession":
@@ -357,6 +370,11 @@ class ModuleCoordinator:
             },
         )
 
+        # Check if approval system is available
+        if self.approval_system is None:
+            logger.error("Approval requested but no approval system provided", extra={"hook": hook_name})
+            return HookResult(action="deny", reason="No approval system available")
+
         try:
             # Request approval from user
             decision = await self.approval_system.request_approval(
@@ -385,6 +403,12 @@ class ModuleCoordinator:
     def _handle_user_message(self, result: HookResult, hook_name: str):
         """Handle user message display."""
         if not result.user_message:
+            return
+
+        # Check if display system is available
+        if self.display_system is None:
+            # Fallback to logging if no display system provided
+            logger.info(f"Hook message ({result.user_message_level}): {result.user_message}", extra={"hook": hook_name})
             return
 
         self.display_system.show_message(

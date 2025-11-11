@@ -8,12 +8,29 @@ requires-python = ">=3.11"
 authors = [
     { name = "Microsoft MADE:Explorations Team" },
 ]
+keywords = ["ai", "agents", "llm", "modular", "kernel", "orchestration"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "pydantic>=2.0",
     "pyyaml>=6.0.3",
     "tomli>=2.0",
     "typing-extensions>=4.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/microsoft/amplifier-core"
+Documentation = "https://github.com/microsoft/amplifier-core/tree/main/docs"
+Repository = "https://github.com/microsoft/amplifier-core"
+Issues = "https://github.com/microsoft/amplifier-core/issues"
 
 [build-system]
 requires = [
@@ -35,4 +52,5 @@ allow-direct-references = true
 [dependency-groups]
 dev = [
     "pytest>=8.4.2",
+    "pytest-asyncio>=1.3.0",
 ]
