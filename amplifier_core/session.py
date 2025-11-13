@@ -213,7 +213,7 @@ class AmplifierSession:
             if self.parent_id:
                 from .events import SESSION_FORK
 
-                await self.coordinator.hooks.emit(SESSION_FORK, {"data": {"parent": self.parent_id}})
+                await self.coordinator.hooks.emit(SESSION_FORK, {"parent": self.parent_id})
 
             logger.info(f"Session {self.session_id} initialized successfully")
 

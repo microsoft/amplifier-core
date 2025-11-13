@@ -14,6 +14,8 @@ identifiers and basic state necessary to make module boundaries work.
 
 import inspect
 import logging
+from collections.abc import Awaitable
+from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Any
@@ -72,6 +74,7 @@ class ModuleCoordinator:
         }
         self._cleanup_functions = []
         self._capabilities = {}  # Capability registry for inter-module communication
+        self.channels: dict[str, list[dict]] = {}  # Contribution channels for aggregation
 
         # Make hooks accessible as an attribute for backward compatibility
         self.hooks = self.mount_points["hooks"]
@@ -239,6 +242,73 @@ class ModuleCoordinator:
             The capability if registered, None otherwise
         """
         return self._capabilities.get(name)
+
+    def register_contributor(
+        self,
+        channel: str,
+        name: str,
+        callback: Callable[[], Any] | Callable[[], Awaitable[Any]],
+    ) -> None:
+        """
+        Register contributor to named channel.
+
+        Generic mechanism - kernel doesn't interpret channels or contributions.
+
+        Args:
+            channel: Channel name (e.g., 'observability.events', 'capabilities')
+            name: Module name for debugging (e.g., 'tool-filesystem')
+            callback: Callable that returns contribution (or None). Can be sync or async.
+
+        Example:
+            coordinator.register_contributor(
+                'observability.events',
+                'tool-task',
+                lambda: ['task:agent_spawned', 'task:agent_completed']
+            )
+        """
+        if channel not in self.channels:
+            self.channels[channel] = []
+
+        self.channels[channel].append({"name": name, "callback": callback})
+
+        logger.debug(f"Registered contributor '{name}' to channel '{channel}'")
+
+    async def collect_contributions(self, channel: str) -> list[Any]:
+        """
+        Collect contributions from channel.
+
+        Returns raw contributions - caller interprets.
+
+        Args:
+            channel: Channel name
+
+        Returns:
+            List of contributions (None filtered out)
+
+        Example:
+            events = await coordinator.collect_contributions('observability.events')
+            # Returns: [['task:spawned'], ['session:start'], ...]
+        """
+        contributions = []
+
+        for contributor in self.channels.get(channel, []):
+            try:
+                callback = contributor["callback"]
+                # Handle both sync and async callables
+                if inspect.iscoroutinefunction(callback):
+                    result = await callback()
+                else:
+                    result = callback()
+                    # If the result is a coroutine, await it
+                    if inspect.iscoroutine(result):
+                        result = await result
+
+                if result is not None:
+                    contributions.append(result)
+            except Exception as e:
+                logger.warning(f"Contributor '{contributor['name']}' on channel '{channel}' failed: {e}")
+
+        return contributions
 
     async def cleanup(self):
         """Call all registered cleanup functions."""
