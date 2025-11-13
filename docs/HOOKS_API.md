@@ -86,7 +86,7 @@ class HookResult(BaseModel):
 **`context_injection`** (optional)
 - Type: `str | None`
 - Default: `None`
-- Description: Text to inject into agent's conversation context (for `action="inject_context"`). Agent sees this content and can respond to it. Max 10KB per injection.
+- Description: Text to inject into agent's conversation context (for `action="inject_context"`). Agent sees this content and can respond to it. Default limit 10 KB per injection (configurable via `session.injection_size_limit`).
 - Security: Size-limited, audited, tagged with source hook
 
 **`context_injection_role`** (optional)
@@ -333,7 +333,7 @@ async def comprehensive_hook(event: str, data: dict) -> HookResult:
 ### Security
 
 1. **Validate inputs**: Never trust event data blindly
-2. **Limit injection size**: Respect 10KB max for context injections
+2. **Limit injection size**: Respect the configured `session.injection_size_limit` (default 10 KB, `None` for unlimited)
 3. **Safe defaults**: Use `approval_default="deny"` for security-sensitive operations
 4. **Audit trail**: All context injections are automatically logged with provenance
 5. **Output scope**: Remember hooks can only suppress their own output, not tool output
@@ -343,7 +343,7 @@ async def comprehensive_hook(event: str, data: dict) -> HookResult:
 1. **Quick validation**: Keep pre-tool hooks fast to avoid blocking
 2. **Async I/O**: Use `asyncio` for external calls (linters, APIs)
 3. **Timeouts**: Set reasonable `approval_timeout` (default 5 min)
-4. **Injection budget**: Consider token usage when injecting feedback - budget is configurable via `session.injection_budget_per_turn` (default: 10,000 tokens/turn)
+4. **Injection budget**: Consider token usage when injecting feedback - budget is configurable via `session.injection_budget_per_turn` (default: 10,000 tokens/turn, `None` for unlimited)
 
 ### User Experience
 

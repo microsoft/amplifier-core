@@ -32,9 +32,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Context injection size limit (kernel safety invariant)
+# Default per-injection size limit (policy should come from session config)
 # Budget per turn is configurable policy via session.injection_budget_per_turn
-MAX_INJECTION_SIZE = 10 * 1024  # 10KB hard limit per injection
+DEFAULT_INJECTION_SIZE_LIMIT = 10 * 1024  # 10KB default limit per injection
 
 
 class ModuleCoordinator:
@@ -115,6 +115,17 @@ class ModuleCoordinator:
             Default: 10,000 tokens if not configured.
         """
         return self._session.config.get("session", {}).get("injection_budget_per_turn", 10_000)
+
+    @property
+    def injection_size_limit(self) -> int | None:
+        """
+        Get per-injection size limit from session config (policy).
+
+        Returns:
+            Byte limit per injection, or None for unlimited.
+            Default: 10,240 bytes if not configured.
+        """
+        return self._session.config.get("session", {}).get("injection_size_limit", DEFAULT_INJECTION_SIZE_LIMIT)
 
     @property
     def config(self) -> dict:
@@ -371,9 +382,13 @@ class ModuleCoordinator:
             return
 
         # 1. Validate size
-        if len(content) > MAX_INJECTION_SIZE:
-            logger.error(f"Hook injection too large: {hook_name}", extra={"size": len(content)})
-            raise ValueError(f"Context injection exceeds {MAX_INJECTION_SIZE} bytes")
+        size_limit = self.injection_size_limit
+        if size_limit is not None and len(content) > size_limit:
+            logger.error(
+                f"Hook injection too large: {hook_name}",
+                extra={"size": len(content), "limit": size_limit},
+            )
+            raise ValueError(f"Context injection exceeds {size_limit} bytes")
 
         # 2. Check budget (policy from session config)
         budget = self.injection_budget_per_turn
@@ -382,7 +397,7 @@ class ModuleCoordinator:
         # If budget is None, no limit (unlimited policy)
         if budget is not None and self._current_turn_injections + tokens > budget:
             logger.warning(
-                "Hook injection budget exceeded",
+                "Warning: Hook injection budget exceeded",
                 extra={
                     "hook": hook_name,
                     "current": self._current_turn_injections,

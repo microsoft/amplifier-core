@@ -55,7 +55,7 @@ class HookResult(BaseModel):
         The injected content appears as a message with the specified role (system/user/assistant).
         System role (default) is recommended for environmental feedback.
 
-        Injections are size-limited (10KB max), audited, and tagged with provenance metadata.
+        Injections are size-limited (default 10 KB, configurable via session.injection_size_limit), audited, and tagged with provenance metadata.
 
     Approval Gates:
         Hooks can request user approval for operations, enabling dynamic permission logic
@@ -130,7 +130,8 @@ class HookResult(BaseModel):
         description=(
             "Text to inject into agent's conversation context (for action='inject_context'). "
             "Agent sees this content and can respond to it. Enables automated feedback loops. "
-            "Max 10KB per injection, audited and tagged with source hook."
+            "Default 10 KB limit per injection (configurable via session.injection_size_limit). "
+            "Content is audited and tagged with source hook."
         ),
     )
     context_injection_role: Literal["system", "user", "assistant"] = Field(
