@@ -208,6 +208,17 @@ class HookResult(BaseModel):
         ),
     )
 
+    # Injection placement control
+    append_to_last_tool_result: bool = Field(
+        default=False,
+        description=(
+            "If True and ephemeral=True, append context_injection to the last tool result message "
+            "instead of creating a new message. Use for contextual reminders that relate to the "
+            "tool that just executed. Falls back to new message if last message isn't a tool result. "
+            "Only applicable when action='inject_context' and ephemeral=True."
+        ),
+    )
+
 
 class ProviderResponse(BaseModel):
     """Response from LLM provider."""
