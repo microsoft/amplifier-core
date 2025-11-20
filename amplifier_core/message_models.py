@@ -120,7 +120,7 @@ class Message(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    role: Literal["system", "developer", "user", "assistant", "function"]
+    role: Literal["system", "developer", "user", "assistant", "function", "tool"]
     content: Union[str, list[ContentBlockUnion]]
     name: str | None = None
     tool_call_id: str | None = None

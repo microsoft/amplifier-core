@@ -7,7 +7,9 @@ from unittest.mock import Mock
 
 import pytest
 from amplifier_core import AmplifierSession
-from amplifier_core import ProviderResponse
+from amplifier_core import ChatResponse
+from amplifier_core import TextBlock
+from amplifier_core import Usage
 
 
 class MockProvider:
@@ -19,9 +21,12 @@ class MockProvider:
         self.call_count = 0
         self.complete = AsyncMock(side_effect=self._complete)
 
-    async def _complete(self, messages, **kwargs):
+    async def _complete(self, request, **kwargs):
         self.call_count += 1
-        return ProviderResponse(content="Test response", raw=None, usage={"input": 10, "output": 20})
+        return ChatResponse(
+            content=[TextBlock(text="Test response")],
+            usage=Usage(input_tokens=10, output_tokens=20, total_tokens=30),
+        )
 
     def parse_tool_calls(self, response):
         return []

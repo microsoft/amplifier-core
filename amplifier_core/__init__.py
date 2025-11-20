@@ -34,7 +34,6 @@ from .message_models import ToolSpec
 from .message_models import Usage
 from .models import HookResult
 from .models import ModuleInfo
-from .models import ProviderResponse
 from .models import SessionStatus
 from .models import ToolCall
 from .models import ToolResult
@@ -48,7 +47,6 @@ __all__ = [
     "ToolCall",
     "ToolResult",
     "HookResult",
-    "ProviderResponse",
     "ModuleInfo",
     "SessionStatus",
     "ApprovalRequest",

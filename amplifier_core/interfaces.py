@@ -11,8 +11,9 @@ from typing import runtime_checkable
 from pydantic import BaseModel
 from pydantic import Field
 
+from .message_models import ChatRequest
+from .message_models import ChatResponse
 from .models import HookResult
-from .models import ProviderResponse
 from .models import ToolCall
 from .models import ToolResult
 
@@ -50,32 +51,43 @@ class Orchestrator(Protocol):
 
 @runtime_checkable
 class Provider(Protocol):
-    """Interface for LLM provider modules."""
+    """
+    Interface for LLM provider modules.
+
+    Providers receive ChatRequest (typed, validated messages) and return
+    ChatResponse (typed, structured content). Orchestrators handle conversion
+    between context storage format (dict) and provider contract (ChatRequest).
+
+    This maintains clean separation:
+    - Storage layer (contexts) use dicts for serialization flexibility
+    - Business logic layer (orchestrators) use typed models
+    - Service layer (providers) have strong contracts
+    """
 
     @property
     def name(self) -> str:
         """Provider name."""
         ...
 
-    async def complete(self, messages: list[dict[str, Any]], **kwargs) -> ProviderResponse:
+    async def complete(self, request: ChatRequest, **kwargs) -> ChatResponse:
         """
-        Generate completion from messages.
+        Generate completion from ChatRequest.
 
         Args:
-            messages: Conversation history
-            **kwargs: Provider-specific options
+            request: Typed chat request with messages, tools, config
+            **kwargs: Provider-specific options (override request fields)
 
         Returns:
-            Provider response with content and metadata
+            ChatResponse with content blocks, tool calls, usage
         """
         ...
 
-    def parse_tool_calls(self, response: ProviderResponse) -> list[ToolCall]:
+    def parse_tool_calls(self, response: ChatResponse) -> list[ToolCall]:
         """
-        Parse tool calls from provider response.
+        Parse tool calls from ChatResponse.
 
         Args:
-            response: Provider response
+            response: Typed chat response
 
         Returns:
             List of tool calls to execute

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Standardized on ChatRequest/ChatResponse throughout provider and orchestrator interfaces
+- Simplified provider implementations by removing legacy format support
 - **BREAKING**: Approval and display systems now injected by app layer (not hardcoded in kernel)
   - `AmplifierSession` accepts optional `approval_system` and `display_system` parameters
   - `ModuleCoordinator` accepts injected systems instead of hardcoding `CLIApprovalSystem`/`CLIDisplaySystem`
