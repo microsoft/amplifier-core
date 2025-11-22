@@ -41,6 +41,7 @@ class ThinkingBlock(BaseModel):
     thinking: str
     signature: str | None = None
     visibility: Literal["internal", "developer", "user"] | None = None
+    content: list[Any] | None = None  # OpenAI reasoning state: [encrypted_content, reasoning_id]
 
 
 class RedactedThinkingBlock(BaseModel):
@@ -124,6 +125,7 @@ class Message(BaseModel):
     content: Union[str, list[ContentBlockUnion]]
     name: str | None = None
     tool_call_id: str | None = None
+    metadata: dict[str, Any] | None = None  # Provider-specific state (e.g., OpenAI reasoning items)
 
 
 class ToolSpec(BaseModel):
