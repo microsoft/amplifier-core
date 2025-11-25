@@ -14,6 +14,8 @@ from pydantic import Field
 from .message_models import ChatRequest
 from .message_models import ChatResponse
 from .models import HookResult
+from .models import ModelInfo
+from .models import ProviderInfo
 from .models import ToolCall
 from .models import ToolResult
 
@@ -67,6 +69,27 @@ class Provider(Protocol):
     @property
     def name(self) -> str:
         """Provider name."""
+        ...
+
+    def get_info(self) -> ProviderInfo:
+        """
+        Get provider metadata.
+
+        Returns:
+            ProviderInfo with id, display_name, credential_env_vars, capabilities, defaults
+        """
+        ...
+
+    async def list_models(self) -> list[ModelInfo]:
+        """
+        List available models for this provider.
+
+        Provider decides implementation: API query, hardcoded list, cached response, etc.
+        Returns empty list if model discovery not available (user enters model manually).
+
+        Returns:
+            List of ModelInfo for available models
+        """
         ...
 
     async def complete(self, request: ChatRequest, **kwargs) -> ChatResponse:

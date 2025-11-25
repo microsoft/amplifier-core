@@ -220,6 +220,48 @@ class HookResult(BaseModel):
     )
 
 
+class ModelInfo(BaseModel):
+    """Model metadata for provider models.
+
+    Describes capabilities and defaults for a specific model available from a provider.
+    """
+
+    id: str = Field(..., description="Model identifier (e.g., 'claude-sonnet-4-5', 'gpt-4o')")
+    display_name: str = Field(..., description="Human-readable model name")
+    context_window: int = Field(..., description="Maximum context window in tokens")
+    max_output_tokens: int = Field(..., description="Maximum output tokens")
+    capabilities: list[str] = Field(
+        default_factory=list,
+        description="Extensible capability list (e.g., 'tools', 'vision', 'thinking', 'streaming', 'json_mode')",
+    )
+    defaults: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Model-specific default config values (e.g., temperature, max_tokens)",
+    )
+
+
+class ProviderInfo(BaseModel):
+    """Provider metadata.
+
+    Describes capabilities, authentication requirements, and defaults for a provider.
+    """
+
+    id: str = Field(..., description="Provider identifier (e.g., 'anthropic', 'openai')")
+    display_name: str = Field(..., description="Human-readable provider name")
+    credential_env_vars: list[str] = Field(
+        default_factory=list,
+        description="Environment variables for credentials (e.g., ['ANTHROPIC_API_KEY'])",
+    )
+    capabilities: list[str] = Field(
+        default_factory=list,
+        description="Extensible capability list (e.g., 'streaming', 'batch', 'embeddings')",
+    )
+    defaults: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Provider-level default config values (e.g., timeout, max_retries)",
+    )
+
+
 class ModuleInfo(BaseModel):
     """Module metadata."""
 

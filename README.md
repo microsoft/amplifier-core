@@ -77,7 +77,7 @@ Infrastructure context providing session_id, config access, hooks, and mount poi
 
 All modules use Python `Protocol` (structural typing, no inheritance required):
 
-- **Provider** - LLM backends (name, complete(), parse_tool_calls())
+- **Provider** - LLM backends (name, complete(), parse_tool_calls(), get_info(), list_models())
 - **Tool** - Agent capabilities (name, description, execute())
 - **Orchestrator** - Execution loops (execute())
 - **ContextManager** - Memory (add_message(), get_messages(), compact())
