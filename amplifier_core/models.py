@@ -263,6 +263,10 @@ class ConfigField(BaseModel):
         default=None,
         description="Conditional visibility: show this field only when another field has a specific value (e.g., {'model': 'claude-sonnet-4-5-20250929'})",
     )
+    requires_model: bool = Field(
+        default=False,
+        description="If True, this field is shown after model selection (enables show_when to reference the selected model)",
+    )
 
 
 class ProviderInfo(BaseModel):
