@@ -240,6 +240,31 @@ class ModelInfo(BaseModel):
     )
 
 
+class ConfigField(BaseModel):
+    """A configuration field that a provider needs, with prompt metadata.
+
+    Providers define their configuration needs through these fields. The app-cli
+    renders them generically into interactive prompts, keeping all provider-specific
+    logic in the provider modules.
+    """
+
+    id: str = Field(..., description="Field identifier (used as key in config dict)")
+    display_name: str = Field(..., description="Human-readable label for prompts")
+    field_type: Literal["text", "secret", "choice", "boolean"] = Field(
+        default="text",
+        description="Field type: 'text' for plain input, 'secret' for masked input, 'choice' for selection, 'boolean' for yes/no",
+    )
+    prompt: str = Field(..., description="Question to ask the user")
+    env_var: str | None = Field(default=None, description="Environment variable to check/set")
+    choices: list[str] | None = Field(default=None, description="Valid choices (for field_type='choice')")
+    required: bool = Field(default=True, description="Whether this field is required")
+    default: str | None = Field(default=None, description="Default value if not provided")
+    show_when: dict[str, str] | None = Field(
+        default=None,
+        description="Conditional visibility: show this field only when another field has a specific value (e.g., {'model': 'claude-sonnet-4-5-20250929'})",
+    )
+
+
 class ProviderInfo(BaseModel):
     """Provider metadata.
 
@@ -259,6 +284,10 @@ class ProviderInfo(BaseModel):
     defaults: dict[str, Any] = Field(
         default_factory=dict,
         description="Provider-level default config values (e.g., timeout, max_retries)",
+    )
+    config_fields: list[ConfigField] = Field(
+        default_factory=list,
+        description="Configuration fields for interactive setup. Provider defines all fields it needs.",
     )
 
 

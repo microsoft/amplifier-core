@@ -32,6 +32,7 @@ from .message_models import ToolCallBlock
 from .message_models import ToolResultBlock
 from .message_models import ToolSpec
 from .message_models import Usage
+from .models import ConfigField
 from .models import HookResult
 from .models import ModelInfo
 from .models import ModuleInfo
@@ -49,6 +50,7 @@ __all__ = [
     "ToolCall",
     "ToolResult",
     "HookResult",
+    "ConfigField",
     "ModelInfo",
     "ModuleInfo",
     "ProviderInfo",
