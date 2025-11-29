@@ -1,6 +1,13 @@
 """
 Standard interfaces for Amplifier modules.
 Uses Protocol classes for structural subtyping (no inheritance required).
+
+Related contracts (for module developers):
+  - docs/contracts/PROVIDER_CONTRACT.md (Provider, lines 54-119)
+  - docs/contracts/TOOL_CONTRACT.md (Tool, lines 121-146)
+  - docs/contracts/HOOK_CONTRACT.md (HookHandler, lines 173-189)
+  - docs/contracts/ORCHESTRATOR_CONTRACT.md (Orchestrator, lines 26-52)
+  - docs/contracts/CONTEXT_CONTRACT.md (ContextManager, lines 148-171)
 """
 
 from typing import TYPE_CHECKING

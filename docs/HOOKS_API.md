@@ -1,3 +1,15 @@
+---
+spec_type: api_reference
+module_type: hook
+last_modified: 2025-01-29
+related_contracts:
+  - path: contracts/HOOK_CONTRACT.md
+    relationship: contract_hub
+  - path: ../amplifier_core/interfaces.py#HookHandler
+    relationship: protocol_definition
+    lines: 173-189
+---
+
 # Hooks API Reference
 
 Complete API documentation for Amplifier's hook system.

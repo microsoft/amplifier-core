@@ -41,6 +41,13 @@ from .models import SessionStatus
 from .models import ToolCall
 from .models import ToolResult
 from .session import AmplifierSession
+from .testing import EventRecorder
+from .testing import MockContextManager
+from .testing import MockTool
+from .testing import ScriptedOrchestrator
+from .testing import TestCoordinator
+from .testing import create_test_coordinator
+from .testing import wait_for
 
 __all__ = [
     "AmplifierSession",
@@ -80,4 +87,12 @@ __all__ = [
     "ResponseFormatText",
     "ResponseFormatJson",
     "ResponseFormatJsonSchema",
+    # Testing utilities
+    "TestCoordinator",
+    "MockTool",
+    "MockContextManager",
+    "EventRecorder",
+    "ScriptedOrchestrator",
+    "create_test_coordinator",
+    "wait_for",
 ]

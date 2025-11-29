@@ -1,3 +1,17 @@
+---
+spec_type: kernel_mechanism
+last_modified: 2025-01-29
+related_contracts:
+  - path: ../contracts/PROVIDER_CONTRACT.md
+    relationship: referenced_by
+  - path: ../contracts/HOOK_CONTRACT.md
+    relationship: referenced_by
+  - path: ../contracts/ORCHESTRATOR_CONTRACT.md
+    relationship: referenced_by
+  - path: ../contracts/CONTEXT_CONTRACT.md
+    relationship: referenced_by
+---
+
 # Contribution Channels
 
 Mechanism for pull-based aggregation across kernel modules.

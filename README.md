@@ -156,25 +156,26 @@ For complete module development guide:
 
 ## Documentation
 
-**For AI Assistants**:
-- [Complete Architecture Guide](docs/AMPLIFIER_CORE_ARCHITECTURE_FOR_AI.md) - Comprehensive reference (1,354 lines)
-- [Navigation Guide](docs/README_FOR_AI_ASSISTANTS.md) - Where to find what
+**Module Contracts** (Entry Point for Developers):
+- [Contracts Index](docs/contracts/README.md) - Start here for module development
+- [Provider Contract](docs/contracts/PROVIDER_CONTRACT.md) - LLM backend protocol
+- [Tool Contract](docs/contracts/TOOL_CONTRACT.md) - Agent capability protocol
+- [Hook Contract](docs/contracts/HOOK_CONTRACT.md) - Observability protocol
+- [Orchestrator Contract](docs/contracts/ORCHESTRATOR_CONTRACT.md) - Execution loop protocol
+- [Context Contract](docs/contracts/CONTEXT_CONTRACT.md) - Memory manager protocol
 
-**Specifications** (Kernel Contracts):
+**Specifications** (Detailed Design):
 - [Mount Plan Specification](docs/specs/MOUNT_PLAN_SPECIFICATION.md) - Configuration format
-- [Context Specification](docs/specs/CONTEXT_SPECIFICATION.md) - Memory manager contract
-- [Provider Specification](docs/specs/PROVIDER_SPECIFICATION.md) - LLM provider contract
-- [Observability Specification](docs/specs/OBSERVABILITY_SPECIFICATION.md) - Events and hooks
+- [Provider Specification](docs/specs/PROVIDER_SPECIFICATION.md) - LLM provider details
+- [Contribution Channels](docs/specs/CONTRIBUTION_CHANNELS.md) - Module contribution protocol
 
 **Detailed Guides**:
 - [Hooks API](docs/HOOKS_API.md) - Complete hook system reference
-- [Hooks Events](docs/HOOKS_EVENTS.md) - Canonical event taxonomy (30+)
 - [Session Forking](docs/SESSION_FORK_SPECIFICATION.md) - Child sessions for delegation
 - [Module Source Protocol](docs/MODULE_SOURCE_PROTOCOL.md) - Custom module loading
 
 **Philosophy**:
 - [Design Philosophy](docs/DESIGN_PHILOSOPHY.md) - Kernel principles and patterns
-- [Coordinator Infrastructure](docs/COORDINATOR_INFRASTRUCTURE_CONTEXT.md) - What coordinator provides
 
 ## Testing
 

@@ -1,3 +1,19 @@
+---
+spec_type: kernel_contract
+last_modified: 2025-01-29
+related_contracts:
+  - path: ../contracts/PROVIDER_CONTRACT.md
+    relationship: referenced_by
+  - path: ../contracts/TOOL_CONTRACT.md
+    relationship: referenced_by
+  - path: ../contracts/HOOK_CONTRACT.md
+    relationship: referenced_by
+  - path: ../contracts/ORCHESTRATOR_CONTRACT.md
+    relationship: referenced_by
+  - path: ../contracts/CONTEXT_CONTRACT.md
+    relationship: referenced_by
+---
+
 # Mount Plan Specification
 
 The **Mount Plan** is the contract between the application layer (CLI) and the Amplifier kernel (amplifier-core). It defines exactly what modules should be loaded and how they should be configured.

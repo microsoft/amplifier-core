@@ -1,3 +1,12 @@
+---
+spec_type: module_implementation
+module_type: provider
+last_modified: 2025-01-29
+related_contracts:
+  - path: ../contracts/PROVIDER_CONTRACT.md
+    relationship: contract_hub
+---
+
 # Provider Specification
 
 Providers translate between the platform's unified message format and vendor-specific LLM APIs.
