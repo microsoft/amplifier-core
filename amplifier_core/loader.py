@@ -189,6 +189,14 @@ class ModuleLoader:
                 module_path = source.resolve()
                 logger.info(f"[module:mount] {module_id} from {source}")
 
+                # Add module path to sys.path BEFORE validation
+                # This makes the module's dependencies (installed by uv pip install --target)
+                # available for import during validation
+                path_str = str(module_path)
+                if path_str not in sys.path:
+                    sys.path.insert(0, path_str)
+                    logger.debug(f"Added '{path_str}' to sys.path for module '{module_id}'")
+
                 # Validate module before loading
                 await self._validate_module(module_id, module_path)
             except Exception as resolve_error:
@@ -202,13 +210,6 @@ class ModuleLoader:
                     if mount_fn:
                         return mount_fn
                 raise resolve_error
-
-            # Add module path to sys.path if needed
-            # Path must STAY in sys.path for module's dependencies to be importable
-            path_str = str(module_path)
-            if path_str not in sys.path:
-                sys.path.insert(0, path_str)
-                logger.debug(f"Added '{path_str}' to sys.path for module '{module_id}'")
 
             # Try to load via entry point first
             mount_fn = self._load_entry_point(module_id, config)
