@@ -9,6 +9,8 @@ related_files:
     lines: 54-119
   - path: amplifier_core/message_models.py
     relationship: request_response_models
+  - path: amplifier_core/content_models.py
+    relationship: event_content_types
   - path: amplifier_core/models.py#ProviderInfo
     relationship: metadata_models
   - path: ../specs/PROVIDER_SPECIFICATION.md

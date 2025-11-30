@@ -17,10 +17,16 @@ class TestCoordinator(ModuleCoordinator):
     """Test coordinator with additional debugging capabilities."""
 
     def __init__(self):
-        # Create a mock session for testing
+        # Create a mock session for testing with minimal valid config
         from amplifier_core.session import AmplifierSession
 
-        mock_session = AmplifierSession(config={}, session_id="test-session")
+        minimal_config = {
+            "session": {
+                "orchestrator": "test-orchestrator",
+                "context": "test-context",
+            }
+        }
+        mock_session = AmplifierSession(config=minimal_config, session_id="test-session")
         super().__init__(session=mock_session)
         self.mount_history = []
         self.unmount_history = []

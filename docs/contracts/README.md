@@ -55,7 +55,8 @@ async def mount(coordinator, config):
 
 - **Protocol definitions**: `amplifier_core/interfaces.py`
 - **Data models**: `amplifier_core/models.py`
-- **Message models**: `amplifier_core/message_models.py`
+- **Message models**: `amplifier_core/message_models.py` (Pydantic models for request/response envelopes)
+- **Content models**: `amplifier_core/content_models.py` (dataclass types for events and streaming)
 
 These contract documents provide **guidance** that code cannot express. Always read the code docstrings first.
 

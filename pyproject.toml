@@ -20,11 +20,15 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
+    "click>=8.3.1",
     "pydantic>=2.0",
     "pyyaml>=6.0.3",
     "tomli>=2.0",
     "typing-extensions>=4.0",
 ]
+
+[project.scripts]
+amplifier-core = "amplifier_core.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/microsoft/amplifier-core"

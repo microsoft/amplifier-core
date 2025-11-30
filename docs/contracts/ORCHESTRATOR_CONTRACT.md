@@ -7,6 +7,8 @@ related_files:
   - path: amplifier_core/interfaces.py#Orchestrator
     relationship: protocol_definition
     lines: 26-52
+  - path: amplifier_core/content_models.py
+    relationship: event_content_types
   - path: ../specs/MOUNT_PLAN_SPECIFICATION.md
     relationship: configuration
   - path: ../specs/CONTRIBUTION_CHANNELS.md

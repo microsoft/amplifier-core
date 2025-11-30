@@ -4,7 +4,9 @@ This module provides type-safe message handling across all providers following
 the REQUEST_ENVELOPE_V1 specification. All models use Pydantic for validation
 and serialization.
 
-Note: content_models.py is deprecated in favor of these models.
+Note: content_models.py provides simpler dataclass-based types for event emission
+and streaming UI. Both modules are used together - this module for request/response
+envelopes, content_models for event blocks.
 
 See:
 - docs/REQUEST_ENVELOPE_MODELS.md for usage guide

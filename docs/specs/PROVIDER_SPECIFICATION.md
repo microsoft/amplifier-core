@@ -19,8 +19,11 @@ The authoritative definitions live in code:
 |------|-------|-------------|
 | Provider Protocol | `amplifier_core/interfaces.py` | `Provider` |
 | Request/Response | `amplifier_core/message_models.py` | `ChatRequest`, `ChatResponse`, `Message` |
-| Content Blocks | `amplifier_core/message_models.py` | `TextBlock`, `ThinkingBlock`, `ToolCallBlock`, etc. |
+| Content Blocks (envelope) | `amplifier_core/message_models.py` | `TextBlock`, `ThinkingBlock`, `ToolCallBlock`, etc. |
+| Content Blocks (events) | `amplifier_core/content_models.py` | `ContentBlock`, `TextContent`, `ThinkingContent`, `ToolCallContent` |
 | Metadata Models | `amplifier_core/models.py` | `ProviderInfo`, `ModelInfo`, `ConfigField` |
+
+**Note**: `message_models.py` provides Pydantic models for request/response envelopes. `content_models.py` provides dataclass types for event emission and streaming UI.
 
 **Read the code docstrings.** This spec covers implementation guidance that code cannot express.
 
