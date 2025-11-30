@@ -361,9 +361,6 @@ assert result == "Response 1"
 ```bash
 # Structural validation
 amplifier module validate ./my-orchestrator --type orchestrator
-
-# Full validation with behavioral tests
-amplifier module validate ./my-orchestrator --type orchestrator --full
 ```
 
 ---

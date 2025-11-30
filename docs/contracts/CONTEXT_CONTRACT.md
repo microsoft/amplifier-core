@@ -384,9 +384,6 @@ assert len(context.messages) == 1
 ```bash
 # Structural validation
 amplifier module validate ./my-context --type context
-
-# Full validation with behavioral tests
-amplifier module validate ./my-context --type context --full
 ```
 
 ---

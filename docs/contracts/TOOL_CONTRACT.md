@@ -313,9 +313,6 @@ assert mock_tool.last_input == {...}
 ```bash
 # Structural validation
 amplifier module validate ./my-tool --type tool
-
-# Full validation with behavioral tests
-amplifier module validate ./my-tool --type tool --full
 ```
 
 ---

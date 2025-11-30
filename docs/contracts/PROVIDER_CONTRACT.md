@@ -193,9 +193,6 @@ async def test_provider_mount():
 ```bash
 # Structural validation
 amplifier module validate ./my-provider --type provider
-
-# Full validation with behavioral tests
-amplifier module validate ./my-provider --type provider --full
 ```
 
 ---

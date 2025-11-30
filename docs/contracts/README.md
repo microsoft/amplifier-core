@@ -76,11 +76,8 @@ These contract documents provide **guidance** that code cannot express. Always r
 Verify your module before release:
 
 ```bash
-# Fast structural validation
+# Structural validation
 amplifier module validate ./my-module
-
-# Full validation with behavioral tests
-amplifier module validate ./my-module --full
 ```
 
 See individual contract documents for type-specific validation requirements.

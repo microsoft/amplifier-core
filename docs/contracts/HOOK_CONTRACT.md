@@ -311,9 +311,6 @@ assert events[0]["event"] == "tool:pre"
 ```bash
 # Structural validation
 amplifier module validate ./my-hook --type hook
-
-# Full validation with behavioral tests
-amplifier module validate ./my-hook --type hook --full
 ```
 
 ---
