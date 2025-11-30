@@ -15,6 +15,7 @@ from .interfaces import Orchestrator
 from .interfaces import Provider
 from .interfaces import Tool
 from .loader import ModuleLoader
+from .loader import ModuleValidationError
 from .message_models import ChatRequest
 from .message_models import ChatResponse
 from .message_models import Degradation
@@ -53,6 +54,7 @@ __all__ = [
     "AmplifierSession",
     "ModuleCoordinator",
     "ModuleLoader",
+    "ModuleValidationError",
     "HookRegistry",
     "ToolCall",
     "ToolResult",

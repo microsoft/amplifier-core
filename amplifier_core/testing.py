@@ -17,7 +17,12 @@ class TestCoordinator(ModuleCoordinator):
     """Test coordinator with additional debugging capabilities."""
 
     def __init__(self):
+        # Create mock approval/display systems to suppress warnings during testing/validation
+        mock_approval = AsyncMock(return_value={"approved": True})
+        mock_display = AsyncMock()
+
         # Create a mock session for testing with minimal valid config
+        # Pass mock systems to avoid warnings during session creation
         from amplifier_core.session import AmplifierSession
 
         minimal_config = {
@@ -26,8 +31,25 @@ class TestCoordinator(ModuleCoordinator):
                 "context": "test-context",
             }
         }
-        mock_session = AmplifierSession(config=minimal_config, session_id="test-session")
-        super().__init__(session=mock_session)
+        mock_session = AmplifierSession(
+            config=minimal_config,
+            session_id="test-session",
+            approval_system=mock_approval,
+            display_system=mock_display,
+        )
+
+        # Use the session's coordinator (which already has the mock systems)
+        # Don't call super().__init__ - just copy what we need from the session's coordinator
+        coord = mock_session.coordinator
+        self._session = mock_session
+        self.mount_points = coord.mount_points
+        self._cleanup_functions = coord._cleanup_functions
+        self._capabilities = coord._capabilities
+        self.channels = coord.channels
+        self.hooks = coord.hooks
+        self.approval_system = coord.approval_system
+        self.display_system = coord.display_system
+        self._current_turn_injections = 0
         self.mount_history = []
         self.unmount_history = []
 

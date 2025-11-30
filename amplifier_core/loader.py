@@ -26,6 +26,12 @@ from .models import ModuleInfo
 logger = logging.getLogger(__name__)
 
 
+class ModuleValidationError(Exception):
+    """Raised when a module fails validation at load time."""
+
+    pass
+
+
 class ModuleLoader:
     """
     Discovers and loads Amplifier modules.
@@ -182,6 +188,9 @@ class ModuleLoader:
                 source = source_resolver.resolve(module_id, profile_source)
                 module_path = source.resolve()
                 logger.info(f"[module:mount] {module_id} from {source}")
+
+                # Validate module before loading
+                await self._validate_module(module_id, module_path)
             except Exception as resolve_error:
                 # Import here to avoid circular dependency
                 from .module_sources import ModuleNotFoundError as SourceNotFoundError
@@ -303,10 +312,10 @@ class ModuleLoader:
             return "tool"
         if "agent" in module_id:
             return "agent"
-        if "context" in module_id:
-            return "context"
         if "hook" in module_id:
             return "hook"
+        if "context" in module_id:
+            return "context"
         # Default to tool if unknown
         return "tool"
 
@@ -327,6 +336,97 @@ class ModuleLoader:
         if module_type == "hook":
             return "hooks"
         return "unknown"
+
+    async def _validate_module(self, module_id: str, module_path: Path) -> None:
+        """
+        Validate a module before loading.
+
+        Runs the appropriate validator based on module type inferred from module_id.
+        Raises ModuleValidationError if validation fails.
+
+        Args:
+            module_id: Module identifier (e.g., "provider-anthropic", "tool-filesystem")
+            module_path: Resolved filesystem path to the module
+
+        Raises:
+            ModuleValidationError: If module fails validation
+        """
+        # Import validators here to avoid circular imports at module level
+        from .validation import ContextValidator
+        from .validation import HookValidator
+        from .validation import OrchestratorValidator
+        from .validation import ProviderValidator
+        from .validation import ToolValidator
+
+        # Infer module type from module_id
+        module_type = self._guess_module_type(module_id)
+
+        # Select appropriate validator
+        validators = {
+            "provider": ProviderValidator,
+            "tool": ToolValidator,
+            "hook": HookValidator,
+            "orchestrator": OrchestratorValidator,
+            "context": ContextValidator,
+        }
+
+        validator_class = validators.get(module_type)
+        if validator_class is None:
+            # Unknown module type - skip validation with warning
+            logger.warning(f"Unknown module type '{module_type}' for '{module_id}', skipping validation")
+            return
+
+        # Find the actual Python package directory within the module root
+        # Module structure: amplifier-module-xyz/ contains amplifier_module_xyz/
+        package_path = self._find_package_dir(module_id, module_path)
+        if package_path is None:
+            raise ModuleValidationError(f"Module '{module_id}' has no valid Python package at {module_path}")
+
+        # Run validation
+        validator = validator_class()
+        result = await validator.validate(package_path)
+
+        if not result.passed:
+            error_details = "; ".join(f"{e.name}: {e.message}" for e in result.errors)
+            raise ModuleValidationError(
+                f"Module '{module_id}' failed validation: {result.summary()}. Errors: {error_details}"
+            )
+
+        logger.info(f"[module:validated] {module_id} - {result.summary()}")
+
+    def _find_package_dir(self, module_id: str, module_path: Path) -> Path | None:
+        """
+        Find the Python package directory within a module root.
+
+        Module structure is typically:
+            amplifier-module-xyz/
+                amplifier_module_xyz/
+                    __init__.py
+                    (other module files)
+
+        Args:
+            module_id: Module identifier (e.g., "provider-anthropic")
+            module_path: Path to module root directory
+
+        Returns:
+            Path to the Python package directory, or None if not found
+        """
+        # If the path itself has __init__.py, it's already a package
+        if (module_path / "__init__.py").exists():
+            return module_path
+
+        # Look for amplifier_module_* directory
+        module_name = f"amplifier_module_{module_id.replace('-', '_')}"
+        package_dir = module_path / module_name
+        if package_dir.exists() and (package_dir / "__init__.py").exists():
+            return package_dir
+
+        # Fallback: search for any amplifier_module_* directory
+        for item in module_path.iterdir():
+            if item.is_dir() and item.name.startswith("amplifier_module_") and (item / "__init__.py").exists():
+                return item
+
+        return None
 
     async def initialize(self, module: Any, coordinator: ModuleCoordinator) -> Callable[[], Awaitable[None]] | None:
         """
