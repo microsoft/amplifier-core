@@ -30,6 +30,9 @@ dependencies = [
 [project.scripts]
 amplifier-core = "amplifier_core.cli:main"
 
+[project.entry-points."pytest11"]
+amplifier_module = "amplifier_core.pytest_plugin"
+
 [project.urls]
 Homepage = "https://github.com/microsoft/amplifier-core"
 Documentation = "https://github.com/microsoft/amplifier-core/tree/main/docs"

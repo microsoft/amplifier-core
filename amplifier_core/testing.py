@@ -71,6 +71,7 @@ class MockTool:
         self.name = name
         self.description = f"Mock tool: {name}"
         self.output = output
+        self.input_schema = {"type": "object", "properties": {}}  # Minimal schema
         self.execute = AsyncMock(side_effect=self._execute)
         self.call_count = 0
 
@@ -95,15 +96,23 @@ class MockContextManager:
 
 
 class EventRecorder:
-    """Records lifecycle events for testing."""
+    """Records lifecycle events for testing.
+
+    Implements the HookRegistry interface for emit() to allow use
+    as a mock hooks object in orchestrator tests.
+    """
 
     def __init__(self):
         self.events: list[tuple] = []
 
-    async def record(self, event: str, data: dict) -> HookResult:
-        """Record an event."""
+    async def emit(self, event: str, data: dict) -> HookResult:
+        """Emit (record) an event - compatible with HookRegistry.emit()."""
         self.events.append((event, data.copy()))
         return HookResult(action="continue")
+
+    async def record(self, event: str, data: dict) -> HookResult:
+        """Record an event (alias for emit for backward compatibility)."""
+        return await self.emit(event, data)
 
     def clear(self):
         """Clear recorded events."""
