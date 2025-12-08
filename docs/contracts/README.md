@@ -84,4 +84,4 @@ See individual contract documents for type-specific validation requirements.
 
 ---
 
-**For ecosystem overview**: [amplifier@next](https://github.com/microsoft/amplifier)
+**For ecosystem overview**: [amplifier](https://github.com/microsoft/amplifier)

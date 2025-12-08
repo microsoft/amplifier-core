@@ -22,4 +22,4 @@
 
 **Protocols are in code** (`amplifier_core/interfaces.py`), not duplicated in docs.
 
-For ecosystem: **→ [amplifier@next](https://github.com/microsoft/amplifier)**
+For ecosystem: **→ [amplifier](https://github.com/microsoft/amplifier)**
