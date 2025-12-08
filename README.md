@@ -7,6 +7,7 @@
 Amplifier Core provides the **mechanisms** for building modular AI agent systems. Following the Linux kernel model, it's a tiny, stable center (~2,600 lines) that rarely changes, with all policies and features implemented as replaceable modules at the edges.
 
 **Core responsibilities**:
+
 - Module discovery and loading
 - Lifecycle coordination
 - Hook system and events
@@ -41,11 +42,11 @@ Amplifier Core provides the **mechanisms** for building modular AI agent systems
 The kernel provides **capabilities** without **decisions**:
 
 | Kernel Provides (Mechanism) | Modules Decide (Policy) |
-|----------------------------|-------------------------|
-| Module loading | Which modules to load |
-| Event emission | What to log, where |
-| Session lifecycle | Orchestration strategy |
-| Hook registration | Security policies |
+| --------------------------- | ----------------------- |
+| Module loading              | Which modules to load   |
+| Event emission              | What to log, where      |
+| Session lifecycle           | Orchestration strategy  |
+| Hook registration           | Security policies       |
 
 **Litmus test**: "Could two teams want different behavior?" → If yes, it's policy → Module, not kernel.
 
@@ -60,17 +61,20 @@ The kernel provides **capabilities** without **decisions**:
 
 For complete Amplifier installation and usage:
 
-**→ https://github.com/microsoft/amplifier** (branch: `next`)
+**→ https://github.com/microsoft/amplifier**
 
 ## Core Concepts
 
 ### Session
+
 Execution context with mounted modules and conversation state. Lifespan: `initialize()` → `execute()` → `cleanup()`.
 
 ### Mount Plan
+
 Configuration dictionary specifying which modules to load and their configuration. Apps/profiles compile to Mount Plans.
 
 ### Coordinator
+
 Infrastructure context providing session_id, config access, hooks, and mount points. Injected into all modules.
 
 ### Module Types
@@ -146,17 +150,19 @@ async def mount(coordinator, config):
 ```
 
 **Entry point** (`pyproject.toml`):
+
 ```toml
 [project.entry-points."amplifier.modules"]
 my-tool = "amplifier_module_my_tool:mount"
 ```
 
 For complete module development guide:
-**→ https://github.com/microsoft/amplifier** (branch: `next`)
+**→ https://github.com/microsoft/amplifier**
 
 ## Documentation
 
 **Module Contracts** (Entry Point for Developers):
+
 - [Contracts Index](docs/contracts/README.md) - Start here for module development
 - [Provider Contract](docs/contracts/PROVIDER_CONTRACT.md) - LLM backend protocol
 - [Tool Contract](docs/contracts/TOOL_CONTRACT.md) - Agent capability protocol
@@ -165,16 +171,19 @@ For complete module development guide:
 - [Context Contract](docs/contracts/CONTEXT_CONTRACT.md) - Memory manager protocol
 
 **Specifications** (Detailed Design):
+
 - [Mount Plan Specification](docs/specs/MOUNT_PLAN_SPECIFICATION.md) - Configuration format
 - [Provider Specification](docs/specs/PROVIDER_SPECIFICATION.md) - LLM provider details
 - [Contribution Channels](docs/specs/CONTRIBUTION_CHANNELS.md) - Module contribution protocol
 
 **Detailed Guides**:
+
 - [Hooks API](docs/HOOKS_API.md) - Complete hook system reference
 - [Session Forking](docs/SESSION_FORK_SPECIFICATION.md) - Child sessions for delegation
 - [Module Source Protocol](docs/MODULE_SOURCE_PROTOCOL.md) - Custom module loading
 
 **Philosophy**:
+
 - [Design Philosophy](docs/DESIGN_PHILOSOPHY.md) - Kernel principles and patterns
 
 ## Testing
