@@ -4,6 +4,12 @@ Amplifier Core - Ultra-thin coordination layer for modular AI agents.
 
 __version__ = "1.0.0"
 
+from .content_models import ContentBlock
+from .content_models import ContentBlockType
+from .content_models import TextContent
+from .content_models import ThinkingContent
+from .content_models import ToolCallContent
+from .content_models import ToolResultContent
 from .coordinator import ModuleCoordinator
 from .hooks import HookRegistry
 from .interfaces import ApprovalProvider
@@ -33,12 +39,6 @@ from .message_models import ToolCallBlock
 from .message_models import ToolResultBlock
 from .message_models import ToolSpec
 from .message_models import Usage
-from .content_models import ContentBlock
-from .content_models import ContentBlockType
-from .content_models import TextContent
-from .content_models import ThinkingContent
-from .content_models import ToolCallContent
-from .content_models import ToolResultContent
 from .models import ConfigField
 from .models import HookResult
 from .models import ModelInfo
