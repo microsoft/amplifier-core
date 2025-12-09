@@ -4,7 +4,7 @@ Supports both entry points and filesystem discovery.
 
 With module source resolution:
 - Uses ModuleSourceResolver if mounted in coordinator
-- Falls back to EntryPointResolver if no resolver provided
+- Falls back to direct entry-point discovery if no resolver provided
 - Supports flexible module sourcing (git, local, packages)
 """
 
@@ -38,7 +38,7 @@ class ModuleLoader:
 
     Supports source resolution:
     - Uses ModuleSourceResolver from coordinator if available
-    - Falls back to EntryPointResolver if no resolver mounted
+    - Falls back to direct entry-point discovery if no resolver mounted
     - Backward compatible with existing entry point discovery
 
     Direct discovery (when no source resolver available):

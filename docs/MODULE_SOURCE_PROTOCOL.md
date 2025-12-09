@@ -89,43 +89,47 @@ class ModuleSourceResolver(Protocol):
 ### Module Loader API
 
 ```python
-class AmplifierModuleLoader:
+class ModuleLoader:
     """Kernel mechanism for loading modules.
 
     Accepts optional ModuleSourceResolver via coordinator mount point.
-    Falls back to entry point discovery if no resolver provided.
+    Falls back to direct entry-point discovery if no resolver provided.
     """
 
     def __init__(self, coordinator):
         """Initialize loader with coordinator."""
         self.coordinator = coordinator
 
-        # Get resolver from mount point (if app provided one)
-        self.resolver = coordinator.get("module-source-resolver")
-
-        # Fallback: If no resolver, use entry points (kernel mechanism)
-        if not self.resolver:
-            self.resolver = EntryPointResolver()  # Kernel-provided default
-
-    def load_module(self, module_id: str, profile_hint: Any = None):
+    async def load(self, module_id: str, config: dict = None, profile_source = None):
         """
-        Load module using resolver.
+        Load module using resolver or fallback to direct discovery.
 
         Args:
             module_id: Module identifier
-            profile_hint: Optional hint passed to resolver (app-defined)
+            config: Optional module configuration
+            profile_source: Optional source hint from profile/config
 
         Raises:
-            ModuleNotFoundError: Module not found by resolver
+            ModuleNotFoundError: Module not found
             ModuleLoadError: Module found but failed to load
         """
-        # Resolve source (policy decides WHERE)
-        source = self.resolver.resolve(module_id, profile_hint)
+        # Try to get resolver from mount point
+        source_resolver = None
+        if self.coordinator:
+            try:
+                source_resolver = self.coordinator.get("module-source-resolver")
+            except ValueError:
+                pass  # No resolver mounted
 
-        # Get module path (source decides HOW to get path)
+        if source_resolver is None:
+            # No resolver - use direct entry-point discovery
+            return await self._load_direct(module_id, config)
+
+        # Use resolver
+        source = source_resolver.resolve(module_id, profile_source)
         module_path = source.resolve()
 
-        # Load module (kernel mechanism for mounting)
+        # Load from resolved path
         # ... import and mount logic ...
 ```
 
@@ -201,25 +205,15 @@ class ModuleLoadError(Exception):
 
 ## Fallback Behavior
 
-### EntryPointResolver (Kernel Default)
+### Direct Entry Point Discovery (Kernel Default)
 
-The kernel provides a minimal default resolver using Python entry points:
+When no ModuleSourceResolver is mounted, the kernel falls back to direct entry point discovery via the `_load_direct()` method:
 
-```python
-class EntryPointResolver:
-    """Kernel-provided default resolver using entry points."""
+1. Searches Python entry points (group="amplifier.modules")
+2. Falls back to filesystem discovery (if search paths configured)
+3. Uses standard Python import mechanisms
 
-    def resolve(self, module_id: str, profile_hint: Any = None) -> ModuleSource:
-        """Resolve using Python entry points."""
-        # Look up entry point for module_id
-        entry_point = self._find_entry_point(module_id)
-
-        if not entry_point:
-            raise ModuleNotFoundError(f"Module '{module_id}' not found in entry points")
-
-        # Return package source
-        return PackageSource(entry_point.dist.name)
-```
+**Implementation**: The `_load_direct()` method directly calls `_load_entry_point()` and `_load_filesystem()` without creating a resolver wrapper object.
 
 **This ensures the kernel works without any app-layer resolver.**
 
@@ -274,4 +268,4 @@ When implementing custom resolvers:
 - [DESIGN_PHILOSOPHY.md](./DESIGN_PHILOSOPHY.md) - Kernel design principles
 - [MOUNT_PLAN_SPECIFICATION.md](./specs/MOUNT_PLAN_SPECIFICATION.md) - Mount plan format
 
-**Note**: Module source resolution implementation is application-layer policy. Applications may use libraries like amplifier-module-resolution or implement custom resolution strategies.
+**Note**: Module source resolution implementation is application-layer policy. Applications may implement custom resolution strategies using the protocols defined above.
