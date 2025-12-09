@@ -26,6 +26,18 @@ from .models import ModuleInfo
 logger = logging.getLogger(__name__)
 
 
+# Type → Mount Point mapping (kernel mechanism, not policy)
+# Modules declare type, kernel derives mount point from this stable mapping
+TYPE_TO_MOUNT_POINT = {
+    "orchestrator": "orchestrator",
+    "provider": "providers",
+    "tool": "tools",
+    "hook": "hooks",
+    "context": "context",
+    "resolver": "module-source-resolver",
+}
+
+
 class ModuleValidationError(Exception):
     """Raised when a module fails validation at load time."""
 
@@ -94,13 +106,16 @@ class ModuleLoader:
 
             for ep in eps:
                 try:
+                    # For entry points, we don't have module_path yet, use naming fallback
+                    module_type, mount_point = self._guess_from_naming(ep.name)
+
                     # Extract module info from entry point metadata
                     module_info = ModuleInfo(
                         id=ep.name,
                         name=ep.name.replace("-", " ").title(),
                         version="1.0.0",  # Would need to get from package metadata
-                        type=self._guess_module_type(ep.name),
-                        mount_point=self._guess_mount_point(ep.name),
+                        type=module_type,  # type: ignore[arg-type]
+                        mount_point=mount_point,
                         description=f"Module: {ep.name}",
                     )
                     modules.append(module_info)
@@ -130,12 +145,16 @@ class ModuleLoader:
                 try:
                     # Try to load module info
                     module_id = item.name.replace("amplifier-module-", "")
+
+                    # Get metadata (inspect if possible, fallback to naming)
+                    module_type, mount_point = self._get_module_metadata(module_id, item)
+
                     module_info = ModuleInfo(
                         id=module_id,
                         name=module_id.replace("-", " ").title(),
                         version="1.0.0",
-                        type=self._guess_module_type(module_id),
-                        mount_point=self._guess_mount_point(module_id),
+                        type=module_type,  # type: ignore[arg-type]
+                        mount_point=mount_point,
                         description=f"Module: {module_id}",
                     )
                     modules.append(module_info)
@@ -303,42 +322,101 @@ class ModuleLoader:
 
         return None
 
-    def _guess_module_type(  # type: ignore[return]
+    def _get_module_metadata(
+        self, module_id: str, module_path: Path
+    ) -> tuple[Literal["orchestrator", "provider", "tool", "context", "hook", "resolver"], str]:
+        """
+        Get module type and derive mount point.
+
+        Tries explicit declaration first, falls back to naming convention.
+
+        Args:
+            module_id: Module identifier
+            module_path: Resolved path to module
+
+        Returns:
+            tuple: (module_type, mount_point)
+        """
+        # Try to import module to read metadata
+        try:
+            # Find package directory
+            package_path = self._find_package_dir(module_id, module_path)
+            if package_path:
+                # Import the module temporarily
+                module_name = f"amplifier_module_{module_id.replace('-', '_')}"
+
+                # Add to sys.path temporarily for import
+                path_str = str(module_path)
+                added = False
+                if path_str not in sys.path:
+                    sys.path.insert(0, path_str)
+                    added = True
+
+                try:
+                    module = importlib.import_module(module_name)
+
+                    # Read ONLY type (simplified!)
+                    module_type = getattr(module, "__amplifier_module_type__", None)
+
+                    if module_type:
+                        # Derive mount point from type (kernel mechanism)
+                        mount_point = TYPE_TO_MOUNT_POINT.get(module_type)
+                        if not mount_point:
+                            raise ModuleValidationError(
+                                f"Module '{module_id}' has unknown type '{module_type}'. "
+                                f"Valid types: {list(TYPE_TO_MOUNT_POINT.keys())}"
+                            )
+
+                        logger.debug(
+                            f"Module '{module_id}' declares type='{module_type}', derived mount_point='{mount_point}'"
+                        )
+                        return module_type, mount_point
+
+                finally:
+                    # Clean up sys.path
+                    if added:
+                        sys.path.remove(path_str)
+
+        except Exception as e:
+            logger.debug(f"Could not inspect module '{module_id}': {e}")
+
+        # Fallback to naming convention (Phase 1-2 only)
+        logger.debug(f"Module '{module_id}' has no metadata, using naming convention")
+        return self._guess_from_naming(module_id)
+
+    def _guess_from_naming(
         self, module_id: str
-    ) -> Literal["orchestrator", "provider", "tool", "agent", "context", "hook"]:
-        """Guess module type from its ID."""
-        if "loop" in module_id or "orchestrat" in module_id:
-            return "orchestrator"
-        if "provider" in module_id:
-            return "provider"
-        if "tool" in module_id:
-            return "tool"
-        if "agent" in module_id:
-            return "agent"
-        if "hook" in module_id:
-            return "hook"
-        if "context" in module_id:
-            return "context"
-        # Default to tool if unknown
-        return "tool"
+    ) -> tuple[Literal["orchestrator", "provider", "tool", "context", "hook", "resolver"], str]:
+        """
+        Guess module type and mount point from naming convention.
 
-    def _guess_mount_point(self, module_id: str) -> str:
-        """Guess mount point from module type."""
-        module_type = self._guess_module_type(module_id)
+        FALLBACK ONLY: For modules without explicit metadata.
+        Prefer __amplifier_module_type__ attribute (mount point derived).
 
-        if module_type == "orchestrator":
-            return "orchestrator"
-        if module_type == "provider":
-            return "providers"
-        if module_type == "tool":
-            return "tools"
-        if module_type == "agent":
-            return "agents"
-        if module_type == "context":
-            return "context"
-        if module_type == "hook":
-            return "hooks"
-        return "unknown"
+        Args:
+            module_id: Module identifier
+
+        Returns:
+            tuple: (module_type, mount_point)
+        """
+        # Single mapping (consolidates both old methods)
+        type_mapping = {
+            "orchestrat": ("orchestrator", "orchestrator"),
+            "loop": ("orchestrator", "orchestrator"),
+            "provider": ("provider", "providers"),
+            "tool": ("tool", "tools"),
+            "hook": ("hook", "hooks"),
+            "context": ("context", "context"),
+            # Note: No "agent" - agents are config data, not modules
+        }
+
+        module_id_lower = module_id.lower()
+        for keyword, (mod_type, mount_pt) in type_mapping.items():
+            if keyword in module_id_lower:
+                return mod_type, mount_pt  # type: ignore[return-value]
+
+        # Default to tool
+        return "tool", "tools"  # type: ignore[return-value]
 
     async def _validate_module(self, module_id: str, module_path: Path) -> None:
         """
@@ -361,8 +439,8 @@ class ModuleLoader:
         from .validation import ProviderValidator
         from .validation import ToolValidator
 
-        # Infer module type from module_id
-        module_type = self._guess_module_type(module_id)
+        # Get module type (inspect if possible, fallback to naming)
+        module_type, _ = self._get_module_metadata(module_id, module_path)
 
         # Select appropriate validator
         validators = {

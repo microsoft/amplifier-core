@@ -293,7 +293,7 @@ class ModuleInfo(BaseModel):
     id: str = Field(..., description="Module identifier")
     name: str = Field(..., description="Module display name")
     version: str = Field(..., description="Module version")
-    type: Literal["orchestrator", "provider", "tool", "agent", "context", "hook"] = Field(
+    type: Literal["orchestrator", "provider", "tool", "context", "hook", "resolver"] = Field(
         ..., description="Module type"
     )
     mount_point: str = Field(..., description="Where module should be mounted")
