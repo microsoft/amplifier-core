@@ -32,9 +32,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Default per-injection size limit (policy should come from session config)
-# Budget per turn is configurable policy via session.injection_budget_per_turn
-DEFAULT_INJECTION_SIZE_LIMIT = 10 * 1024  # 10KB default limit per injection
+# Injection limits are configurable policy via session config
+# Default: None (unlimited) - kernel provides mechanism, not policy
 
 
 class ModuleCoordinator:
@@ -112,9 +111,9 @@ class ModuleCoordinator:
 
         Returns:
             Token budget per turn, or None for unlimited.
-            Default: 10,000 tokens if not configured.
+            Default: None (unlimited) - kernel provides mechanism, not policy.
         """
-        return self._session.config.get("session", {}).get("injection_budget_per_turn", 10_000)
+        return self._session.config.get("session", {}).get("injection_budget_per_turn")
 
     @property
     def injection_size_limit(self) -> int | None:
@@ -123,9 +122,9 @@ class ModuleCoordinator:
 
         Returns:
             Byte limit per injection, or None for unlimited.
-            Default: 10,240 bytes if not configured.
+            Default: None (unlimited) - kernel provides mechanism, not policy.
         """
-        return self._session.config.get("session", {}).get("injection_size_limit", DEFAULT_INJECTION_SIZE_LIMIT)
+        return self._session.config.get("session", {}).get("injection_size_limit")
 
     @property
     def config(self) -> dict:
