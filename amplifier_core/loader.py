@@ -59,6 +59,7 @@ class ModuleLoader:
         self._module_info: dict[str, ModuleInfo] = {}
         self._search_paths = search_paths
         self._coordinator = coordinator
+        self._added_paths: list[str] = []  # Track sys.path additions for cleanup
 
     async def discover(self) -> list[ModuleInfo]:
         """
@@ -195,6 +196,7 @@ class ModuleLoader:
                 path_str = str(module_path)
                 if path_str not in sys.path:
                     sys.path.insert(0, path_str)
+                    self._added_paths.append(path_str)  # Track for cleanup
                     logger.debug(f"Added '{path_str}' to sys.path for module '{module_id}'")
 
                 # Validate module before loading
@@ -446,3 +448,14 @@ class ModuleLoader:
         except Exception as e:
             logger.error(f"Failed to initialize module: {e}")
             raise
+
+    def cleanup(self) -> None:
+        """Remove all sys.path entries added by this loader."""
+        for path in reversed(self._added_paths):
+            try:
+                sys.path.remove(path)
+                logger.debug(f"Removed '{path}' from sys.path")
+            except ValueError:
+                # Path already removed or never existed
+                logger.debug(f"Path '{path}' already removed from sys.path")
+        self._added_paths.clear()

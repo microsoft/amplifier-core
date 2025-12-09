@@ -278,6 +278,9 @@ class AmplifierSession:
     async def cleanup(self: "AmplifierSession") -> None:
         """Clean up session resources."""
         await self.coordinator.cleanup()
+        # Clean up sys.path modifications
+        if self.loader:
+            self.loader.cleanup()
 
     async def __aenter__(self: "AmplifierSession"):
         """Async context manager entry."""
