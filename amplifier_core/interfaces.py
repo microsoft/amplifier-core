@@ -20,10 +20,10 @@ from pydantic import Field
 
 from .message_models import ChatRequest
 from .message_models import ChatResponse
+from .message_models import ToolCall
 from .models import HookResult
 from .models import ModelInfo
 from .models import ProviderInfo
-from .models import ToolCall
 from .models import ToolResult
 
 if TYPE_CHECKING:

@@ -9,7 +9,7 @@ related_files:
     lines: 121-146
   - path: amplifier_core/models.py#ToolResult
     relationship: result_model
-  - path: amplifier_core/models.py#ToolCall
+  - path: amplifier_core/message_models.py#ToolCall
     relationship: invocation_model
   - path: ../specs/MOUNT_PLAN_SPECIFICATION.md
     relationship: configuration
@@ -69,18 +69,20 @@ class Tool(Protocol):
 
 ## Data Models
 
-**Source**: `amplifier_core/models.py`
-
 ### ToolCall (Input)
+
+**Source**: `amplifier_core/message_models.py`
 
 ```python
 class ToolCall(BaseModel):
     id: str                    # Unique ID for correlation
     name: str                  # Tool name to invoke
-    input: dict[str, Any]      # Tool-specific parameters
+    arguments: dict[str, Any]  # Tool-specific parameters
 ```
 
 ### ToolResult (Output)
+
+**Source**: `amplifier_core/models.py`
 
 ```python
 class ToolResult(BaseModel):

@@ -35,6 +35,7 @@ from .message_models import ResponseFormatJsonSchema
 from .message_models import ResponseFormatText
 from .message_models import TextBlock
 from .message_models import ThinkingBlock
+from .message_models import ToolCall
 from .message_models import ToolCallBlock
 from .message_models import ToolResultBlock
 from .message_models import ToolSpec
@@ -45,7 +46,6 @@ from .models import ModelInfo
 from .models import ModuleInfo
 from .models import ProviderInfo
 from .models import SessionStatus
-from .models import ToolCall
 from .models import ToolResult
 from .session import AmplifierSession
 from .testing import EventRecorder

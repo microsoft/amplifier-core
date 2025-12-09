@@ -63,6 +63,8 @@ class Provider(Protocol):
     def parse_tool_calls(self, response: ChatResponse) -> list[ToolCall]: ...
 ```
 
+**Note**: `ToolCall` is from `amplifier_core.message_models` (see [REQUEST_ENVELOPE_V1](../specs/PROVIDER_SPECIFICATION.md) for details)
+
 ---
 
 ## Entry Point Pattern

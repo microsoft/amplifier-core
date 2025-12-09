@@ -21,6 +21,7 @@ The authoritative definitions live in code:
 | Request/Response | `amplifier_core/message_models.py` | `ChatRequest`, `ChatResponse`, `Message` |
 | Content Blocks (envelope) | `amplifier_core/message_models.py` | `TextBlock`, `ThinkingBlock`, `ToolCallBlock`, etc. |
 | Content Blocks (events) | `amplifier_core/content_models.py` | `ContentBlock`, `TextContent`, `ThinkingContent`, `ToolCallContent` |
+| Tool Calls | `amplifier_core/message_models.py` | `ToolCall` (used in `ChatResponse.tool_calls` and `parse_tool_calls()`) |
 | Metadata Models | `amplifier_core/models.py` | `ProviderInfo`, `ModelInfo`, `ConfigField` |
 
 **Note**: `message_models.py` provides Pydantic models for request/response envelopes. `content_models.py` provides dataclass types for event emission and streaming UI.

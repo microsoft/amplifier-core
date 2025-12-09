@@ -11,14 +11,6 @@ from pydantic import BaseModel
 from pydantic import Field
 
 
-class ToolCall(BaseModel):
-    """Represents a tool invocation request."""
-
-    tool: str = Field(..., description="Tool name to invoke")
-    arguments: dict[str, Any] = Field(default_factory=dict, description="Tool arguments")
-    id: str | None = Field(default=None, description="Unique tool call ID")
-
-
 class ToolResult(BaseModel):
     """Result from tool execution."""
 
