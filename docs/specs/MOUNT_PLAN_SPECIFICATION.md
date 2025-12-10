@@ -292,12 +292,39 @@ A production configuration with cost controls and safety:
 
 ## Validation
 
-`AmplifierSession` validates the Mount Plan on initialization:
+Validation happens in two phases: structural validation (before loading) and runtime validation (during initialization).
 
-### Required Fields
+### Pre-Load Structural Validation
 
-- `session.orchestrator` must be present and loadable
-- `session.context` must be present and loadable
+Use `MountPlanValidator` to validate mount plan structure before attempting to load modules:
+
+```python
+from amplifier_core.validation import MountPlanValidator
+
+validator = MountPlanValidator()
+result = validator.validate(mount_plan)
+
+if not result.passed:
+    print(result.format_errors())
+    sys.exit(1)
+
+# Safe to proceed with session creation
+session = AmplifierSession(mount_plan)
+```
+
+`MountPlanValidator` checks:
+- Root structure is a dict with required `session` section
+- Session section has required `orchestrator` and `context` fields
+- Module specs have required `module` field
+- Config and source fields are correct types when present
+- Unknown sections generate warnings (not errors)
+
+### Runtime Validation
+
+`AmplifierSession` performs additional validation on initialization:
+
+- `session.orchestrator` must be loadable
+- `session.context` must be loadable
 - At least one provider must be configured (required for agent loops)
 
 ### Module Loading

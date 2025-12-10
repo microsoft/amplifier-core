@@ -8,6 +8,8 @@ their required protocols (Provider, Tool, HookHandler, Orchestrator, ContextMana
 import pytest
 from amplifier_core.validation import ContextValidator
 from amplifier_core.validation import HookValidator
+from amplifier_core.validation import MountPlanValidationResult
+from amplifier_core.validation import MountPlanValidator
 from amplifier_core.validation import OrchestratorValidator
 from amplifier_core.validation import ProviderValidator
 from amplifier_core.validation import ToolValidator
@@ -334,3 +336,346 @@ async def mount(coordinator, config):
         importable_check = next((c for c in result.checks if c.name == "module_importable"), None)
         assert importable_check is not None
         assert importable_check.passed is True
+
+
+# =============================================================================
+# MountPlanValidator Tests
+# =============================================================================
+
+
+class TestMountPlanValidationResult:
+    """Tests for MountPlanValidationResult dataclass."""
+
+    def test_empty_result_passes(self):
+        """Empty result (no checks) passes by default."""
+        result = MountPlanValidationResult()
+        assert result.passed is True
+        assert result.errors == []
+        assert result.warnings == []
+
+    def test_result_with_passing_checks(self):
+        """Result with only passing checks passes."""
+        result = MountPlanValidationResult()
+        result.add(
+            ValidationCheck(
+                name="check1",
+                passed=True,
+                message="Pass",
+                severity="info",
+            )
+        )
+        result.add(
+            ValidationCheck(
+                name="check2",
+                passed=True,
+                message="Pass",
+                severity="info",
+            )
+        )
+        assert result.passed is True
+        assert len(result.checks) == 2
+
+    def test_result_with_error_fails(self):
+        """Result with failed error-level check fails."""
+        result = MountPlanValidationResult()
+        result.add(
+            ValidationCheck(
+                name="check1",
+                passed=True,
+                message="Pass",
+                severity="info",
+            )
+        )
+        result.add(
+            ValidationCheck(
+                name="check2",
+                passed=False,
+                message="Fail",
+                severity="error",
+            )
+        )
+        assert result.passed is False
+        assert len(result.errors) == 1
+        assert result.errors[0].name == "check2"
+
+    def test_result_with_warning_still_passes(self):
+        """Result with warning but no errors still passes."""
+        result = MountPlanValidationResult()
+        result.add(
+            ValidationCheck(
+                name="check1",
+                passed=False,
+                message="Warning",
+                severity="warning",
+            )
+        )
+        assert result.passed is True
+        assert len(result.warnings) == 1
+
+    def test_summary_format(self):
+        """Summary includes pass/fail status and counts."""
+        result = MountPlanValidationResult()
+        result.add(
+            ValidationCheck(
+                name="pass",
+                passed=True,
+                message="Pass",
+                severity="info",
+            )
+        )
+        result.add(
+            ValidationCheck(
+                name="fail",
+                passed=False,
+                message="Fail",
+                severity="error",
+            )
+        )
+        summary = result.summary()
+        assert "FAILED" in summary
+        assert "1/2" in summary
+        assert "1 errors" in summary
+
+    def test_format_errors(self):
+        """format_errors returns human-readable error list."""
+        result = MountPlanValidationResult()
+        result.add(
+            ValidationCheck(
+                name="missing_session",
+                passed=False,
+                message="Session section is missing",
+                severity="error",
+            )
+        )
+        formatted = result.format_errors()
+        assert "Mount Plan Validation Failed" in formatted
+        assert "missing_session" in formatted
+        assert "Session section is missing" in formatted
+
+    def test_format_errors_no_errors(self):
+        """format_errors with no errors returns appropriate message."""
+        result = MountPlanValidationResult()
+        result.add(
+            ValidationCheck(
+                name="check1",
+                passed=True,
+                message="Pass",
+                severity="info",
+            )
+        )
+        formatted = result.format_errors()
+        assert "No errors" in formatted
+
+
+class TestMountPlanValidator:
+    """Tests for MountPlanValidator validation logic."""
+
+    def test_valid_minimal_mount_plan(self):
+        """Minimal valid mount plan passes."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "orchestrator-default"},
+                "context": {"module": "context-default"},
+            }
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert result.passed
+        assert len(result.errors) == 0
+
+    def test_valid_full_mount_plan(self):
+        """Full mount plan with all sections passes."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "orchestrator-default"},
+                "context": {"module": "context-default"},
+            },
+            "providers": [{"module": "provider-anthropic", "config": {"model": "sonnet"}}],
+            "tools": [{"module": "tool-web-search"}],
+            "hooks": [],
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert result.passed
+
+    def test_not_a_dict_fails(self):
+        """Non-dict mount plan fails."""
+        result = MountPlanValidator().validate("not a dict")
+        assert not result.passed
+        assert any("must be a dict" in e.message for e in result.errors)
+
+    def test_none_fails(self):
+        """None mount plan fails."""
+        result = MountPlanValidator().validate(None)
+        assert not result.passed
+        assert any("must be a dict" in e.message for e in result.errors)
+
+    def test_missing_session_fails(self):
+        """Missing session section fails."""
+        mount_plan = {"providers": []}
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert any("session" in e.message.lower() for e in result.errors)
+
+    def test_missing_orchestrator_fails(self):
+        """Missing orchestrator in session fails."""
+        mount_plan = {"session": {"context": {"module": "context-default"}}}
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert any("orchestrator" in e.message.lower() for e in result.errors)
+
+    def test_missing_context_fails(self):
+        """Missing context in session fails."""
+        mount_plan = {"session": {"orchestrator": {"module": "orchestrator-default"}}}
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert any("context" in e.message.lower() for e in result.errors)
+
+    def test_malformed_module_spec_fails(self):
+        """Module spec without 'module' field fails."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "orchestrator-default"},
+                "context": {"module": "context-default"},
+            },
+            "providers": [
+                {"config": {"model": "gpt-4"}}  # Missing 'module'
+            ],
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert any("module" in e.message.lower() for e in result.errors)
+
+    def test_module_spec_not_dict_fails(self):
+        """Module spec that is not a dict fails."""
+        mount_plan = {
+            "session": {
+                "orchestrator": "just-a-string",  # Should be dict
+                "context": {"module": "context-default"},
+            }
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert any("must be a dict" in e.message for e in result.errors)
+
+    def test_config_not_dict_fails(self):
+        """Config that is not a dict fails."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "orchestrator-default", "config": "string"},
+                "context": {"module": "context-default"},
+            }
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert any("config" in e.message.lower() for e in result.errors)
+
+    def test_source_not_string_fails(self):
+        """Source that is not a string fails."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "orchestrator-default", "source": 123},
+                "context": {"module": "context-default"},
+            }
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert any("source" in e.message.lower() for e in result.errors)
+
+    def test_empty_module_path_fails(self):
+        """Empty module path fails."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": ""},
+                "context": {"module": "context-default"},
+            }
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert any("empty" in e.message.lower() for e in result.errors)
+
+    def test_module_path_wrong_type_fails(self):
+        """Module path that is not a string fails."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": 123},
+                "context": {"module": "context-default"},
+            }
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert any("string" in e.message.lower() for e in result.errors)
+
+    def test_providers_not_list_fails(self):
+        """Providers section that is not a list fails."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "orchestrator-default"},
+                "context": {"module": "context-default"},
+            },
+            "providers": {"module": "provider-anthropic"},  # Should be list
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert any("must be a list" in e.message for e in result.errors)
+
+    def test_empty_providers_list_ok(self):
+        """Empty providers list is OK."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "orchestrator-default"},
+                "context": {"module": "context-default"},
+            },
+            "providers": [],
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert result.passed
+
+    def test_unknown_sections_warning(self):
+        """Unknown sections generate warning but don't fail."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "orchestrator-default"},
+                "context": {"module": "context-default"},
+            },
+            "unknown_section": {"foo": "bar"},
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert result.passed  # Should still pass
+        assert len(result.warnings) >= 1
+        assert any("unknown" in w.message.lower() for w in result.warnings)
+
+    def test_session_not_dict_fails(self):
+        """Session that is not a dict fails."""
+        mount_plan = {"session": "not a dict"}
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert any("session" in e.message.lower() and "dict" in e.message.lower() for e in result.errors)
+
+    def test_agents_section_not_validated_as_module_list(self):
+        """Agents section is not validated as a module list (it's dict of configs)."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "orchestrator-default"},
+                "context": {"module": "context-default"},
+            },
+            "agents": {"my-agent": {"providers": [{"module": "provider-mock"}]}},
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert result.passed  # Should not fail on agents being a dict
+
+    def test_error_message_is_helpful(self):
+        """Error messages explain what's wrong and show expected format."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"config": {}},  # Missing 'module'
+                "context": {"module": "context-default"},
+            }
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        error_msg = result.format_errors()
+
+        # Should explain the problem
+        assert "missing" in error_msg.lower()
+        assert "module" in error_msg.lower()
+
+        # Should show expected format
+        assert "expected" in error_msg.lower()

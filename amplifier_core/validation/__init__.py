@@ -21,12 +21,24 @@ Example usage:
     else:
         for error in result.errors:
             print(f"Error: {error.message}")
+
+Mount Plan validation (validates structure before module loading):
+    from amplifier_core.validation import MountPlanValidator
+
+    validator = MountPlanValidator()
+    result = validator.validate(mount_plan)
+
+    if not result.passed:
+        print(result.format_errors())
+        sys.exit(1)
 """
 
 from .base import ValidationCheck
 from .base import ValidationResult
 from .context import ContextValidator
 from .hook import HookValidator
+from .mount_plan import MountPlanValidationResult
+from .mount_plan import MountPlanValidator
 from .orchestrator import OrchestratorValidator
 from .provider import ProviderValidator
 from .tool import ToolValidator
@@ -34,6 +46,8 @@ from .tool import ToolValidator
 __all__ = [
     "ValidationCheck",
     "ValidationResult",
+    "MountPlanValidationResult",
+    "MountPlanValidator",
     "ProviderValidator",
     "ToolValidator",
     "HookValidator",
