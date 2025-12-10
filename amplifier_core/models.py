@@ -3,6 +3,7 @@ Core data models for Amplifier.
 Uses Pydantic for validation and serialization.
 """
 
+import json
 from datetime import datetime
 from typing import Any
 from typing import Literal
@@ -22,6 +23,32 @@ class ToolResult(BaseModel):
         if self.success:
             return str(self.output) if self.output else "Success"
         return f"Error: {self.error.get('message', 'Unknown error')}" if self.error else "Failed"
+
+    def get_serialized_output(self) -> str:
+        """Get output serialized appropriately for LLM context.
+
+        Returns JSON for dict/list outputs (proper format for LLM parsing),
+        otherwise returns string representation. This ensures structured data
+        like {"stdout": ..., "stderr": ..., "returncode": ...} is serialized
+        as valid JSON rather than Python repr format.
+
+        Note: For tools like bash that populate output even on failure (with
+        stdout/stderr/returncode), we serialize the output regardless of the
+        success flag - the output contains the actual error information.
+        """
+        # If output exists and is structured data, always serialize it
+        # (even on failure - bash tools put error info in output.stderr)
+        if self.output is not None:
+            if isinstance(self.output, (dict, list)):
+                return json.dumps(self.output)
+            return str(self.output)
+
+        # No output - check if this is an error case
+        if not self.success:
+            return f"Error: {self.error.get('message', 'Unknown error') if self.error else 'Failed'}"
+
+        # Success with no output
+        return "Success"
 
 
 class HookResult(BaseModel):
