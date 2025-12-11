@@ -86,9 +86,9 @@ class ToolCall(BaseModel):
 
 ```python
 class ToolResult(BaseModel):
-    tool_call_id: str          # Correlates with ToolCall.id
-    output: Any                # Tool output (typically str or dict)
-    is_error: bool = False     # Whether execution failed
+    success: bool = True              # Whether execution succeeded
+    output: Any | None = None         # Tool output (typically str or dict)
+    error: dict[str, Any] | None = None  # Error details if failed
 ```
 
 ---
@@ -153,25 +153,22 @@ async def execute(self, input: dict[str, Any]) -> ToolResult:
         required_param = input.get("required_param")
         if not required_param:
             return ToolResult(
-                tool_call_id=input.get("_tool_call_id", ""),
-                output="Error: required_param is required",
-                is_error=True
+                success=False,
+                error={"message": "required_param is required"}
             )
 
         # Do the work
         result = await self._do_work(required_param)
 
         return ToolResult(
-            tool_call_id=input.get("_tool_call_id", ""),
-            output=result,
-            is_error=False
+            success=True,
+            output=result
         )
 
     except Exception as e:
         return ToolResult(
-            tool_call_id=input.get("_tool_call_id", ""),
-            output=f"Error: {str(e)}",
-            is_error=True
+            success=False,
+            error={"message": str(e), "type": type(e).__name__}
         )
 ```
 
@@ -260,13 +257,12 @@ Additional examples:
 - [ ] Implements Tool protocol (name, description, execute)
 - [ ] `mount()` function with entry point in pyproject.toml
 - [ ] Returns `ToolResult` from execute()
-- [ ] Handles errors gracefully (returns is_error=True, doesn't crash)
+- [ ] Handles errors gracefully (returns success=False, doesn't crash)
 
 ### Recommended
 
 - [ ] Provides JSON schema via `get_schema()`
 - [ ] Validates input before processing
-- [ ] Includes tool_call_id in results for correlation
 - [ ] Logs operations at appropriate levels
 - [ ] Registers observability events
 
@@ -284,12 +280,11 @@ async def test_tool_execution():
     tool = MyTool(config={})
 
     result = await tool.execute({
-        "_tool_call_id": "test-123",
         "required_param": "value"
     })
 
-    assert not result.is_error
-    assert result.tool_call_id == "test-123"
+    assert result.success
+    assert result.error is None
 ```
 
 ### MockTool for Testing Orchestrators
