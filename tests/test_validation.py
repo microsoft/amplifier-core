@@ -679,3 +679,111 @@ class TestMountPlanValidator:
 
         # Should show expected format
         assert "expected" in error_msg.lower()
+
+
+class TestValidatorWithConfig:
+    """Tests that validators properly use provided config during validation."""
+
+    @pytest.mark.asyncio
+    async def test_provider_validation_with_config(self, tmp_path):
+        """Provider validation should use provided config, not empty dict."""
+        module_dir = tmp_path / "test_provider_with_config"
+        module_dir.mkdir()
+        init_file = module_dir / "__init__.py"
+        init_file.write_text(
+            """
+from amplifier_core import ModuleCoordinator, ProviderInfo, ModelInfo
+
+async def mount(coordinator: ModuleCoordinator, config):
+    # Simulate provider that requires config
+    api_key = config.get("api_key")
+    if not api_key:
+        # Return None when no config - causes validation ERROR
+        return None
+    
+    # Mock provider class with proper ProviderInfo
+    class MockProvider:
+        name = "mock-provider"
+        
+        def get_info(self):
+            return ProviderInfo(
+                id="mock-provider",
+                display_name="Mock Provider",
+                config_fields=[]
+            )
+        
+        async def list_models(self):
+            return []
+        
+        async def complete(self, request, **kwargs):
+            from amplifier_core.message_models import ChatResponse, TextBlock
+            return ChatResponse(content=[TextBlock(text="mock response")])
+        
+        def parse_tool_calls(self, response):
+            return []
+    
+    provider = MockProvider()
+    await coordinator.mount("providers", provider, name="mock")
+    return None
+"""
+        )
+
+        validator = ProviderValidator()
+        
+        # Test 1: Without config - should FAIL (returns None, no provider mounted)
+        result_no_config = await validator.validate(str(module_dir))
+        # Should fail with error about no provider mounted
+        assert not result_no_config.passed, "Should fail when mount returns None"
+        assert any("No provider was mounted" in c.message 
+                   for c in result_no_config.checks if c.severity == "error")
+        
+        # Test 2: With config - should mount successfully and pass validation
+        result_with_config = await validator.validate(str(module_dir), config={"api_key": "test-key"})
+        # Should pass with provider mounted
+        assert result_with_config.passed, f"Should pass with config. Errors: {[c.message for c in result_with_config.errors]}"
+        assert any("implements Provider protocol" in c.message 
+                   for c in result_with_config.checks if c.passed)
+
+    @pytest.mark.asyncio
+    async def test_tool_validation_with_config(self, tmp_path):
+        """Tool validation should use provided config."""
+        module_dir = tmp_path / "test_tool_with_config"
+        module_dir.mkdir()
+        init_file = module_dir / "__init__.py"
+        init_file.write_text(
+            """
+from amplifier_core import ModuleCoordinator, ToolResult
+
+async def mount(coordinator: ModuleCoordinator, config):
+    enabled = config.get("enabled", True)
+    if not enabled:
+        # Return None when disabled - causes validation ERROR
+        return None
+    
+    # Mock tool class
+    class MockTool:
+        name = "mock-tool"
+        description = "A mock tool"
+        
+        async def execute(self, input): 
+            return ToolResult(success=True, output={"result": "mock"})
+    
+    tool = MockTool()
+    await coordinator.mount("tools", tool, name="mock")
+    return None
+"""
+        )
+
+        validator = ToolValidator()
+        
+        # With enabled=False - should FAIL (returns None, no tool mounted)
+        result_disabled = await validator.validate(str(module_dir), config={"enabled": False})
+        assert not result_disabled.passed, "Should fail when mount returns None"
+        assert any("No tool was mounted" in c.message 
+                   for c in result_disabled.checks if c.severity == "error")
+        
+        # With enabled=True - should mount successfully and pass validation
+        result_enabled = await validator.validate(str(module_dir), config={"enabled": True})
+        assert result_enabled.passed, f"Should pass with config. Errors: {[c.message for c in result_enabled.errors]}"
+        assert any("implements Tool protocol" in c.message 
+                   for c in result_enabled.checks if c.passed)
