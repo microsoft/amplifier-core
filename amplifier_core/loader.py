@@ -219,7 +219,7 @@ class ModuleLoader:
                     logger.debug(f"Added '{path_str}' to sys.path for module '{module_id}'")
 
                 # Validate module before loading
-                await self._validate_module(module_id, module_path)
+                await self._validate_module(module_id, module_path, config=config)
             except Exception as resolve_error:
                 # Import here to avoid circular dependency
                 from .module_sources import ModuleNotFoundError as SourceNotFoundError
@@ -418,7 +418,12 @@ class ModuleLoader:
         # Default to tool
         return "tool", "tools"  # type: ignore[return-value]
 
-    async def _validate_module(self, module_id: str, module_path: Path) -> None:
+    async def _validate_module(
+        self, 
+        module_id: str, 
+        module_path: Path,
+        config: dict[str, Any] | None = None
+    ) -> None:
         """
         Validate a module before loading.
 
@@ -428,6 +433,7 @@ class ModuleLoader:
         Args:
             module_id: Module identifier (e.g., "provider-anthropic", "tool-filesystem")
             module_path: Resolved filesystem path to the module
+            config: Optional module configuration to use during validation
 
         Raises:
             ModuleValidationError: If module fails validation
@@ -465,7 +471,7 @@ class ModuleLoader:
 
         # Run validation
         validator = validator_class()
-        result = await validator.validate(package_path)
+        result = await validator.validate(package_path, config=config)
 
         if not result.passed:
             error_details = "; ".join(f"{e.name}: {e.message}" for e in result.errors)

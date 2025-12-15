@@ -20,13 +20,19 @@ from .base import ValidationResult
 class ContextValidator:
     """Validates ContextManager module compliance."""
 
-    async def validate(self, module_path: str | Path, entry_point: str | None = None) -> ValidationResult:
+    async def validate(
+        self, 
+        module_path: str | Path, 
+        entry_point: str | None = None,
+        config: dict[str, Any] | None = None
+    ) -> ValidationResult:
         """
         Validate a context module.
 
         Args:
             module_path: Path to module directory or Python module name
             entry_point: Optional entry point name (e.g., 'context-simple')
+            config: Optional module configuration to use during validation
 
         Returns:
             ValidationResult with all checks
@@ -47,7 +53,7 @@ class ContextValidator:
         self._check_mount_signature(result, mount_fn)
 
         # Check 4: Protocol compliance (requires calling mount)
-        await self._check_protocol_compliance(result, mount_fn)
+        await self._check_protocol_compliance(result, mount_fn, config=config)
 
         return result
 
@@ -192,17 +198,31 @@ class ContextValidator:
                 )
             )
 
-    async def _check_protocol_compliance(self, result: ValidationResult, mount_fn: Any) -> None:
-        """Check if mounted instance implements ContextManager protocol."""
+    async def _check_protocol_compliance(
+        self, 
+        result: ValidationResult, 
+        mount_fn: Any,
+        config: dict[str, Any] | None = None
+    ) -> None:
+        """
+        Check if mounted instance implements ContextManager protocol.
+        
+        Args:
+            result: ValidationResult to update
+            mount_fn: Module's mount function
+            config: Optional module configuration (uses empty dict if not provided)
+        """
         try:
             # Create a test coordinator to mount the module
             from ..testing import TestCoordinator
 
             coordinator = TestCoordinator()
-            config: dict[str, Any] = {}
+            
+            # Use provided config or empty dict as fallback
+            actual_config = config if config is not None else {}
 
             # Call mount() and get the result
-            mount_result = await mount_fn(coordinator, config)
+            mount_result = await mount_fn(coordinator, actual_config)
 
             # Check what was mounted - context is a singular mount point
             context = coordinator.mount_points.get("context")
