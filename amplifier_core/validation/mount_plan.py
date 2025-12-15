@@ -22,7 +22,6 @@ Example usage:
     session = AmplifierSession.create(mount_plan)
 """
 
-import re
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
@@ -97,9 +96,6 @@ class MountPlanValidator:
 
     # Required module spec fields
     REQUIRED_MODULE_SPEC_FIELDS: set[str] = {"module"}
-
-    # Valid Python identifier pattern (for module paths)
-    MODULE_PATH_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(-[a-zA-Z0-9_]+)*$")
 
     def validate(self, mount_plan: Any) -> MountPlanValidationResult:
         """Validate a mount plan structure.

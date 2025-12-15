@@ -679,3 +679,257 @@ class TestMountPlanValidator:
 
         # Should show expected format
         assert "expected" in error_msg.lower()
+
+    def test_tools_not_list_fails(self):
+        """Tools section that is not a list fails."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "orchestrator-default"},
+                "context": {"module": "context-default"},
+            },
+            "tools": {"module": "tool-bash"},  # Should be list
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert any("must be a list" in e.message for e in result.errors)
+
+    def test_hooks_not_list_fails(self):
+        """Hooks section that is not a list fails."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "orchestrator-default"},
+                "context": {"module": "context-default"},
+            },
+            "hooks": {"module": "hooks-logging"},  # Should be list
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert any("must be a list" in e.message for e in result.errors)
+
+    def test_tools_with_invalid_module_fails(self):
+        """Tool spec without 'module' field fails."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "orchestrator-default"},
+                "context": {"module": "context-default"},
+            },
+            "tools": [
+                {"config": {"timeout": 30}}  # Missing 'module'
+            ],
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert any("module" in e.message.lower() for e in result.errors)
+
+    def test_hooks_with_invalid_module_fails(self):
+        """Hook spec without 'module' field fails."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "orchestrator-default"},
+                "context": {"module": "context-default"},
+            },
+            "hooks": [
+                {"config": {"log_level": "debug"}}  # Missing 'module'
+            ],
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert any("module" in e.message.lower() for e in result.errors)
+
+    def test_empty_tools_list_ok(self):
+        """Empty tools list is OK."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "orchestrator-default"},
+                "context": {"module": "context-default"},
+            },
+            "tools": [],
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert result.passed
+
+    def test_empty_hooks_list_ok(self):
+        """Empty hooks list is OK."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "orchestrator-default"},
+                "context": {"module": "context-default"},
+            },
+            "hooks": [],
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert result.passed
+
+    def test_multiple_errors_accumulate(self):
+        """Multiple validation errors accumulate in result."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"config": {}},  # Error 1: Missing 'module'
+                "context": {"module": 123},  # Error 2: Wrong type
+            }
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert len(result.errors) >= 2  # Should have at least 2 errors
+
+    def test_warnings_and_errors_combined(self):
+        """Warnings and errors can coexist; errors cause failure."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"config": {}},  # Error: Missing 'module'
+                "context": {"module": "context-default"},
+            },
+            "unknown_section": {"foo": "bar"},  # Warning: Unknown section
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed  # Should fail due to error
+        assert len(result.errors) >= 1
+        assert len(result.warnings) >= 1
+        assert any("unknown" in w.message.lower() for w in result.warnings)
+
+    def test_multiple_providers_with_mixed_validity(self):
+        """Multiple providers with one invalid accumulates errors correctly."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "orchestrator-default"},
+                "context": {"module": "context-default"},
+            },
+            "providers": [
+                {"module": "provider-anthropic"},  # Valid
+                {"config": {"model": "gpt-4"}},  # Invalid - missing 'module'
+                {"module": "provider-openai"},  # Valid
+            ],
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert not result.passed
+        assert len(result.errors) >= 1
+        # Error should reference providers[1]
+        assert any("providers[1]" in e.message for e in result.errors)
+
+
+class TestMountPlanIntegration:
+    """Integration tests using real-world mount plan examples."""
+
+    def test_minimal_example_from_spec(self):
+        """Minimal mount plan from spec validates successfully."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "loop-basic"},
+                "context": {"module": "context-simple"},
+            },
+            "providers": [{"module": "provider-mock"}],
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert result.passed
+        assert len(result.errors) == 0
+
+    def test_development_example_from_spec(self):
+        """Development mount plan from spec validates successfully."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "loop-streaming"},
+                "context": {"module": "context-persistent"},
+            },
+            "context": {
+                "config": {
+                    "max_tokens": 200000,
+                    "compact_threshold": 0.92,
+                }
+            },
+            "providers": [
+                {
+                    "module": "provider-anthropic",
+                    "config": {
+                        "model": "claude-sonnet-4-5",
+                        "api_key": "${ANTHROPIC_API_KEY}",
+                    },
+                }
+            ],
+            "tools": [
+                {
+                    "module": "tool-filesystem",
+                    "config": {"allowed_paths": ["."], "require_approval": False},
+                },
+                {"module": "tool-bash"},
+                {"module": "tool-web"},
+            ],
+            "hooks": [
+                {"module": "hooks-logging", "config": {"output_dir": ".amplifier/logs"}},
+                {"module": "hooks-backup"},
+            ],
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert result.passed
+        assert len(result.errors) == 0
+
+    def test_production_example_from_spec(self):
+        """Production mount plan from spec validates successfully."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "loop-events"},
+                "context": {"module": "context-persistent"},
+                "injection_budget_per_turn": 500,
+                "injection_size_limit": 8192,
+            },
+            "context": {
+                "config": {
+                    "max_tokens": 200000,
+                    "compact_threshold": 0.95,
+                    "auto_compact": True,
+                }
+            },
+            "providers": [
+                {
+                    "module": "provider-anthropic",
+                    "config": {
+                        "model": "claude-sonnet-4-5",
+                        "api_key": "${ANTHROPIC_API_KEY}",
+                        "max_tokens": 4096,
+                    },
+                }
+            ],
+            "tools": [
+                {
+                    "module": "tool-filesystem",
+                    "config": {"allowed_paths": ["/app/data"], "require_approval": True},
+                }
+            ],
+            "hooks": [
+                {
+                    "module": "hooks-scheduler-cost-aware",
+                    "config": {"budget_limit": 10.0, "alert_threshold": 8.0},
+                },
+                {"module": "hooks-logging"},
+                {"module": "hooks-backup"},
+            ],
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert result.passed
+        assert len(result.errors) == 0
+
+    def test_valid_mount_plan_with_all_sections(self):
+        """Mount plan with all optional sections validates."""
+        mount_plan = {
+            "session": {
+                "orchestrator": {"module": "loop-streaming"},
+                "context": {"module": "context-simple"},
+            },
+            "providers": [
+                {"module": "provider-mock", "config": {"delay": 0.1}},
+            ],
+            "tools": [
+                {"module": "tool-bash", "source": "file:///path/to/tool"},
+            ],
+            "hooks": [
+                {"module": "hooks-logging"},
+            ],
+            "agents": {
+                "test-agent": {
+                    "description": "Test agent",
+                    "providers": [{"module": "provider-mock"}],
+                }
+            },
+        }
+        result = MountPlanValidator().validate(mount_plan)
+        assert result.passed
+        assert len(result.errors) == 0
