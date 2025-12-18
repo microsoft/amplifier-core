@@ -65,9 +65,6 @@ next-steps.md
 # Amplifier specific ignores #
 ##############################
 
-# Amplifier local state and transcripts
-.amplifier/local
-.amplifier/transcripts
 
 # Working folders
 ai_working/tmp
