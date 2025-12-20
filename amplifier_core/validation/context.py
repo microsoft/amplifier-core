@@ -21,10 +21,7 @@ class ContextValidator:
     """Validates ContextManager module compliance."""
 
     async def validate(
-        self, 
-        module_path: str | Path, 
-        entry_point: str | None = None,
-        config: dict[str, Any] | None = None
+        self, module_path: str | Path, entry_point: str | None = None, config: dict[str, Any] | None = None
     ) -> ValidationResult:
         """
         Validate a context module.
@@ -199,14 +196,11 @@ class ContextValidator:
             )
 
     async def _check_protocol_compliance(
-        self, 
-        result: ValidationResult, 
-        mount_fn: Any,
-        config: dict[str, Any] | None = None
+        self, result: ValidationResult, mount_fn: Any, config: dict[str, Any] | None = None
     ) -> None:
         """
         Check if mounted instance implements ContextManager protocol.
-        
+
         Args:
             result: ValidationResult to update
             mount_fn: Module's mount function
@@ -217,7 +211,7 @@ class ContextValidator:
             from ..testing import TestCoordinator
 
             coordinator = TestCoordinator()
-            
+
             # Use provided config or empty dict as fallback
             actual_config = config if config is not None else {}
 

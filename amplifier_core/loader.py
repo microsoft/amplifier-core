@@ -418,12 +418,7 @@ class ModuleLoader:
         # Default to tool
         return "tool", "tools"  # type: ignore[return-value]
 
-    async def _validate_module(
-        self, 
-        module_id: str, 
-        module_path: Path,
-        config: dict[str, Any] | None = None
-    ) -> None:
+    async def _validate_module(self, module_id: str, module_path: Path, config: dict[str, Any] | None = None) -> None:
         """
         Validate a module before loading.
 
