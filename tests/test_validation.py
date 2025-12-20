@@ -700,28 +700,28 @@ async def mount(coordinator: ModuleCoordinator, config):
     if not api_key:
         # Return None when no config - causes validation ERROR
         return None
-    
+
     # Mock provider class with proper ProviderInfo
     class MockProvider:
         name = "mock-provider"
-        
+
         def get_info(self):
             return ProviderInfo(
                 id="mock-provider",
                 display_name="Mock Provider",
                 config_fields=[]
             )
-        
+
         async def list_models(self):
             return []
-        
+
         async def complete(self, request, **kwargs):
             from amplifier_core.message_models import ChatResponse, TextBlock
             return ChatResponse(content=[TextBlock(text="mock response")])
-        
+
         def parse_tool_calls(self, response):
             return []
-    
+
     provider = MockProvider()
     await coordinator.mount("providers", provider, name="mock")
     return None
@@ -729,20 +729,20 @@ async def mount(coordinator: ModuleCoordinator, config):
         )
 
         validator = ProviderValidator()
-        
+
         # Test 1: Without config - should FAIL (returns None, no provider mounted)
         result_no_config = await validator.validate(str(module_dir))
         # Should fail with error about no provider mounted
         assert not result_no_config.passed, "Should fail when mount returns None"
-        assert any("No provider was mounted" in c.message 
-                   for c in result_no_config.checks if c.severity == "error")
-        
+        assert any("No provider was mounted" in c.message for c in result_no_config.checks if c.severity == "error")
+
         # Test 2: With config - should mount successfully and pass validation
         result_with_config = await validator.validate(str(module_dir), config={"api_key": "test-key"})
         # Should pass with provider mounted
-        assert result_with_config.passed, f"Should pass with config. Errors: {[c.message for c in result_with_config.errors]}"
-        assert any("implements Provider protocol" in c.message 
-                   for c in result_with_config.checks if c.passed)
+        assert result_with_config.passed, (
+            f"Should pass with config. Errors: {[c.message for c in result_with_config.errors]}"
+        )
+        assert any("implements Provider protocol" in c.message for c in result_with_config.checks if c.passed)
 
     @pytest.mark.asyncio
     async def test_tool_validation_with_config(self, tmp_path):
@@ -759,15 +759,15 @@ async def mount(coordinator: ModuleCoordinator, config):
     if not enabled:
         # Return None when disabled - causes validation ERROR
         return None
-    
+
     # Mock tool class
     class MockTool:
         name = "mock-tool"
         description = "A mock tool"
-        
-        async def execute(self, input): 
+
+        async def execute(self, input):
             return ToolResult(success=True, output={"result": "mock"})
-    
+
     tool = MockTool()
     await coordinator.mount("tools", tool, name="mock")
     return None
@@ -775,15 +775,13 @@ async def mount(coordinator: ModuleCoordinator, config):
         )
 
         validator = ToolValidator()
-        
+
         # With enabled=False - should FAIL (returns None, no tool mounted)
         result_disabled = await validator.validate(str(module_dir), config={"enabled": False})
         assert not result_disabled.passed, "Should fail when mount returns None"
-        assert any("No tool was mounted" in c.message 
-                   for c in result_disabled.checks if c.severity == "error")
-        
+        assert any("No tool was mounted" in c.message for c in result_disabled.checks if c.severity == "error")
+
         # With enabled=True - should mount successfully and pass validation
         result_enabled = await validator.validate(str(module_dir), config={"enabled": True})
         assert result_enabled.passed, f"Should pass with config. Errors: {[c.message for c in result_enabled.errors]}"
-        assert any("implements Tool protocol" in c.message 
-                   for c in result_enabled.checks if c.passed)
+        assert any("implements Tool protocol" in c.message for c in result_enabled.checks if c.passed)
