@@ -7,7 +7,7 @@ Related contracts (for module developers):
   - docs/contracts/TOOL_CONTRACT.md (Tool, lines 121-146)
   - docs/contracts/HOOK_CONTRACT.md (HookHandler, lines 173-189)
   - docs/contracts/ORCHESTRATOR_CONTRACT.md (Orchestrator, lines 26-52)
-  - docs/contracts/CONTEXT_CONTRACT.md (ContextManager, lines 148-171)
+  - docs/contracts/CONTEXT_CONTRACT.md (ContextManager, lines 148-180)
 """
 
 from typing import TYPE_CHECKING
@@ -154,22 +154,41 @@ class Tool(Protocol):
 
 @runtime_checkable
 class ContextManager(Protocol):
-    """Interface for context management modules."""
+    """
+    Interface for context management modules.
+
+    Context managers own memory policy. Orchestrators ask for messages;
+    context managers decide how to fit them within limits. This maintains
+    clean mechanism/policy separation - orchestrators are mechanisms that
+    request messages, context managers are policies that decide what to return.
+    """
 
     async def add_message(self, message: dict[str, Any]) -> None:
         """Add a message to the context."""
         ...
 
+    async def get_messages_for_request(self, token_budget: int | None = None) -> list[dict[str, Any]]:
+        """
+        Get messages ready for an LLM request.
+
+        The context manager handles any compaction needed internally.
+        Orchestrators call this before every LLM request and trust the
+        context manager to return messages that fit within limits.
+
+        Args:
+            token_budget: Optional token limit. If None, uses configured max.
+
+        Returns:
+            Messages ready for LLM request, compacted if necessary.
+        """
+        ...
+
     async def get_messages(self) -> list[dict[str, Any]]:
-        """Get all messages in the context."""
+        """Get all messages (raw, uncompacted) for transcripts/debugging."""
         ...
 
-    async def should_compact(self) -> bool:
-        """Check if context should be compacted."""
-        ...
-
-    async def compact(self) -> None:
-        """Compact the context to reduce size."""
+    async def set_messages(self, messages: list[dict[str, Any]]) -> None:
+        """Set messages directly (for session resume)."""
         ...
 
     async def clear(self) -> None:

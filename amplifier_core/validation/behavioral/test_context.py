@@ -11,6 +11,9 @@ Usage in module:
         pass  # Inherits all standard tests
 """
 
+import asyncio
+import inspect
+
 import pytest
 
 
@@ -79,21 +82,44 @@ class ContextBehaviorTests:
         assert len(messages) == 0, "clear() should remove all messages"
 
     @pytest.mark.asyncio
-    async def test_should_compact_returns_bool(self, context_module):
-        """should_compact() must return boolean if present."""
-        if hasattr(context_module, "should_compact"):
-            result = await context_module.should_compact()
-            assert isinstance(result, bool), "should_compact() must return bool"
+    async def test_get_messages_for_request_returns_messages(self, context_module):
+        """get_messages_for_request() must return messages ready for LLM."""
+        # Add a test message first
+        await context_module.add_message({"role": "user", "content": "Test"})
+
+        if hasattr(context_module, "get_messages_for_request"):
+            messages = await context_module.get_messages_for_request()
+            assert isinstance(messages, list), "get_messages_for_request() must return list"
+            assert len(messages) >= 1, "Should return added messages"
 
     @pytest.mark.asyncio
-    async def test_compact_does_not_crash(self, context_module):
-        """compact() must not crash if present."""
-        if hasattr(context_module, "compact"):
+    async def test_internal_should_compact_returns_bool(self, context_module):
+        """_should_compact() must return boolean if present (internal method)."""
+        # Note: _should_compact is an internal method, not called by orchestrators
+        # It may be sync or async depending on implementation
+        if hasattr(context_module, "_should_compact"):
+            method = context_module._should_compact
+            if asyncio.iscoroutinefunction(method):
+                result = await method()
+            else:
+                result = method()
+            assert isinstance(result, bool), "_should_compact() must return bool"
+
+    @pytest.mark.asyncio
+    async def test_internal_compact_does_not_crash(self, context_module):
+        """_compact_internal() must not crash if present (internal method)."""
+        # Note: _compact_internal is an internal method, not called by orchestrators
+        # It may be sync or async depending on implementation
+        if hasattr(context_module, "_compact_internal"):
             try:
-                await context_module.compact()
+                method = context_module._compact_internal
+                if asyncio.iscoroutinefunction(method):
+                    await method()
+                else:
+                    method()
             except Exception as e:
                 # Should not crash with code errors
-                assert not isinstance(e, AttributeError | TypeError), f"compact() crashed: {e}"
+                assert not isinstance(e, AttributeError | TypeError), f"_compact_internal() crashed: {e}"
 
     @pytest.mark.asyncio
     async def test_add_invalid_message_does_not_crash(self, context_module):

@@ -286,11 +286,13 @@ class ContextValidator:
 
     def _check_context_methods(self, result: ValidationResult, context: ContextManager) -> None:
         """Check that context has all required methods with correct signatures."""
+        # Required methods per the ContextManager protocol (interfaces.py)
+        # Note: should_compact() and compact() are now internal (_should_compact, _compact_internal)
         required_async_methods = [
             ("add_message", 1, "message"),
-            ("get_messages", 0, None),
-            ("should_compact", 0, None),
-            ("compact", 0, None),
+            ("get_messages_for_request", 0, None),  # Primary method for orchestrators
+            ("get_messages", 0, None),  # Raw access for transcripts/debugging
+            ("set_messages", 1, "messages"),  # For session resume
             ("clear", 0, None),
         ]
 
