@@ -217,9 +217,8 @@ await context.add_message({
     "content": result.output
 })
 
-# Check if compaction needed
-if await context.should_compact():
-    await context.compact()
+# Get messages for LLM request (context handles compaction internally)
+messages = await context.get_messages_for_request()
 ```
 
 ### Provider Selection

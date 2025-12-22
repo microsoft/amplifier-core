@@ -87,12 +87,18 @@ class MockContextManager:
         self.messages = messages or []
         self.add_message = AsyncMock(side_effect=self._add_message)
         self.get_messages = AsyncMock(return_value=self.messages)
-        self.should_compact = AsyncMock(return_value=False)
-        self.compact = AsyncMock()
+        self.get_messages_for_request = AsyncMock(side_effect=self._get_messages_for_request)
         self.clear = AsyncMock()
+        # Internal compaction methods (not called by orchestrators)
+        self._should_compact = AsyncMock(return_value=False)
+        self._compact_internal = AsyncMock()
 
     async def _add_message(self, message: dict):
         self.messages.append(message)
+
+    async def _get_messages_for_request(self, token_budget: int | None = None) -> list[dict]:
+        """Get messages ready for LLM request (handles compaction internally)."""
+        return self.messages.copy()
 
 
 class EventRecorder:

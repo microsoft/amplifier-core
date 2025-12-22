@@ -1,12 +1,12 @@
 ---
 contract_type: module_specification
 module_type: context
-contract_version: 1.0.0
-last_modified: 2025-01-29
+contract_version: 2.0.0
+last_modified: 2025-12-21
 related_files:
   - path: amplifier_core/interfaces.py#ContextManager
     relationship: protocol_definition
-    lines: 148-171
+    lines: 148-180
   - path: ../specs/MOUNT_PLAN_SPECIFICATION.md
     relationship: configuration
   - path: ../specs/CONTRIBUTION_CHANNELS.md
@@ -26,17 +26,19 @@ Context managers handle conversation memory and message storage.
 
 Context managers control **what the agent remembers**:
 - **Message storage** - Store conversation history
-- **Compaction** - Reduce context when approaching limits
+- **Request preparation** - Return messages that fit within token limits
 - **Persistence** - Optionally persist across sessions
 - **Memory strategies** - Implement various memory patterns
 
-**Key principle**: The context manager is **policy** for memory. Swap to change how agents remember without modifying the kernel.
+**Key principle**: The context manager owns **policy** for memory. The orchestrator asks for messages; the context manager decides **how** to fit them within limits. Swap context managers to change memory behavior without modifying orchestrators.
+
+**Mechanism vs Policy**: Orchestrators provide the mechanism (request messages, make LLM calls). Context managers provide the policy (what to return, when to compact, how to fit within limits).
 
 ---
 
 ## Protocol Definition
 
-**Source**: `amplifier_core/interfaces.py` lines 148-171
+**Source**: `amplifier_core/interfaces.py` lines 148-180
 
 ```python
 @runtime_checkable
@@ -45,16 +47,29 @@ class ContextManager(Protocol):
         """Add a message to the context."""
         ...
 
+    async def get_messages_for_request(
+        self, token_budget: int | None = None
+    ) -> list[dict[str, Any]]:
+        """
+        Get messages ready for an LLM request.
+
+        The context manager handles any compaction needed internally.
+        Returns messages that fit within the token budget.
+
+        Args:
+            token_budget: Optional token limit. If None, uses configured max.
+
+        Returns:
+            Messages ready for LLM request, compacted if necessary.
+        """
+        ...
+
     async def get_messages(self) -> list[dict[str, Any]]:
-        """Get all messages in the context."""
+        """Get all messages (raw, uncompacted) for transcripts/debugging."""
         ...
 
-    async def should_compact(self) -> bool:
-        """Check if context should be compacted."""
-        ...
-
-    async def compact(self) -> None:
-        """Compact the context to reduce size."""
+    async def set_messages(self, messages: list[dict[str, Any]]) -> None:
+        """Set messages directly (for session resume)."""
         ...
 
     async def clear(self) -> None:
@@ -79,6 +94,19 @@ Messages follow a standard structure:
 {
     "role": "assistant",
     "content": "Assistant's response"
+}
+
+# Assistant message with tool calls
+{
+    "role": "assistant",
+    "content": None,
+    "tool_calls": [
+        {
+            "id": "call_123",
+            "type": "function",
+            "function": {"name": "read_file", "arguments": "{...}"}
+        }
+    ]
 }
 
 # System message
@@ -148,51 +176,49 @@ async def add_message(self, message: dict[str, Any]) -> None:
     self._token_count += self._estimate_tokens(message)
 ```
 
-### get_messages()
+### get_messages_for_request()
 
-Return messages in conversation order:
+Return messages ready for LLM request, handling compaction internally:
 
 ```python
-async def get_messages(self) -> list[dict[str, Any]]:
-    """Get all messages in the context."""
+async def get_messages_for_request(
+    self, token_budget: int | None = None
+) -> list[dict[str, Any]]:
+    """
+    Get messages ready for an LLM request.
+
+    Handles compaction internally if needed. Orchestrators call this
+    before every LLM request and trust the context manager to return
+    messages that fit within limits.
+    """
+    budget = token_budget or self._max_tokens
+
+    # Check if compaction needed
+    if self._token_count > (budget * self._compaction_threshold):
+        await self._compact_internal()
+
     return list(self._messages)  # Return copy to prevent mutation
 ```
 
-### should_compact()
+### get_messages()
 
-Check if context exceeds threshold:
+Return all messages for transcripts/debugging (no compaction):
 
 ```python
-async def should_compact(self) -> bool:
-    """Check if context should be compacted."""
-    return self._token_count > (self._max_tokens * self._compaction_threshold)
+async def get_messages(self) -> list[dict[str, Any]]:
+    """Get all messages (raw, uncompacted) for transcripts/debugging."""
+    return list(self._messages)  # Return copy to prevent mutation
 ```
 
-### compact()
+### set_messages()
 
-Reduce context size while preserving key information:
+Set messages directly for session resume:
 
 ```python
-async def compact(self) -> None:
-    """Compact the context to reduce size."""
-    # Emit pre-compaction event
-    await self._hooks.emit("context:pre_compact", {
-        "message_count": len(self._messages),
-        "token_count": self._token_count
-    })
-
-    # Strategy: Keep system messages + recent messages
-    system_messages = [m for m in self._messages if m["role"] == "system"]
-    recent_messages = self._messages[-self._keep_recent:]
-
-    self._messages = system_messages + recent_messages
+async def set_messages(self, messages: list[dict[str, Any]]) -> None:
+    """Set messages directly (for session resume)."""
+    self._messages = list(messages)
     self._token_count = sum(self._estimate_tokens(m) for m in self._messages)
-
-    # Emit post-compaction event
-    await self._hooks.emit("context:post_compact", {
-        "message_count": len(self._messages),
-        "token_count": self._token_count
-    })
 ```
 
 ### clear()
@@ -208,19 +234,84 @@ async def clear(self) -> None:
 
 ---
 
-## Compaction Strategies
+## Internal Compaction
+
+Compaction is an **internal implementation detail** of the context manager. It happens automatically when `get_messages_for_request()` is called and the context exceeds thresholds.
+
+### Tool Pair Preservation
+
+**Critical**: During compaction, tool_use and tool_result messages must be kept together. Separating them causes LLM API errors.
+
+```python
+async def _compact_internal(self) -> None:
+    """Internal compaction - preserves tool pairs."""
+    # Emit pre-compaction event
+    await self._hooks.emit("context:pre_compact", {
+        "message_count": len(self._messages),
+        "token_count": self._token_count
+    })
+
+    # Build tool_call_id -> tool_use index map
+    tool_use_ids = set()
+    for msg in self._messages:
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            for tc in msg["tool_calls"]:
+                tool_use_ids.add(tc.get("id"))
+
+    # Identify which tool results have matching tool_use
+    orphan_result_indices = []
+    for i, msg in enumerate(self._messages):
+        if msg.get("role") == "tool":
+            if msg.get("tool_call_id") not in tool_use_ids:
+                orphan_result_indices.append(i)
+
+    # Strategy: Keep system messages + recent messages
+    # But ensure we don't split tool pairs
+    system_messages = [m for m in self._messages if m["role"] == "system"]
+
+    # Find safe truncation point (not in middle of tool sequence)
+    keep_count = self._keep_recent
+    recent_start = max(0, len(self._messages) - keep_count)
+
+    # Adjust start to not split tool sequences
+    while recent_start > 0:
+        msg = self._messages[recent_start]
+        if msg.get("role") == "tool":
+            # This is a tool result - need to include the tool_use before it
+            recent_start -= 1
+        else:
+            break
+
+    recent_messages = self._messages[recent_start:]
+
+    self._messages = system_messages + recent_messages
+    self._token_count = sum(self._estimate_tokens(m) for m in self._messages)
+
+    # Emit post-compaction event
+    await self._hooks.emit("context:post_compact", {
+        "message_count": len(self._messages),
+        "token_count": self._token_count
+    })
+```
+
+### Compaction Strategies
 
 Different strategies for different use cases:
 
-### Simple Truncation
+#### Simple Truncation
 
-Keep N most recent messages:
+Keep N most recent messages (with tool pair preservation):
 
 ```python
-self._messages = self._messages[-keep_count:]
+# Find safe truncation point
+keep_from = len(self._messages) - keep_count
+# Adjust to not split tool pairs
+while keep_from > 0 and self._messages[keep_from].get("role") == "tool":
+    keep_from -= 1
+self._messages = self._messages[keep_from:]
 ```
 
-### Summarization
+#### Summarization
 
 Use LLM to summarize older messages:
 
@@ -236,14 +327,17 @@ self._messages = [
 ]
 ```
 
-### Importance-Based
+#### Importance-Based
 
 Keep messages based on importance score:
 
 ```python
 scored = [(m, self._score_importance(m)) for m in self._messages]
 scored.sort(key=lambda x: x[1], reverse=True)
-self._messages = [m for m, _ in scored[:keep_count]]
+# Keep high-importance messages, but preserve tool pairs
+self._messages = self._reorder_preserving_tool_pairs(
+    [m for m, _ in scored[:keep_count]]
+)
 ```
 
 ---
@@ -291,7 +385,7 @@ See [CONTRIBUTION_CHANNELS.md](../specs/CONTRIBUTION_CHANNELS.md) for the patter
 Study this module for:
 - Basic ContextManager implementation
 - Token counting approach
-- Compaction logic
+- Internal compaction with tool pair preservation
 
 Additional examples:
 - [amplifier-module-context-persistent](https://github.com/microsoft/amplifier-module-context-persistent) - File-based persistence
@@ -304,8 +398,9 @@ Additional examples:
 
 - [ ] Implements all 5 ContextManager protocol methods
 - [ ] `mount()` function with entry point in pyproject.toml
+- [ ] `get_messages_for_request()` handles compaction internally
+- [ ] Compaction preserves tool_use/tool_result pairs
 - [ ] Messages returned in conversation order
-- [ ] Compaction reduces context size
 
 ### Recommended
 
@@ -332,34 +427,74 @@ async def test_context_manager():
     await context.add_message({"role": "user", "content": "Hello"})
     await context.add_message({"role": "assistant", "content": "Hi there!"})
 
-    # Verify storage
-    messages = await context.get_messages()
+    # Get messages for request (may compact)
+    messages = await context.get_messages_for_request()
     assert len(messages) == 2
     assert messages[0]["role"] == "user"
 
-    # Test compaction
-    if await context.should_compact():
-        await context.compact()
-        new_messages = await context.get_messages()
-        assert len(new_messages) < len(messages)
+    # Get raw messages (no compaction)
+    raw_messages = await context.get_messages()
+    assert len(raw_messages) == 2
 
     # Test clear
     await context.clear()
     assert len(await context.get_messages()) == 0
 
+
 @pytest.mark.asyncio
-async def test_compaction():
+async def test_compaction_preserves_tool_pairs():
+    """Verify tool_use and tool_result stay together during compaction."""
     context = MyContextManager(max_tokens=100, compaction_threshold=0.5)
 
-    # Add many messages to trigger compaction
+    # Add messages including tool sequence
+    await context.add_message({"role": "user", "content": "Read file.txt"})
+    await context.add_message({
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{"id": "call_123", "type": "function", "function": {...}}]
+    })
+    await context.add_message({
+        "role": "tool",
+        "tool_call_id": "call_123",
+        "content": "File contents..."
+    })
+
+    # Force compaction by adding more messages
     for i in range(50):
         await context.add_message({"role": "user", "content": f"Message {i}"})
 
-    assert await context.should_compact()
-    await context.compact()
+    # Get messages for request (triggers compaction)
+    messages = await context.get_messages_for_request()
+
+    # Verify tool pairs are preserved
+    tool_use_ids = set()
+    tool_result_ids = set()
+    for msg in messages:
+        if msg.get("tool_calls"):
+            for tc in msg["tool_calls"]:
+                tool_use_ids.add(tc.get("id"))
+        if msg.get("role") == "tool":
+            tool_result_ids.add(msg.get("tool_call_id"))
+
+    # Every tool result should have matching tool use
+    assert tool_result_ids.issubset(tool_use_ids), "Orphaned tool results found!"
+
+
+@pytest.mark.asyncio
+async def test_session_resume():
+    """Verify set_messages works for session resume."""
+    context = MyContextManager(max_tokens=1000)
+
+    saved_messages = [
+        {"role": "user", "content": "Previous conversation"},
+        {"role": "assistant", "content": "Previous response"}
+    ]
+
+    await context.set_messages(saved_messages)
 
     messages = await context.get_messages()
-    assert len(messages) < 50
+    assert len(messages) == 2
+    assert messages[0]["content"] == "Previous conversation"
 ```
 
 ### MockContextManager for Testing
@@ -371,7 +506,7 @@ from amplifier_core.testing import MockContextManager
 context = MockContextManager()
 
 await context.add_message({"role": "user", "content": "Test"})
-messages = await context.get_messages()
+messages = await context.get_messages_for_request()
 
 # Access internal state for assertions
 assert len(context.messages) == 1
