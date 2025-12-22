@@ -48,7 +48,9 @@ class ContextManager(Protocol):
         ...
 
     async def get_messages_for_request(
-        self, token_budget: int | None = None
+        self,
+        token_budget: int | None = None,
+        provider: Any | None = None,
     ) -> list[dict[str, Any]]:
         """
         Get messages ready for an LLM request.
@@ -57,7 +59,9 @@ class ContextManager(Protocol):
         Returns messages that fit within the token budget.
 
         Args:
-            token_budget: Optional token limit. If None, uses configured max.
+            token_budget: Optional explicit token limit (deprecated, prefer provider).
+            provider: Optional provider instance for dynamic budget calculation.
+                If provided, budget = context_window - max_output_tokens - safety_margin.
 
         Returns:
             Messages ready for LLM request, compacted if necessary.
@@ -182,7 +186,9 @@ Return messages ready for LLM request, handling compaction internally:
 
 ```python
 async def get_messages_for_request(
-    self, token_budget: int | None = None
+    self,
+    token_budget: int | None = None,
+    provider: Any | None = None,
 ) -> list[dict[str, Any]]:
     """
     Get messages ready for an LLM request.
@@ -190,14 +196,41 @@ async def get_messages_for_request(
     Handles compaction internally if needed. Orchestrators call this
     before every LLM request and trust the context manager to return
     messages that fit within limits.
+
+    Args:
+        token_budget: Optional explicit token limit (deprecated, prefer provider).
+        provider: Optional provider instance for dynamic budget calculation.
+            If provided, budget = context_window - max_output_tokens - safety_margin.
     """
-    budget = token_budget or self._max_tokens
+    budget = self._calculate_budget(token_budget, provider)
 
     # Check if compaction needed
     if self._token_count > (budget * self._compaction_threshold):
         await self._compact_internal()
 
     return list(self._messages)  # Return copy to prevent mutation
+
+def _calculate_budget(self, token_budget: int | None, provider: Any | None) -> int:
+    """Calculate effective token budget from provider or fallback to config."""
+    # Explicit budget takes precedence (for backward compatibility)
+    if token_budget is not None:
+        return token_budget
+
+    # Try provider-based dynamic budget
+    if provider is not None:
+        try:
+            info = provider.get_info()
+            defaults = info.defaults or {}
+            context_window = defaults.get("context_window")
+            max_output_tokens = defaults.get("max_output_tokens")
+
+            if context_window and max_output_tokens:
+                safety_margin = 1000  # Buffer to avoid hitting hard limits
+                return context_window - max_output_tokens - safety_margin
+        except Exception:
+            pass  # Fall back to configured max_tokens
+
+    return self._max_tokens
 ```
 
 ### get_messages()
