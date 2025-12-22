@@ -12,7 +12,6 @@ Usage in module:
 """
 
 import asyncio
-import inspect
 
 import pytest
 
