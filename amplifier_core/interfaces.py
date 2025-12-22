@@ -167,7 +167,11 @@ class ContextManager(Protocol):
         """Add a message to the context."""
         ...
 
-    async def get_messages_for_request(self, token_budget: int | None = None) -> list[dict[str, Any]]:
+    async def get_messages_for_request(
+        self,
+        token_budget: int | None = None,
+        provider: Any | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Get messages ready for an LLM request.
 
@@ -176,7 +180,9 @@ class ContextManager(Protocol):
         context manager to return messages that fit within limits.
 
         Args:
-            token_budget: Optional token limit. If None, uses configured max.
+            token_budget: Optional explicit token limit (deprecated, prefer provider).
+            provider: Optional provider instance for dynamic budget calculation.
+                If provided, budget = context_window - max_output_tokens - safety_margin.
 
         Returns:
             Messages ready for LLM request, compacted if necessary.
