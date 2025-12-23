@@ -96,7 +96,9 @@ class MockContextManager:
     async def _add_message(self, message: dict):
         self.messages.append(message)
 
-    async def _get_messages_for_request(self, token_budget: int | None = None) -> list[dict]:
+    async def _get_messages_for_request(
+        self, token_budget: int | None = None, provider: Any | None = None
+    ) -> list[dict]:
         """Get messages ready for LLM request (handles compaction internally)."""
         return self.messages.copy()
 
