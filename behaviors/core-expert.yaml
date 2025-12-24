@@ -1,0 +1,12 @@
+bundle:
+  name: core-expert-behavior
+  version: 1.0.0
+  description: Expert consultant for Amplifier kernel internals
+
+agents:
+  include:
+    - core:core-expert
+
+context:
+  include:
+    - core:context/kernel-overview.md
