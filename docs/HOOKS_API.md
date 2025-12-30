@@ -74,6 +74,27 @@ class HookResult(BaseModel):
 | `inject_context` | Add to agent's context | Provide feedback, enable correction loops |
 | `ask_user` | Request approval | Dynamic permissions, high-risk operations |
 
+### Action Precedence
+
+When multiple handlers return different actions for the same event, they are resolved according to this precedence hierarchy (highest to lowest):
+
+| Priority | Action | Type | Behavior |
+|----------|--------|------|----------|
+| 1 | `deny` | Blocking | Short-circuits immediately, no further handlers run |
+| 2 | `ask_user` | Blocking | Requires user approval before proceeding |
+| 3 | `inject_context` | Non-blocking | Adds context (multiple results are merged) |
+| 4 | `modify` | Non-blocking | Chains data through handlers |
+| 5 | `continue` | Non-blocking | Default pass-through |
+
+**Key principle**: Blocking actions (`deny`, `ask_user`) always take precedence over non-blocking actions (`inject_context`, `modify`, `continue`). This ensures security gates cannot be silently bypassed by information-flow actions.
+
+**Example scenario**:
+- Handler A (priority 5) returns `ask_user` (approval required)
+- Handler B (priority 10) returns `inject_context` (add context)
+- **Result**: `ask_user` is returned (Handler A's blocking action takes precedence)
+
+**Multiple `inject_context` results**: When multiple handlers return `inject_context`, their injections are merged into a single result. Settings (role, ephemeral, suppress_output) are taken from the first result.
+
 ### Fields
 
 #### Core Fields
