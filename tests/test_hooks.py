@@ -219,3 +219,172 @@ async def test_default_fields():
     await registry.emit("test:event", {})
     assert captured_data[2]["session_id"] == "test-session-123"
     assert captured_data[2]["env"] == "test"
+
+
+@pytest.mark.asyncio
+async def test_ask_user_not_overwritten_by_inject_context():
+    """Test that ask_user takes precedence over inject_context.
+
+    This tests the action precedence rule:
+    deny > ask_user > inject_context > modify > continue
+
+    When both ask_user and inject_context are returned by different handlers,
+    ask_user (a blocking security action) must not be silently overwritten
+    by inject_context (a non-blocking information-flow action).
+    """
+    registry = HookRegistry()
+
+    async def approval_handler(event, data):
+        """Handler that requires user approval (higher priority)."""
+        return HookResult(
+            action="ask_user",
+            approval_prompt="Allow this operation?",
+            approval_options=["Allow", "Deny"],
+            approval_default="deny",
+        )
+
+    async def context_handler(event, data):
+        """Handler that injects context (lower priority)."""
+        return HookResult(
+            action="inject_context",
+            context_injection="Additional context for the agent",
+        )
+
+    # Register approval handler with higher priority (lower number = runs first)
+    registry.register("test:event", approval_handler, priority=5, name="approval")
+    # Register context handler with lower priority (runs second)
+    registry.register("test:event", context_handler, priority=10, name="context")
+
+    result = await registry.emit("test:event", {})
+
+    # ask_user should NOT be overwritten by inject_context
+    assert result.action == "ask_user", (
+        f"Expected ask_user but got {result.action}. "
+        "ask_user must take precedence over inject_context."
+    )
+    assert result.approval_prompt == "Allow this operation?"
+    assert result.approval_default == "deny"
+
+
+@pytest.mark.asyncio
+async def test_inject_context_works_without_ask_user():
+    """Test that inject_context works normally when no ask_user is present.
+
+    This ensures the fix for ask_user precedence doesn't break normal
+    inject_context functionality.
+    """
+    registry = HookRegistry()
+
+    async def context_handler_1(event, data):
+        return HookResult(
+            action="inject_context",
+            context_injection="Context from handler 1",
+        )
+
+    async def context_handler_2(event, data):
+        return HookResult(
+            action="inject_context",
+            context_injection="Context from handler 2",
+        )
+
+    registry.register("test:event", context_handler_1, priority=5, name="ctx1")
+    registry.register("test:event", context_handler_2, priority=10, name="ctx2")
+
+    result = await registry.emit("test:event", {})
+
+    # inject_context should be returned and merged
+    assert result.action == "inject_context"
+    assert "Context from handler 1" in result.context_injection
+    assert "Context from handler 2" in result.context_injection
+
+
+@pytest.mark.asyncio
+async def test_ask_user_precedence_regardless_of_handler_order():
+    """Test that ask_user takes precedence even when it runs after inject_context.
+
+    The precedence rule should apply regardless of which handler runs first.
+    """
+    registry = HookRegistry()
+
+    async def context_handler(event, data):
+        return HookResult(
+            action="inject_context",
+            context_injection="Some context",
+        )
+
+    async def approval_handler(event, data):
+        return HookResult(
+            action="ask_user",
+            approval_prompt="Approve?",
+        )
+
+    # Register context handler FIRST (lower priority number = runs first)
+    registry.register("test:event", context_handler, priority=5, name="context")
+    # Register approval handler SECOND (runs after context handler)
+    registry.register("test:event", approval_handler, priority=10, name="approval")
+
+    result = await registry.emit("test:event", {})
+
+    # Even though inject_context handler ran first, ask_user should win
+    assert result.action == "ask_user", (
+        f"Expected ask_user but got {result.action}. "
+        "ask_user must take precedence over inject_context regardless of order."
+    )
+    assert result.approval_prompt == "Approve?"
+
+
+@pytest.mark.asyncio
+async def test_deny_takes_precedence_over_ask_user():
+    """Test that deny short-circuits before ask_user can be processed.
+
+    This verifies the full action precedence hierarchy:
+    deny > ask_user > inject_context > modify > continue
+
+    When deny is returned, it should short-circuit immediately and
+    subsequent handlers (including those that would return ask_user)
+    should never execute.
+    """
+    registry = HookRegistry()
+
+    execution_log = []
+
+    async def deny_handler(event, data):
+        """Handler that denies the operation (highest priority action)."""
+        execution_log.append("deny_handler")
+        return HookResult(action="deny", reason="Operation not permitted")
+
+    async def approval_handler(event, data):
+        """Handler that would request approval (should never run)."""
+        execution_log.append("approval_handler")
+        return HookResult(
+            action="ask_user",
+            approval_prompt="This should never be seen",
+        )
+
+    async def context_handler(event, data):
+        """Handler that would inject context (should never run)."""
+        execution_log.append("context_handler")
+        return HookResult(
+            action="inject_context",
+            context_injection="This should never be injected",
+        )
+
+    # Register handlers in priority order
+    registry.register("test:event", deny_handler, priority=5, name="deny")
+    registry.register("test:event", approval_handler, priority=10, name="approval")
+    registry.register("test:event", context_handler, priority=15, name="context")
+
+    result = await registry.emit("test:event", {})
+
+    # deny should short-circuit immediately
+    assert result.action == "deny", (
+        f"Expected deny but got {result.action}. "
+        "deny must short-circuit before other handlers run."
+    )
+    assert result.reason == "Operation not permitted"
+
+    # Only the deny handler should have executed (short-circuit behavior)
+    assert execution_log == ["deny_handler"], (
+        f"Expected only deny_handler to run, but got {execution_log}. "
+        "deny should short-circuit and prevent subsequent handlers from executing."
+    )

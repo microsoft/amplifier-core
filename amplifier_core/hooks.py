@@ -173,10 +173,21 @@ class HookRegistry:
                 logger.error(f"Error in hook handler '{hook_handler.name}' for event '{event}': {e}")
                 # Continue with other handlers even if one fails
 
-        # If multiple inject_context results, merge them
+        # If multiple inject_context results, merge them.
+        # Note: ask_user takes precedence over inject_context (security blocking
+        # actions must not be silently overwritten by information-flow actions).
+        # Action precedence: deny > ask_user > inject_context > modify > continue
         if inject_context_results:
-            special_result = self._merge_inject_context_results(inject_context_results)
-            logger.debug(f"Merged {len(inject_context_results)} inject_context results")
+            merged_inject = self._merge_inject_context_results(inject_context_results)
+            if special_result is None:
+                special_result = merged_inject
+                logger.debug(f"Merged {len(inject_context_results)} inject_context results")
+            else:
+                # ask_user already captured - don't overwrite it
+                logger.debug(
+                    f"Skipped {len(inject_context_results)} inject_context results "
+                    f"due to higher-priority {special_result.action} action"
+                )
 
         # Return special action if any hook requested it, otherwise continue
         if special_result:
@@ -220,13 +231,15 @@ class HookRegistry:
 
     async def emit_and_collect(self, event: str, data: dict[str, Any], timeout: float = 1.0) -> list[Any]:
         """
-        Emit event and collect all handler responses.
+        Emit event and collect data from all handler responses.
 
-        Unlike emit() which does fire-and-forget, this method:
-        - Emits event to all handlers
-        - Collects their responses
-        - Returns list of responses for decision reduction
-        - Has timeout to prevent blocking
+        Unlike emit() which processes action semantics (deny short-circuits,
+        modify chains data, ask_user/inject_context return special results),
+        this method simply collects result.data from all handlers for aggregation.
+
+        Use for decision events where multiple hooks propose candidates and you
+        need to aggregate/reduce their contributions (e.g., tool resolution,
+        agent selection).
 
         Args:
             event: Event name
