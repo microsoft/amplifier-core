@@ -6,7 +6,7 @@ last_modified: 2025-01-29
 related_files:
   - path: amplifier_core/interfaces.py#HookHandler
     relationship: protocol_definition
-    lines: 173-189
+    lines: 205-220
   - path: amplifier_core/models.py#HookResult
     relationship: result_model
   - path: ../HOOKS_API.md
@@ -52,7 +52,7 @@ This contract provides the essentials. The API reference contains full details.
 
 ## Protocol Definition
 
-**Source**: `amplifier_core/interfaces.py` lines 173-189
+**Source**: `amplifier_core/interfaces.py` lines 205-220
 
 ```python
 @runtime_checkable
@@ -301,7 +301,7 @@ await recorder.record("tool:pre", {"tool_name": "Write"})
 # Assert
 events = recorder.get_events()
 assert len(events) == 1
-assert events[0]["event"] == "tool:pre"
+assert events[0][0] == "tool:pre"  # events are (event_name, data) tuples
 ```
 
 ---

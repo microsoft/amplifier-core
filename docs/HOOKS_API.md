@@ -7,7 +7,7 @@ related_contracts:
     relationship: contract_hub
   - path: ../amplifier_core/interfaces.py#HookHandler
     relationship: protocol_definition
-    lines: 173-189
+    lines: 205-220
 ---
 
 # Hooks API Reference
@@ -62,6 +62,9 @@ class HookResult(BaseModel):
     suppress_output: bool = False
     user_message: str | None = None
     user_message_level: Literal["info", "warning", "error"] = "info"
+
+    # Injection placement control
+    append_to_last_tool_result: bool = False
 ```
 
 ### Actions

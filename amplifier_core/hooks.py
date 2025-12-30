@@ -100,10 +100,12 @@ class HookRegistry:
 
     def set_default_fields(self, **defaults):
         """
-        Set default fields that will be merged with all emitted events.
+        Set default fields that will be merged with events emitted via emit().
+
+        Note: These defaults only apply to emit(), not emit_and_collect().
 
         Args:
-            **defaults: Key-value pairs to include in all events
+            **defaults: Key-value pairs to include in emit() events
         """
         self._defaults = defaults
         logger.debug(f"Set default fields: {list(defaults.keys())}")
