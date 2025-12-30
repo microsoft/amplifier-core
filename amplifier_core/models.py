@@ -4,12 +4,34 @@ Uses Pydantic for validation and serialization.
 """
 
 import json
+import re
 from datetime import datetime
 from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel
 from pydantic import Field
+
+
+def _sanitize_for_llm(text: str) -> str:
+    """Sanitize text content for safe transmission to LLM APIs.
+    
+    Removes control characters that can cause API errors while preserving
+    common whitespace (tab, newline, carriage return). Also handles
+    problematic Unicode sequences.
+    
+    This prevents "Internal server error" from providers when tool results
+    contain unexpected control characters from source code or LSP responses.
+    """
+    # Remove control characters except tab (\x09), newline (\x0a), carriage return (\x0d)
+    # Control chars are \x00-\x1f and \x7f-\x9f
+    sanitized = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+    
+    # Remove lone UTF-16 surrogates (invalid in JSON, can cause API errors)
+    # Surrogate pairs: \uD800-\uDFFF should only appear in valid pairs
+    sanitized = re.sub(r'[\ud800-\udfff]', '', sanitized)
+    
+    return sanitized
 
 
 class ToolResult(BaseModel):
@@ -35,13 +57,19 @@ class ToolResult(BaseModel):
         Note: For tools like bash that populate output even on failure (with
         stdout/stderr/returncode), we serialize the output regardless of the
         success flag - the output contains the actual error information.
+        
+        Content is sanitized to remove control characters that can cause
+        LLM API errors (e.g., Anthropic "Internal server error").
         """
         # If output exists and is structured data, always serialize it
         # (even on failure - bash tools put error info in output.stderr)
         if self.output is not None:
             if isinstance(self.output, (dict, list)):
-                return json.dumps(self.output)
-            return str(self.output)
+                result = json.dumps(self.output)
+            else:
+                result = str(self.output)
+            # Sanitize to prevent LLM API errors from control characters
+            return _sanitize_for_llm(result)
 
         # No output - check if this is an error case
         if not self.success:
