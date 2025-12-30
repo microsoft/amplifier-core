@@ -85,7 +85,7 @@ All modules use Python `Protocol` (structural typing, no inheritance required):
 - **Tool** - Agent capabilities (name, description, execute())
 - **Orchestrator** - Execution loops (execute())
 - **ContextManager** - Memory (add_message(), get_messages(), compact())
-- **Hook** - Observability (async function with event, data → HookResult)
+- **Hook** - Observability (__call__(event, data) → HookResult)
 
 ## API Example
 

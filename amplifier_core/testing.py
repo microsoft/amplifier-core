@@ -119,7 +119,7 @@ class EventRecorder:
         return HookResult(action="continue")
 
     async def record(self, event: str, data: dict) -> HookResult:
-        """Record an event (alias for emit for backward compatibility)."""
+        """Record an event (convenience alias for emit)."""
         return await self.emit(event, data)
 
     def clear(self):
