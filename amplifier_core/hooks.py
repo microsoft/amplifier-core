@@ -36,26 +36,16 @@ class HookRegistry:
     """
 
     # Standard lifecycle events
+    # See events.py for the canonical list; these are convenience constants
+    # for commonly-hooked events.
     SESSION_START = "session:start"
     SESSION_END = "session:end"
     PROMPT_SUBMIT = "prompt:submit"
     TOOL_PRE = "tool:pre"
     TOOL_POST = "tool:post"
-    CONTEXT_PRE_COMPACT = "context:pre-compact"
-    AGENT_SPAWN = "agent:spawn"
-    AGENT_COMPLETE = "agent:complete"
+    CONTEXT_PRE_COMPACT = "context:pre_compact"
     ORCHESTRATOR_COMPLETE = "orchestrator:complete"
     USER_NOTIFICATION = "user:notification"
-
-    # Decision events
-    DECISION_TOOL_RESOLUTION = "decision:tool_resolution"
-    DECISION_AGENT_RESOLUTION = "decision:agent_resolution"
-    DECISION_CONTEXT_RESOLUTION = "decision:context_resolution"
-
-    # Error events
-    ERROR_TOOL = "error:tool"
-    ERROR_PROVIDER = "error:provider"
-    ERROR_ORCHESTRATION = "error:orchestration"
 
     def __init__(self):
         """Initialize empty hook registry."""
