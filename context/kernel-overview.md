@@ -47,11 +47,11 @@ Infrastructure context carrying:
 - Capability enforcement
 
 ### Stable Contracts
-- Provider protocol: `ChatRequest → ChatResponse`
-- Tool protocol: `execute(input) → ToolResult`
-- Orchestrator protocol: `execute(prompt, context, ...)`
+- Provider protocol: `complete(request: ChatRequest) → ChatResponse`
+- Tool protocol: `execute(input: dict) → ToolResult`
+- Orchestrator protocol: `execute(prompt, context, providers, tools, hooks) → str`
 - Hook protocol: `__call__(event, data) → HookResult`
-- ContextManager protocol: `add/get/compact messages`
+- ContextManager protocol: `add_message/get_messages_for_request/get_messages/set_messages/clear`
 
 ## What the Kernel Does NOT Provide
 
@@ -83,29 +83,61 @@ Before adding anything to the kernel, ask:
 
 ### Provider Protocol
 ```python
-async def complete(messages: list[Message], tools: list[Tool] | None) -> ChatResponse
+@property
+def name(self) -> str
+
+def get_info(self) -> ProviderInfo
+
+async def list_models(self) -> list[ModelInfo]
+
+async def complete(self, request: ChatRequest, **kwargs) -> ChatResponse
+
+def parse_tool_calls(self, response: ChatResponse) -> list[ToolCall]
 ```
 
 ### Tool Protocol
 ```python
-async def execute(input: ToolInput) -> ToolResult
+@property
+def name(self) -> str
+
+@property
+def description(self) -> str
+
+async def execute(self, input: dict[str, Any]) -> ToolResult
 ```
 
 ### Orchestrator Protocol
 ```python
-async def execute(prompt: str, context: ContextManager, ...) -> Response
+async def execute(
+    self,
+    prompt: str,
+    context: ContextManager,
+    providers: dict[str, Provider],
+    tools: dict[str, Tool],
+    hooks: HookRegistry,
+) -> str
 ```
 
 ### Hook Protocol
 ```python
-async def __call__(event: str, data: dict) -> HookResult
+async def __call__(self, event: str, data: dict[str, Any]) -> HookResult
 ```
 
 ### ContextManager Protocol
 ```python
-async def add(message: Message) -> None
-async def get() -> list[Message]
-async def compact() -> CompactionResult
+async def add_message(self, message: dict[str, Any]) -> None
+
+async def get_messages_for_request(
+    self,
+    token_budget: int | None = None,
+    provider: Any | None = None,
+) -> list[dict[str, Any]]
+
+async def get_messages(self) -> list[dict[str, Any]]
+
+async def set_messages(self, messages: list[dict[str, Any]]) -> None
+
+async def clear(self) -> None
 ```
 
 ## For Module Developers
