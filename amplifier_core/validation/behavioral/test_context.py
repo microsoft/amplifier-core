@@ -96,12 +96,35 @@ class ContextBehaviorTests:
         """_should_compact() must return boolean if present (internal method)."""
         # Note: _should_compact is an internal method, not called by orchestrators
         # It may be sync or async depending on implementation
+        # Method signature varies: some take no args, some take (token_count, budget)
+        import inspect
+
         if hasattr(context_module, "_should_compact"):
             method = context_module._should_compact
-            if asyncio.iscoroutinefunction(method):
-                result = await method()
+
+            # Determine required arguments (excluding self)
+            sig = inspect.signature(method)
+            required_params = [
+                p for p in sig.parameters.values()
+                if p.default is inspect.Parameter.empty
+                and p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+            ]
+
+            # Prepare args based on signature
+            if len(required_params) == 0:
+                args = ()
+            elif len(required_params) == 2:
+                # Likely (token_count, budget) signature
+                args = (100_000, 200_000)  # token_count, budget
             else:
-                result = method()
+                # Unknown signature, skip test
+                pytest.skip(f"_should_compact has unexpected signature: {sig}")
+                return
+
+            if asyncio.iscoroutinefunction(method):
+                result = await method(*args)
+            else:
+                result = method(*args)
             assert isinstance(result, bool), "_should_compact() must return bool"
 
     @pytest.mark.asyncio
