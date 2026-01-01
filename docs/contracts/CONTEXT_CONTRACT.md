@@ -1,8 +1,8 @@
 ---
 contract_type: module_specification
 module_type: context
-contract_version: 2.0.0
-last_modified: 2025-12-21
+contract_version: 2.1.0
+last_modified: 2026-01-01
 related_files:
   - path: amplifier_core/interfaces.py#ContextManager
     relationship: protocol_definition
@@ -254,6 +254,38 @@ async def set_messages(self, messages: list[dict[str, Any]]) -> None:
     self._token_count = sum(self._estimate_tokens(m) for m in self._messages)
 ```
 
+**File-Based Context Managers - Special Behavior**:
+
+For context managers with persistent file storage (like `context-persistent`), the behavior on session resume is different:
+
+```python
+async def set_messages(self, messages: list[dict[str, Any]]) -> None:
+    """
+    Set messages - behavior depends on whether we loaded from file.
+    
+    If we already loaded from our own file (session resume):
+      - IGNORE this call to preserve our complete history
+      - CLI's filtered transcript would lose system/developer messages
+    
+    If this is a fresh session or migration:
+      - Accept the messages and write to our file
+    """
+    if self._loaded_from_file:
+        # Already have complete history - ignore CLI's filtered transcript
+        logger.info("Ignoring set_messages - loaded from persistent file")
+        return
+    
+    # Fresh session: accept messages
+    self._messages = list(messages)
+    self._write_to_file()
+```
+
+**Why This Pattern?**:
+- CLI's `SessionStore` saves a **filtered** transcript (no system/developer messages)
+- File-based context managers save the **complete** history
+- On resume, the context manager's file is authoritative
+- Prevents loss of system context during session resume
+
 ### clear()
 
 Reset context state:
@@ -270,6 +302,66 @@ async def clear(self) -> None:
 ## Internal Compaction
 
 Compaction is an **internal implementation detail** of the context manager. It happens automatically when `get_messages_for_request()` is called and the context exceeds thresholds.
+
+### Non-Destructive Compaction (REQUIRED)
+
+**Critical Design Principle**: Compaction MUST be **ephemeral** - it returns a compacted VIEW without modifying the stored history.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    NON-DESTRUCTIVE COMPACTION                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  messages[]                    get_messages_for_request()       │
+│  ┌──────────┐                  ┌──────────┐                     │
+│  │ msg 1    │                  │ msg 1    │  (compacted view)   │
+│  │ msg 2    │   ──────────▶    │ [summ]   │                     │
+│  │ msg 3    │   ephemeral      │ msg N    │                     │
+│  │ ...      │   compaction     └──────────┘                     │
+│  │ msg N    │                                                   │
+│  └──────────┘                  get_messages()                   │
+│       │                        ┌──────────┐                     │
+│       │                        │ msg 1    │  (FULL history)     │
+│       └───────────────────▶    │ msg 2    │                     │
+│         unchanged              │ msg 3    │                     │
+│                                │ ...      │                     │
+│                                │ msg N    │                     │
+│                                └──────────┘                     │
+│                                                                 │
+│  Key: Internal state is NEVER modified by compaction.           │
+│       Compaction produces temporary views for LLM requests.     │
+│       Full history is always available via get_messages().      │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Why Non-Destructive?**:
+- **Transcript integrity**: Full conversation history is preserved for replay/debugging
+- **Session resume**: Can resume from any point with complete context
+- **Reproducibility**: Same inputs produce same outputs
+- **Observability**: Hook systems can observe the full conversation
+
+**Implementation Pattern**:
+```python
+async def get_messages_for_request(self, token_budget=None, provider=None):
+    """Return compacted VIEW without modifying internal state."""
+    budget = self._calculate_budget(token_budget, provider)
+    
+    # Read current messages (don't modify)
+    messages = list(self._messages)  # Copy!
+    
+    # Check if compaction needed
+    token_count = self._count_tokens(messages)
+    if not self._should_compact(token_count, budget):
+        return messages
+    
+    # Compact EPHEMERALLY - return compacted copy
+    return self._compact_messages(messages, budget)  # Returns NEW list
+
+async def get_messages(self):
+    """Return FULL history (never compacted)."""
+    return list(self._messages)  # Always complete
+```
 
 ### Tool Pair Preservation
 
