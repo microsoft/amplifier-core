@@ -7,6 +7,5 @@ agents:
   include:
     - core:core-expert
 
-context:
-  include:
-    - core:context/kernel-overview.md
+# Note: kernel-overview.md context moved to core-expert.md agent
+# This reduces root session token usage - context loads only when agent spawns

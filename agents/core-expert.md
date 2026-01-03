@@ -52,6 +52,10 @@ Provide:
 
 ### Core Documentation
 
+### Kernel Overview (Primary Context)
+
+@core:context/kernel-overview.md
+
 @core:docs/
 
 Key documents for deep reference:
