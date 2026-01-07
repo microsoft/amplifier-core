@@ -22,6 +22,7 @@ from typing import Any
 
 from .approval import ApprovalSystem
 from .approval import ApprovalTimeoutError
+from .cancellation import CancellationToken
 from .display import DisplaySystem
 from .hooks import HookRegistry
 from .models import HookResult
@@ -82,6 +83,10 @@ class ModuleCoordinator:
         self.approval_system = approval_system
         self.display_system = display_system
         self._current_turn_injections = 0  # Token budget tracking
+
+        # Cancellation support - cooperative cancellation mechanism
+        # Kernel provides the token (mechanism), app layer decides when to cancel (policy)
+        self.cancellation = CancellationToken()
 
         # Log warnings if systems not provided (kernel doesn't decide fallback - that's policy)
         if self.approval_system is None:
@@ -337,6 +342,41 @@ class ModuleCoordinator:
     def reset_turn(self):
         """Reset per-turn tracking. Call at turn boundaries."""
         self._current_turn_injections = 0
+        # Note: We do NOT reset cancellation here - cancellation persists across turns
+        # The app layer decides when to reset cancellation (e.g., on new session)
+
+    async def request_cancel(self, immediate: bool = False) -> None:
+        """
+        Request session cancellation.
+
+        This is the kernel MECHANISM for cancellation. The app layer (CLI)
+        decides WHEN to call this (e.g., on SIGINT).
+
+        Args:
+            immediate: If True, stop immediately (synthesize tool results).
+                       If False, wait for current tools to complete gracefully.
+
+        Emits:
+            cancel:requested event with level and running tool info
+        """
+        from .events import CANCEL_REQUESTED
+
+        if immediate:
+            changed = self.cancellation.request_immediate()
+            level = "immediate"
+        else:
+            changed = self.cancellation.request_graceful()
+            level = "graceful"
+
+        if changed:
+            await self.hooks.emit(CANCEL_REQUESTED, {
+                "level": level,
+                "running_tools": list(self.cancellation.running_tools),
+                "running_tool_names": self.cancellation.running_tool_names,
+            })
+
+            # Trigger any registered cancellation callbacks
+            await self.cancellation.trigger_callbacks()
 
     async def process_hook_result(self, result: HookResult, event: str, hook_name: str = "unknown") -> HookResult:
         """

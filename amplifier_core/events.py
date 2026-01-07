@@ -51,6 +51,10 @@ APPROVAL_REQUIRED = "approval:required"
 APPROVAL_GRANTED = "approval:granted"
 APPROVAL_DENIED = "approval:denied"
 
+# Cancellation lifecycle
+CANCEL_REQUESTED = "cancel:requested"  # Cancellation initiated (graceful or immediate)
+CANCEL_COMPLETED = "cancel:completed"  # Cancellation finalized, session stopping
+
 SESSION_RESUME = "session:resume"
 LLM_REQUEST = "llm:request"
 LLM_RESPONSE = "llm:response"
@@ -92,4 +96,6 @@ ALL_EVENTS = [
     APPROVAL_REQUIRED,
     APPROVAL_GRANTED,
     APPROVAL_DENIED,
+    CANCEL_REQUESTED,
+    CANCEL_COMPLETED,
 ]

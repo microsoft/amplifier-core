@@ -266,14 +266,34 @@ class AmplifierSession:
                 coordinator=self.coordinator,  # NEW: Pass coordinator for hook result processing
             )
 
-            self.status.status = "completed"
+            # Check if session was cancelled during execution
+            if self.coordinator.cancellation.is_cancelled:
+                self.status.status = "cancelled"
+                # Emit cancel:completed event
+                from .events import CANCEL_COMPLETED
+                await self.coordinator.hooks.emit(CANCEL_COMPLETED, {
+                    "was_immediate": self.coordinator.cancellation.is_immediate,
+                })
+            else:
+                self.status.status = "completed"
             return result
 
         except Exception as e:
-            self.status.status = "failed"
-            self.status.last_error = {"message": str(e)}
-            logger.error(f"Execution failed: {e}")
-            raise
+            # Check if this was a cancellation-related exception
+            if self.coordinator.cancellation.is_cancelled:
+                self.status.status = "cancelled"
+                from .events import CANCEL_COMPLETED
+                await self.coordinator.hooks.emit(CANCEL_COMPLETED, {
+                    "was_immediate": self.coordinator.cancellation.is_immediate,
+                    "error": str(e),
+                })
+                logger.info(f"Execution cancelled: {e}")
+                raise
+            else:
+                self.status.status = "failed"
+                self.status.last_error = {"message": str(e)}
+                logger.error(f"Execution failed: {e}")
+                raise
 
     async def cleanup(self: "AmplifierSession") -> None:
         """Clean up session resources."""
