@@ -4,6 +4,8 @@ Amplifier Core - Ultra-thin coordination layer for modular AI agents.
 
 __version__ = "1.0.0"
 
+from .cancellation import CancellationState
+from .cancellation import CancellationToken
 from .content_models import ContentBlock
 from .content_models import ContentBlockType
 from .content_models import TextContent
@@ -58,6 +60,9 @@ from .testing import wait_for
 
 __all__ = [
     "AmplifierSession",
+    # Cancellation primitives
+    "CancellationState",
+    "CancellationToken",
     "ModuleCoordinator",
     "ModuleLoader",
     "ModuleValidationError",
