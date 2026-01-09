@@ -19,6 +19,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _safe_exception_str(e: Exception) -> str:
+    """
+    CRITICAL: Explicitly handle exception string conversion for Windows cp1252 compatibility.
+    Default encoding can fail on non-cp1252 characters, causing a crash during error handling.
+    We fall back to repr() which is safer as it escapes problematic characters.
+    """
+    try:
+        return str(e)
+    except UnicodeDecodeError:
+        return repr(e)
+
+
+
 class AmplifierSession:
     """
     A single Amplifier session tying everything together.
@@ -127,8 +140,8 @@ class AmplifierSession:
                 if cleanup:
                     self.coordinator.register_cleanup(cleanup)
             except Exception as e:
-                logger.error(f"Failed to load orchestrator '{orchestrator_id}': {e}")
-                raise RuntimeError(f"Cannot initialize without orchestrator: {e}")
+                logger.error(f"Failed to load orchestrator '{orchestrator_id}': {_safe_exception_str(e)}")
+                raise RuntimeError(f"Cannot initialize without orchestrator: {_safe_exception_str(e)}")
 
             # Load context manager (required)
             # Handle both dict (ModuleConfig) and string formats
@@ -150,8 +163,8 @@ class AmplifierSession:
                 if cleanup:
                     self.coordinator.register_cleanup(cleanup)
             except Exception as e:
-                logger.error(f"Failed to load context manager '{context_id}': {e}")
-                raise RuntimeError(f"Cannot initialize without context manager: {e}")
+                logger.error(f"Failed to load context manager '{context_id}': {_safe_exception_str(e)}")
+                raise RuntimeError(f"Cannot initialize without context manager: {_safe_exception_str(e)}")
 
             # Load providers
             for provider_config in self.config.get("providers", []):
@@ -168,7 +181,7 @@ class AmplifierSession:
                     if cleanup:
                         self.coordinator.register_cleanup(cleanup)
                 except Exception as e:
-                    logger.warning(f"Failed to load provider '{module_id}': {e}", exc_info=True)
+                    logger.warning(f"Failed to load provider '{module_id}': {_safe_exception_str(e)}", exc_info=True)
 
             # Load tools
             for tool_config in self.config.get("tools", []):
@@ -185,7 +198,7 @@ class AmplifierSession:
                     if cleanup:
                         self.coordinator.register_cleanup(cleanup)
                 except Exception as e:
-                    logger.warning(f"Failed to load tool '{module_id}': {e}", exc_info=True)
+                    logger.warning(f"Failed to load tool '{module_id}': {_safe_exception_str(e)}", exc_info=True)
 
             # Note: agents section is app-layer data (config overlays), not modules to mount
             # The kernel passes agents through in the mount plan without interpretation
@@ -205,7 +218,7 @@ class AmplifierSession:
                     if cleanup:
                         self.coordinator.register_cleanup(cleanup)
                 except Exception as e:
-                    logger.warning(f"Failed to load hook '{module_id}': {e}", exc_info=True)
+                    logger.warning(f"Failed to load hook '{module_id}': {_safe_exception_str(e)}", exc_info=True)
 
             self._initialized = True
 
@@ -218,7 +231,7 @@ class AmplifierSession:
             logger.info(f"Session {self.session_id} initialized successfully")
 
         except Exception as e:
-            logger.error(f"Session initialization failed: {e}")
+            logger.error(f"Session initialization failed: {_safe_exception_str(e)}")
             raise
 
     async def execute(self, prompt: str) -> str:
@@ -285,14 +298,14 @@ class AmplifierSession:
                 from .events import CANCEL_COMPLETED
                 await self.coordinator.hooks.emit(CANCEL_COMPLETED, {
                     "was_immediate": self.coordinator.cancellation.is_immediate,
-                    "error": str(e),
+                    "error": _safe_exception_str(e),
                 })
-                logger.info(f"Execution cancelled: {e}")
+                logger.info(f"Execution cancelled: {_safe_exception_str(e)}")
                 raise
             else:
                 self.status.status = "failed"
-                self.status.last_error = {"message": str(e)}
-                logger.error(f"Execution failed: {e}")
+                self.status.last_error = {"message": _safe_exception_str(e)}
+                logger.error(f"Execution failed: {_safe_exception_str(e)}")
                 raise
 
     async def cleanup(self: "AmplifierSession") -> None:
