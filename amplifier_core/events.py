@@ -57,7 +57,11 @@ CANCEL_COMPLETED = "cancel:completed"  # Cancellation finalized, session stoppin
 
 SESSION_RESUME = "session:resume"
 LLM_REQUEST = "llm:request"
+LLM_REQUEST_DEBUG = "llm:request:debug"
+LLM_REQUEST_RAW = "llm:request:raw"
 LLM_RESPONSE = "llm:response"
+LLM_RESPONSE_DEBUG = "llm:response:debug"
+LLM_RESPONSE_RAW = "llm:response:raw"
 THINKING_DELTA = "thinking:delta"
 THINKING_FINAL = "thinking:final"
 CONTEXT_INCLUDE = "context:include"
@@ -76,7 +80,11 @@ ALL_EVENTS = [
     PROVIDER_RESPONSE,
     PROVIDER_ERROR,
     LLM_REQUEST,
+    LLM_REQUEST_DEBUG,
+    LLM_REQUEST_RAW,
     LLM_RESPONSE,
+    LLM_RESPONSE_DEBUG,
+    LLM_RESPONSE_RAW,
     CONTENT_BLOCK_START,
     CONTENT_BLOCK_DELTA,
     CONTENT_BLOCK_END,
