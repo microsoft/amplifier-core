@@ -167,7 +167,27 @@ async def execute(self, prompt, context, providers, tools, hooks):
         "tool_input": tool_call.input,
         "tool_result": result
     })
+
+    # REQUIRED: At the end of execute(), emit orchestrator:complete
+    await hooks.emit("orchestrator:complete", {
+        "orchestrator": "my-orchestrator",  # Your orchestrator name
+        "turn_count": iteration_count,       # Number of LLM turns
+        "status": "success"                  # "success", "incomplete", or "cancelled"
+    })
 ```
+
+#### Required: orchestrator:complete Event
+
+**All orchestrators MUST emit `orchestrator:complete`** at the end of their `execute()` method. This event enables:
+- Session analytics and debugging
+- Hooks that trigger on turn completion (e.g., session naming)
+- Observability and monitoring
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `orchestrator` | string | Name of the orchestrator module |
+| `turn_count` | int | Number of LLM call iterations |
+| `status` | string | Exit status: `"success"`, `"incomplete"`, or `"cancelled"` |
 
 ### Hook Processing
 
@@ -295,6 +315,7 @@ Additional examples:
 - [ ] Implements `execute(prompt, context, providers, tools, hooks) -> str`
 - [ ] `mount()` function with entry point in pyproject.toml
 - [ ] Emits standard events (provider:request/response, tool:pre/post)
+- [ ] **Emits `orchestrator:complete` at the end of execute()**
 - [ ] Handles HookResult actions appropriately
 - [ ] Manages context (add messages, check compaction)
 
