@@ -74,7 +74,9 @@ class ModuleCoordinator:
         }
         self._cleanup_functions = []
         self._capabilities = {}  # Capability registry for inter-module communication
-        self.channels: dict[str, list[dict]] = {}  # Contribution channels for aggregation
+        self.channels: dict[
+            str, list[dict]
+        ] = {}  # Contribution channels for aggregation
 
         # Make hooks accessible as an attribute for backward compatibility
         self.hooks = self.mount_points["hooks"]
@@ -92,7 +94,9 @@ class ModuleCoordinator:
         if self.approval_system is None:
             logger.warning("No approval system provided - approval requests will fail")
         if self.display_system is None:
-            logger.warning("No display system provided - hook messages will be logged only")
+            logger.warning(
+                "No display system provided - hook messages will be logged only"
+            )
 
     @property
     def session(self) -> "AmplifierSession":
@@ -148,7 +152,9 @@ class ModuleCoordinator:
         """Module loader (infrastructure for dynamic module loading)."""
         return self._session.loader
 
-    async def mount(self, mount_point: str, module: Any, name: str | None = None) -> None:
+    async def mount(
+        self, mount_point: str, module: Any, name: str | None = None
+    ) -> None:
         """
         Mount a module at a specific mount point.
 
@@ -177,10 +183,14 @@ class ModuleCoordinator:
                     raise ValueError(f"Name required for {mount_point}")
 
             self.mount_points[mount_point][name] = module
-            logger.info(f"Mounted {module.__class__.__name__} '{name}' at {mount_point}")
+            logger.info(
+                f"Mounted {module.__class__.__name__} '{name}' at {mount_point}"
+            )
 
         elif mount_point == "hooks":
-            raise ValueError("Hooks should be registered directly with the HookRegistry")
+            raise ValueError(
+                "Hooks should be registered directly with the HookRegistry"
+            )
 
     async def unmount(self, mount_point: str, name: str | None = None) -> None:
         """
@@ -218,7 +228,12 @@ class ModuleCoordinator:
         if mount_point not in self.mount_points:
             raise ValueError(f"Unknown mount point: {mount_point}")
 
-        if mount_point in ["orchestrator", "context", "hooks", "module-source-resolver"]:
+        if mount_point in [
+            "orchestrator",
+            "context",
+            "hooks",
+            "module-source-resolver",
+        ]:
             return self.mount_points[mount_point]
 
         if mount_point in ["providers", "tools", "agents"]:
@@ -321,7 +336,9 @@ class ModuleCoordinator:
                 if result is not None:
                     contributions.append(result)
             except Exception as e:
-                logger.warning(f"Contributor '{contributor['name']}' on channel '{channel}' failed: {e}")
+                logger.warning(
+                    f"Contributor '{contributor['name']}' on channel '{channel}' failed: {e}"
+                )
 
         return contributions
 
@@ -369,16 +386,21 @@ class ModuleCoordinator:
             level = "graceful"
 
         if changed:
-            await self.hooks.emit(CANCEL_REQUESTED, {
-                "level": level,
-                "running_tools": list(self.cancellation.running_tools),
-                "running_tool_names": self.cancellation.running_tool_names,
-            })
+            await self.hooks.emit(
+                CANCEL_REQUESTED,
+                {
+                    "level": level,
+                    "running_tools": list(self.cancellation.running_tools),
+                    "running_tool_names": self.cancellation.running_tool_names,
+                },
+            )
 
             # Trigger any registered cancellation callbacks
             await self.cancellation.trigger_callbacks()
 
-    async def process_hook_result(self, result: HookResult, event: str, hook_name: str = "unknown") -> HookResult:
+    async def process_hook_result(
+        self, result: HookResult, event: str, hook_name: str = "unknown"
+    ) -> HookResult:
         """
         Process HookResult and route actions to appropriate subsystems.
 
@@ -414,7 +436,9 @@ class ModuleCoordinator:
 
         return result
 
-    async def _handle_context_injection(self, result: HookResult, hook_name: str, event: str):
+    async def _handle_context_injection(
+        self, result: HookResult, hook_name: str, event: str
+    ):
         """Handle context injection action."""
         content = result.context_injection
         if not content:
@@ -477,7 +501,9 @@ class ModuleCoordinator:
             },
         )
 
-    async def _handle_approval_request(self, result: HookResult, hook_name: str) -> HookResult:
+    async def _handle_approval_request(
+        self, result: HookResult, hook_name: str
+    ) -> HookResult:
         """Handle approval request action."""
         prompt = result.approval_prompt or "Allow this operation?"
         options = result.approval_options or ["Allow", "Deny"]
@@ -496,17 +522,25 @@ class ModuleCoordinator:
 
         # Check if approval system is available
         if self.approval_system is None:
-            logger.error("Approval requested but no approval system provided", extra={"hook": hook_name})
+            logger.error(
+                "Approval requested but no approval system provided",
+                extra={"hook": hook_name},
+            )
             return HookResult(action="deny", reason="No approval system available")
 
         try:
             # Request approval from user
             decision = await self.approval_system.request_approval(
-                prompt=prompt, options=options, timeout=result.approval_timeout, default=result.approval_default
+                prompt=prompt,
+                options=options,
+                timeout=result.approval_timeout,
+                default=result.approval_default,
             )
 
             # Log decision
-            logger.info("Approval decision", extra={"hook": hook_name, "decision": decision})
+            logger.info(
+                "Approval decision", extra={"hook": hook_name, "decision": decision}
+            )
 
             # Process decision
             if decision == "Deny":
@@ -517,11 +551,17 @@ class ModuleCoordinator:
 
         except ApprovalTimeoutError:
             # Log timeout
-            logger.warning("Approval timeout", extra={"hook": hook_name, "default": result.approval_default})
+            logger.warning(
+                "Approval timeout",
+                extra={"hook": hook_name, "default": result.approval_default},
+            )
 
             # Apply default
             if result.approval_default == "deny":
-                return HookResult(action="deny", reason=f"Approval timeout - denied by default: {prompt}")
+                return HookResult(
+                    action="deny",
+                    reason=f"Approval timeout - denied by default: {prompt}",
+                )
             return HookResult(action="continue")
 
     def _handle_user_message(self, result: HookResult, hook_name: str):
@@ -529,12 +569,20 @@ class ModuleCoordinator:
         if not result.user_message:
             return
 
+        # Use user_message_source if provided, otherwise fall back to hook_name
+        source_name = result.user_message_source or hook_name
+
         # Check if display system is available
         if self.display_system is None:
             # Fallback to logging if no display system provided
-            logger.info(f"Hook message ({result.user_message_level}): {result.user_message}", extra={"hook": hook_name})
+            logger.info(
+                f"Hook message ({result.user_message_level}): {result.user_message}",
+                extra={"hook": source_name},
+            )
             return
 
         self.display_system.show_message(
-            message=result.user_message, level=result.user_message_level, source=f"hook:{hook_name}"
+            message=result.user_message,
+            level=result.user_message_level,
+            source=f"hook:{source_name}",
         )

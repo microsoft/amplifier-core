@@ -15,22 +15,22 @@ from pydantic import Field
 
 def _sanitize_for_llm(text: str) -> str:
     """Sanitize text content for safe transmission to LLM APIs.
-    
+
     Removes control characters that can cause API errors while preserving
     common whitespace (tab, newline, carriage return). Also handles
     problematic Unicode sequences.
-    
+
     This prevents "Internal server error" from providers when tool results
     contain unexpected control characters from source code or LSP responses.
     """
     # Remove control characters except tab (\x09), newline (\x0a), carriage return (\x0d)
     # Control chars are \x00-\x1f and \x7f-\x9f
-    sanitized = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-    
+    sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", text)
+
     # Remove lone UTF-16 surrogates (invalid in JSON, can cause API errors)
     # Surrogate pairs: \uD800-\uDFFF should only appear in valid pairs
-    sanitized = re.sub(r'[\ud800-\udfff]', '', sanitized)
-    
+    sanitized = re.sub(r"[\ud800-\udfff]", "", sanitized)
+
     return sanitized
 
 
@@ -39,12 +39,18 @@ class ToolResult(BaseModel):
 
     success: bool = Field(default=True, description="Whether execution succeeded")
     output: Any | None = Field(default=None, description="Tool output data")
-    error: dict[str, Any] | None = Field(default=None, description="Error details if failed")
+    error: dict[str, Any] | None = Field(
+        default=None, description="Error details if failed"
+    )
 
     def __str__(self) -> str:
         if self.success:
             return str(self.output) if self.output else "Success"
-        return f"Error: {self.error.get('message', 'Unknown error')}" if self.error else "Failed"
+        return (
+            f"Error: {self.error.get('message', 'Unknown error')}"
+            if self.error
+            else "Failed"
+        )
 
     def get_serialized_output(self) -> str:
         """Get output serialized appropriately for LLM context.
@@ -57,7 +63,7 @@ class ToolResult(BaseModel):
         Note: For tools like bash that populate output even on failure (with
         stdout/stderr/returncode), we serialize the output regardless of the
         success flag - the output contains the actual error information.
-        
+
         Content is sanitized to remove control characters that can cause
         LLM API errors (e.g., Anthropic "Internal server error").
         """
@@ -165,10 +171,12 @@ class HookResult(BaseModel):
 
     # Existing fields
     data: dict[str, Any] | None = Field(
-        default=None, description="Modified event data (for action='modify'). Changes chain through handlers."
+        default=None,
+        description="Modified event data (for action='modify'). Changes chain through handlers.",
     )
     reason: str | None = Field(
-        default=None, description="Explanation for deny/modification. Shown to agent when operation is blocked."
+        default=None,
+        description="Explanation for deny/modification. Shown to agent when operation is blocked.",
     )
 
     # Context injection fields
@@ -254,6 +262,14 @@ class HookResult(BaseModel):
             "'info' for status updates, 'warning' for non-critical issues, 'error' for failures."
         ),
     )
+    user_message_source: str | None = Field(
+        default=None,
+        description=(
+            "Source name for user_message display (e.g., 'python-check'). "
+            "If None, falls back to the hook_name passed by the orchestrator. "
+            "Use to provide a meaningful label when hook_name is generic (like tool name)."
+        ),
+    )
 
     # Injection placement control
     append_to_last_tool_result: bool = Field(
@@ -273,7 +289,9 @@ class ModelInfo(BaseModel):
     Describes capabilities and defaults for a specific model available from a provider.
     """
 
-    id: str = Field(..., description="Model identifier (e.g., 'claude-sonnet-4-5', 'gpt-4o')")
+    id: str = Field(
+        ..., description="Model identifier (e.g., 'claude-sonnet-4-5', 'gpt-4o')"
+    )
     display_name: str = Field(..., description="Human-readable model name")
     context_window: int = Field(..., description="Maximum context window in tokens")
     max_output_tokens: int = Field(..., description="Maximum output tokens")
@@ -302,10 +320,16 @@ class ConfigField(BaseModel):
         description="Field type: 'text' for plain input, 'secret' for masked input, 'choice' for selection, 'boolean' for yes/no",
     )
     prompt: str = Field(..., description="Question to ask the user")
-    env_var: str | None = Field(default=None, description="Environment variable to check/set")
-    choices: list[str] | None = Field(default=None, description="Valid choices (for field_type='choice')")
+    env_var: str | None = Field(
+        default=None, description="Environment variable to check/set"
+    )
+    choices: list[str] | None = Field(
+        default=None, description="Valid choices (for field_type='choice')"
+    )
     required: bool = Field(default=True, description="Whether this field is required")
-    default: str | None = Field(default=None, description="Default value if not provided")
+    default: str | None = Field(
+        default=None, description="Default value if not provided"
+    )
     show_when: dict[str, str] | None = Field(
         default=None,
         description="Conditional visibility: show this field only when another field has a specific value (e.g., {'model': 'claude-sonnet-4-5-20250929'})",
@@ -322,7 +346,9 @@ class ProviderInfo(BaseModel):
     Describes capabilities, authentication requirements, and defaults for a provider.
     """
 
-    id: str = Field(..., description="Provider identifier (e.g., 'anthropic', 'openai')")
+    id: str = Field(
+        ..., description="Provider identifier (e.g., 'anthropic', 'openai')"
+    )
     display_name: str = Field(..., description="Human-readable provider name")
     credential_env_vars: list[str] = Field(
         default_factory=list,
@@ -348,12 +374,14 @@ class ModuleInfo(BaseModel):
     id: str = Field(..., description="Module identifier")
     name: str = Field(..., description="Module display name")
     version: str = Field(..., description="Module version")
-    type: Literal["orchestrator", "provider", "tool", "context", "hook", "resolver"] = Field(
-        ..., description="Module type"
+    type: Literal["orchestrator", "provider", "tool", "context", "hook", "resolver"] = (
+        Field(..., description="Module type")
     )
     mount_point: str = Field(..., description="Where module should be mounted")
     description: str = Field(..., description="Module description")
-    config_schema: dict[str, Any] | None = Field(default=None, description="JSON schema for module configuration")
+    config_schema: dict[str, Any] | None = Field(
+        default=None, description="JSON schema for module configuration"
+    )
 
 
 class SessionStatus(BaseModel):
