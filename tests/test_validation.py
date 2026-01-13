@@ -537,7 +537,7 @@ class TestMountPlanValidator:
                 "context": {"module": "context-default"},
             },
             "providers": [
-                {"config": {"model": "gpt-4"}}  # Missing 'module'
+                {"config": {"model": "gpt-5.2"}}  # Missing 'module'
             ],
         }
         result = MountPlanValidator().validate(mount_plan)

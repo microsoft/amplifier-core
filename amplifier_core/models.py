@@ -290,7 +290,7 @@ class ModelInfo(BaseModel):
     """
 
     id: str = Field(
-        ..., description="Model identifier (e.g., 'claude-sonnet-4-5', 'gpt-4o')"
+        ..., description="Model identifier (e.g., 'claude-sonnet-4-5', 'gpt-5.2')"
     )
     display_name: str = Field(..., description="Human-readable model name")
     context_window: int = Field(..., description="Maximum context window in tokens")
@@ -332,7 +332,7 @@ class ConfigField(BaseModel):
     )
     show_when: dict[str, str] | None = Field(
         default=None,
-        description="Conditional visibility: show this field only when another field has a specific value (e.g., {'model': 'claude-sonnet-4-5-20250929'})",
+        description="Conditional visibility: show this field only when another field has a specific value (e.g., {'model': 'claude-sonnet-4-5'})",
     )
     requires_model: bool = Field(
         default=False,
