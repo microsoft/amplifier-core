@@ -75,7 +75,7 @@ Use `{domain}.{purpose}` for shared channels. Examples:
 - `capabilities.catalog` – aggregate callable capabilities.
 - `session.metadata` – runtime metadata snapshots.
 
-Collections can scope private channels with `{collection}:{purpose}` (e.g., `toolkit:debug-metrics`).
+Bundles can scope private channels with `{bundle}:{purpose}` (e.g., `toolkit:debug-metrics`).
 
 ---
 

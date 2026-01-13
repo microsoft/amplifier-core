@@ -54,7 +54,7 @@ class ModuleSourceResolver(Protocol):
     """Contract for module source resolution strategies.
 
     Implementations decide WHERE to find modules based on module ID and
-    optional profile hints.
+    optional source hints.
     """
 
     def resolve(self, module_id: str, profile_hint: Any = None) -> ModuleSource:
@@ -63,7 +63,7 @@ class ModuleSourceResolver(Protocol):
 
         Args:
             module_id: Module identifier (e.g., "tool-bash")
-            profile_hint: Optional hint from profile configuration
+            profile_hint: Optional source hint from bundle configuration
                          (format defined by app layer)
 
         Returns:
@@ -107,7 +107,7 @@ class ModuleLoader:
         Args:
             module_id: Module identifier
             config: Optional module configuration
-            profile_source: Optional source hint from profile/config
+            profile_source: Optional source hint from bundle/config
 
         Raises:
             ModuleNotFoundError: Module not found
