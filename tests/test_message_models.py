@@ -417,11 +417,11 @@ class TestChatResponse:
         """Response with metadata."""
         response = ChatResponse(
             content=[TextBlock(text="Response")],
-            metadata={"model": "claude-3", "latency_ms": 150},
+            metadata={"model": "claude-sonnet-4-5", "latency_ms": 150},
         )
 
         assert response.metadata is not None
-        assert response.metadata["model"] == "claude-3"
+        assert response.metadata["model"] == "claude-sonnet-4-5"
         assert response.metadata["latency_ms"] == 150
 
     def test_response_serialization(self) -> None:
