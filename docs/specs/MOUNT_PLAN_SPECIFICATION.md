@@ -22,7 +22,7 @@ The **Mount Plan** is the contract between the application layer (CLI) and the A
 
 The Mount Plan serves as the "resolved configuration" that the kernel understands. The app layer is responsible for:
 
-- Reading various config sources (profiles, user config, project config, CLI flags, env vars)
+- Reading various config sources (bundles, user config, project config, CLI flags, env vars)
 - Merging them with proper precedence
 - Producing a single, complete Mount Plan dictionary
 
@@ -343,7 +343,7 @@ session = AmplifierSession(mount_plan)
 
 Application code should never manually construct Mount Plans. Instead:
 
-1. Use the Profile system to define configurations
+1. Use bundles to define configurations
 2. Let the CLI's `resolve_app_config()` merge all sources
 3. Pass the resulting dictionary to `AmplifierSession`
 
@@ -388,4 +388,4 @@ The Mount Plan embodies the kernel philosophy:
 - **[DESIGN_PHILOSOPHY.md](../DESIGN_PHILOSOPHY.md)** - Kernel design principles
 - **[Getting Started](https://github.com/microsoft/amplifier)** - User documentation
 
-**Note**: Applications compile Mount Plans from various sources (profiles, configuration files, CLI flags, etc.). The kernel validates the compiled plan structure.
+**Note**: Applications compile Mount Plans from various sources (bundles, configuration files, CLI flags, etc.). The kernel validates the compiled plan structure.

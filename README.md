@@ -71,7 +71,7 @@ Execution context with mounted modules and conversation state. Lifespan: `initia
 
 ### Mount Plan
 
-Configuration dictionary specifying which modules to load and their configuration. Apps/profiles compile to Mount Plans.
+Configuration dictionary specifying which modules to load and their configuration. Apps/bundles compile to Mount Plans.
 
 ### Coordinator
 
