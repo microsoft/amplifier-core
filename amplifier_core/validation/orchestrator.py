@@ -21,7 +21,10 @@ class OrchestratorValidator:
     """Validates Orchestrator module compliance."""
 
     async def validate(
-        self, module_path: str | Path, entry_point: str | None = None, config: dict[str, Any] | None = None
+        self,
+        module_path: str | Path,
+        entry_point: str | None = None,
+        config: dict[str, Any] | None = None,
     ) -> ValidationResult:
         """
         Validate an orchestrator module.
@@ -34,7 +37,9 @@ class OrchestratorValidator:
         Returns:
             ValidationResult with all checks
         """
-        result = ValidationResult(module_type="orchestrator", module_path=str(module_path))
+        result = ValidationResult(
+            module_type="orchestrator", module_path=str(module_path)
+        )
 
         # Check 1: Module is importable
         module = self._check_importable(result, module_path)
@@ -54,7 +59,9 @@ class OrchestratorValidator:
 
         return result
 
-    def _check_importable(self, result: ValidationResult, module_path: str | Path) -> Any:
+    def _check_importable(
+        self, result: ValidationResult, module_path: str | Path
+    ) -> Any:
         """Check if module can be imported."""
         try:
             path = Path(module_path)
@@ -63,7 +70,9 @@ class OrchestratorValidator:
                 if path.is_dir():
                     init_file = path / "__init__.py"
                     if init_file.exists():
-                        spec = importlib.util.spec_from_file_location(path.name, init_file)
+                        spec = importlib.util.spec_from_file_location(
+                            path.name, init_file
+                        )
                     else:
                         result.add(
                             ValidationCheck(
@@ -196,7 +205,10 @@ class OrchestratorValidator:
             )
 
     async def _check_protocol_compliance(
-        self, result: ValidationResult, mount_fn: Any, config: dict[str, Any] | None = None
+        self,
+        result: ValidationResult,
+        mount_fn: Any,
+        config: dict[str, Any] | None = None,
     ) -> None:
         """
         Check if mounted instance implements Orchestrator protocol.
@@ -206,12 +218,11 @@ class OrchestratorValidator:
             mount_fn: Module's mount function
             config: Optional module configuration (uses empty dict if not provided)
         """
+        # Create coordinator outside try block so finally can access it
+        from ..testing import TestCoordinator
+
+        coordinator = TestCoordinator()
         try:
-            # Create a test coordinator to mount the module
-            from ..testing import TestCoordinator
-
-            coordinator = TestCoordinator()
-
             # Use provided config or empty dict as fallback
             actual_config = config if config is not None else {}
 
@@ -283,8 +294,19 @@ class OrchestratorValidator:
                     severity="error",
                 )
             )
+        finally:
+            # CRITICAL: Clean up any resources created during mount() to avoid
+            # "Unclosed client session" warnings.
+            if hasattr(coordinator, "_cleanup_functions"):
+                for cleanup_fn in coordinator._cleanup_functions:
+                    try:
+                        await cleanup_fn()
+                    except Exception:
+                        pass  # Ignore cleanup errors during validation
 
-    def _check_orchestrator_methods(self, result: ValidationResult, orchestrator: Orchestrator) -> None:
+    def _check_orchestrator_methods(
+        self, result: ValidationResult, orchestrator: Orchestrator
+    ) -> None:
         """Check that orchestrator has all required methods with correct signatures."""
         # Check execute method
         execute = getattr(orchestrator, "execute", None)
