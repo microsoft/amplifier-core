@@ -218,15 +218,16 @@ class OrchestratorValidator:
             mount_fn: Module's mount function
             config: Optional module configuration (uses empty dict if not provided)
         """
-        # Create coordinator outside try block so finally can access it
+        # Create coordinator and track mount_result outside try block so finally can access them
         from ..testing import TestCoordinator
 
         coordinator = TestCoordinator()
+        mount_result = None  # Track returned cleanup function
         try:
             # Use provided config or empty dict as fallback
             actual_config = config if config is not None else {}
 
-            # Call mount() and get the result
+            # Call mount() and get the result (may be a cleanup function)
             mount_result = await mount_fn(coordinator, actual_config)
 
             # Check what was mounted - orchestrator is a singular mount point
@@ -297,6 +298,21 @@ class OrchestratorValidator:
         finally:
             # CRITICAL: Clean up any resources created during mount() to avoid
             # "Unclosed client session" warnings.
+            #
+            # Cleanup can come from two sources:
+            # 1. Returned from mount() - the cleanup function is returned directly
+            # 2. Registered via coordinator.register_cleanup() - stored in _cleanup_functions
+            #
+            # We must handle BOTH patterns.
+
+            # First, call any cleanup function returned from mount()
+            if mount_result is not None and callable(mount_result):
+                try:
+                    await mount_result()
+                except Exception:
+                    pass  # Ignore cleanup errors during validation
+
+            # Then, call any cleanup functions registered with the coordinator
             if hasattr(coordinator, "_cleanup_functions"):
                 for cleanup_fn in coordinator._cleanup_functions:
                     try:
