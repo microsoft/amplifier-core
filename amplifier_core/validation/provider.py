@@ -22,7 +22,10 @@ class ProviderValidator:
     """Validates Provider module compliance."""
 
     async def validate(
-        self, module_path: str | Path, entry_point: str | None = None, config: dict[str, Any] | None = None
+        self,
+        module_path: str | Path,
+        entry_point: str | None = None,
+        config: dict[str, Any] | None = None,
     ) -> ValidationResult:
         """
         Validate a provider module.
@@ -55,7 +58,9 @@ class ProviderValidator:
 
         return result
 
-    def _check_importable(self, result: ValidationResult, module_path: str | Path) -> Any:
+    def _check_importable(
+        self, result: ValidationResult, module_path: str | Path
+    ) -> Any:
         """Check if module can be imported."""
         try:
             path = Path(module_path)
@@ -64,7 +69,9 @@ class ProviderValidator:
                 if path.is_dir():
                     init_file = path / "__init__.py"
                     if init_file.exists():
-                        spec = importlib.util.spec_from_file_location(path.name, init_file)
+                        spec = importlib.util.spec_from_file_location(
+                            path.name, init_file
+                        )
                     else:
                         result.add(
                             ValidationCheck(
@@ -197,7 +204,10 @@ class ProviderValidator:
             )
 
     async def _check_protocol_compliance(
-        self, result: ValidationResult, mount_fn: Any, config: dict[str, Any] | None = None
+        self,
+        result: ValidationResult,
+        mount_fn: Any,
+        config: dict[str, Any] | None = None,
     ) -> None:
         """
         Check if mounted instance implements Provider protocol.
@@ -207,12 +217,11 @@ class ProviderValidator:
             mount_fn: Module's mount function
             config: Optional module configuration (uses empty dict if not provided)
         """
+        # Create coordinator outside try block so finally can access it
+        from ..testing import TestCoordinator
+
+        coordinator = TestCoordinator()
         try:
-            # Create a test coordinator to mount the module
-            from ..testing import TestCoordinator
-
-            coordinator = TestCoordinator()
-
             # Use provided config or empty dict as fallback
             actual_config = config if config is not None else {}
 
@@ -285,8 +294,20 @@ class ProviderValidator:
                     severity="error",
                 )
             )
+        finally:
+            # CRITICAL: Clean up any resources created during mount() to avoid
+            # "Unclosed client session" warnings. Modules like provider-anthropic
+            # create httpx clients that must be properly closed.
+            if hasattr(coordinator, "_cleanup_functions"):
+                for cleanup_fn in coordinator._cleanup_functions:
+                    try:
+                        await cleanup_fn()
+                    except Exception:
+                        pass  # Ignore cleanup errors during validation
 
-    def _check_provider_methods(self, result: ValidationResult, provider: Provider) -> None:
+    def _check_provider_methods(
+        self, result: ValidationResult, provider: Provider
+    ) -> None:
         """Check that provider has all required methods with correct signatures."""
         # Check name property
         try:
