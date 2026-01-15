@@ -57,13 +57,13 @@ class ModuleSourceResolver(Protocol):
     optional source hints.
     """
 
-    def resolve(self, module_id: str, profile_hint: Any = None) -> ModuleSource:
+    def resolve(self, module_id: str, source_hint: Any = None) -> ModuleSource:
         """
         Resolve module ID to a source.
 
         Args:
             module_id: Module identifier (e.g., "tool-bash")
-            profile_hint: Optional source hint from bundle configuration
+            source_hint: Optional source hint from bundle configuration
                          (format defined by app layer)
 
         Returns:
@@ -100,14 +100,14 @@ class ModuleLoader:
         """Initialize loader with coordinator."""
         self.coordinator = coordinator
 
-    async def load(self, module_id: str, config: dict = None, profile_source = None):
+    async def load(self, module_id: str, config: dict = None, source_hint = None):
         """
         Load module using resolver or fallback to direct discovery.
 
         Args:
             module_id: Module identifier
             config: Optional module configuration
-            profile_source: Optional source hint from bundle/config
+            source_hint: Optional source hint from bundle/config
 
         Raises:
             ModuleNotFoundError: Module not found
@@ -126,7 +126,7 @@ class ModuleLoader:
             return await self._load_direct(module_id, config)
 
         # Use resolver
-        source = source_resolver.resolve(module_id, profile_source)
+        source = source_resolver.resolve(module_id, source_hint)
         module_path = source.resolve()
 
         # Load from resolved path
@@ -166,7 +166,7 @@ loader = AmplifierModuleLoader(coordinator)
 - ❌ Parse configuration files (YAML, TOML, JSON, etc.)
 - ❌ Know about workspace conventions, git caching, or URIs
 - ❌ Provide CLI commands for source management
-- ❌ Define profile schemas or source field formats
+- ❌ Define bundle config schemas or source field formats
 
 ---
 
@@ -228,14 +228,14 @@ When no ModuleSourceResolver is mounted, the kernel falls back to direct entry p
 class MyCustomResolver:
     """Example custom resolver (app-layer policy)."""
 
-    def resolve(self, module_id: str, profile_hint: Any = None) -> ModuleSource:
+    def resolve(self, module_id: str, source_hint: Any = None) -> ModuleSource:
         # App-specific logic
         if module_id in self.overrides:
             return FileSource(self.overrides[module_id])
 
-        # Fall back to profile hint
-        if profile_hint:
-            return self.parse_profile_hint(profile_hint)
+        # Fall back to source hint
+        if source_hint:
+            return self.parse_source_hint(source_hint)
 
         # Fall back to some default
         return PackageSource(f"myapp-module-{module_id}")
