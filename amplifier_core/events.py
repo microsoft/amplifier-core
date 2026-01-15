@@ -34,6 +34,7 @@ TOOL_ERROR = "tool:error"
 # Context management
 CONTEXT_PRE_COMPACT = "context:pre_compact"
 CONTEXT_POST_COMPACT = "context:post_compact"
+CONTEXT_COMPACTION = "context:compaction"
 
 # Orchestrator lifecycle
 ORCHESTRATOR_COMPLETE = "orchestrator:complete"
@@ -95,6 +96,7 @@ ALL_EVENTS = [
     TOOL_ERROR,
     CONTEXT_PRE_COMPACT,
     CONTEXT_POST_COMPACT,
+    CONTEXT_COMPACTION,
     CONTEXT_INCLUDE,
     ORCHESTRATOR_COMPLETE,
     USER_NOTIFICATION,
