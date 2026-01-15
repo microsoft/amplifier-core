@@ -195,9 +195,8 @@ def module_path(request: Any) -> Path | None:
     Returns None if not in a module directory.
     Can be overridden by --module-path CLI option.
 
-    Supports two patterns:
+    Supports pattern:
     - amplifier-module-{type}-{name}/ (standalone modules)
-    - amplifier-collection-{name}/modules/{module-name}/ (collection modules)
     """
     # Check for CLI override first
     cli_path = request.config.getoption("--module-path", default=None)
@@ -223,16 +222,7 @@ def module_path(request: Any) -> Path | None:
                         return child
             break
 
-        # Check for collection module pattern: parent is "modules", grandparent is "amplifier-collection-*"
-        if current.parent.name == "modules" and current.parent.parent.name.startswith("amplifier-collection-"):
-            # Found collection module root, find the Python package inside
-            # Look for amplifier_module_* or amplifier_* package (not tests, etc.)
-            for child in current.iterdir():
-                if child.is_dir() and child.name.startswith("amplifier_"):
-                    init_file = child / "__init__.py"
-                    if init_file.exists():
-                        return child
-            break
+
 
         current = current.parent
 
@@ -247,9 +237,8 @@ def module_type(request: Any) -> str | None:
 
     Auto-detected from directory name (provider, tool, hook, orchestrator, context).
 
-    Supports two patterns:
+    Supports pattern:
     - amplifier-module-{type}-{name}/ (standalone modules)
-    - amplifier-collection-{name}/modules/{module-name}/ (collection modules, inferred from name)
     """
     # Detect module type from the test file's location
     test_file = Path(request.fspath)
@@ -275,12 +264,7 @@ def module_type(request: Any) -> str | None:
             if parts:
                 return type_map.get(parts[0])
 
-        # Check for collection module pattern
-        if current.parent.name == "modules" and current.parent.parent.name.startswith("amplifier-collection-"):
-            # For collection modules, infer type from module name (e.g., "tool-recipes" -> "tool")
-            parts = name.split("-", 1)
-            if parts:
-                return type_map.get(parts[0])
+
 
         current = current.parent
 
