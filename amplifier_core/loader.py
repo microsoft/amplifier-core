@@ -59,7 +59,11 @@ class ModuleLoader:
     3. Filesystem paths
     """
 
-    def __init__(self, coordinator: ModuleCoordinator | None = None, search_paths: list[Path] | None = None):
+    def __init__(
+        self,
+        coordinator: ModuleCoordinator | None = None,
+        search_paths: list[Path] | None = None,
+    ):
         """
         Initialize module loader.
 
@@ -147,7 +151,9 @@ class ModuleLoader:
                     module_id = item.name.replace("amplifier-module-", "")
 
                     # Get metadata (inspect if possible, fallback to naming)
-                    module_type, mount_point = self._get_module_metadata(module_id, item)
+                    module_type, mount_point = self._get_module_metadata(
+                        module_id, item
+                    )
 
                     module_info = ModuleInfo(
                         id=module_id,
@@ -168,7 +174,10 @@ class ModuleLoader:
         return modules
 
     async def load(
-        self, module_id: str, config: dict[str, Any] | None = None, source_hint: str | dict | None = None
+        self,
+        module_id: str,
+        config: dict[str, Any] | None = None,
+        source_hint: str | dict | None = None,
     ) -> Callable[[ModuleCoordinator], Awaitable[Callable | None]]:
         """
         Load a specific module using source resolution.
@@ -196,16 +205,28 @@ class ModuleLoader:
                 if self._coordinator:
                     # Mount point doesn't exist or nothing mounted - suppress ValueError
                     with contextlib.suppress(ValueError):
-                        source_resolver = self._coordinator.get("module-source-resolver")
+                        source_resolver = self._coordinator.get(
+                            "module-source-resolver"
+                        )
 
                 if source_resolver is None:
                     # No resolver mounted - use direct entry-point discovery
-                    logger.debug(f"No source resolver mounted, using direct discovery for '{module_id}'")
+                    logger.debug(
+                        f"No source resolver mounted, using direct discovery for '{module_id}'"
+                    )
                     mount_fn = await self._load_direct(module_id, config)
                     if mount_fn:
                         return mount_fn
-                    raise ValueError(f"Module '{module_id}' not found via entry points or filesystem")
-                source = source_resolver.resolve(module_id, source_hint)
+                    raise ValueError(
+                        f"Module '{module_id}' not found via entry points or filesystem"
+                    )
+
+                # Try async resolution first (supports lazy activation)
+                if hasattr(source_resolver, "async_resolve"):
+                    source = await source_resolver.async_resolve(module_id, source_hint)
+                else:
+                    # Fallback to sync resolution
+                    source = source_resolver.resolve(module_id, source_hint)
                 module_path = source.resolve()
                 logger.info(f"[module:mount] {module_id} from {source}")
 
@@ -216,7 +237,9 @@ class ModuleLoader:
                 if path_str not in sys.path:
                     sys.path.insert(0, path_str)
                     self._added_paths.append(path_str)  # Track for cleanup
-                    logger.debug(f"Added '{path_str}' to sys.path for module '{module_id}'")
+                    logger.debug(
+                        f"Added '{path_str}' to sys.path for module '{module_id}'"
+                    )
 
                 # Validate module before loading
                 await self._validate_module(module_id, module_path, config=config)
@@ -226,7 +249,9 @@ class ModuleLoader:
 
                 if isinstance(resolve_error, SourceNotFoundError):
                     # Fall back to direct entry-point discovery
-                    logger.debug(f"Source resolution failed for '{module_id}', trying direct discovery")
+                    logger.debug(
+                        f"Source resolution failed for '{module_id}', trying direct discovery"
+                    )
                     mount_fn = await self._load_direct(module_id, config)
                     if mount_fn:
                         return mount_fn
@@ -244,13 +269,17 @@ class ModuleLoader:
                 self._loaded_modules[module_id] = mount_fn
                 return mount_fn
 
-            raise ValueError(f"Module '{module_id}' found at {module_path} but failed to load")
+            raise ValueError(
+                f"Module '{module_id}' found at {module_path} but failed to load"
+            )
 
         except Exception as e:
             logger.error(f"Failed to load module '{module_id}': {e}")
             raise
 
-    async def _load_direct(self, module_id: str, config: dict[str, Any] | None = None) -> Callable | None:
+    async def _load_direct(
+        self, module_id: str, config: dict[str, Any] | None = None
+    ) -> Callable | None:
         """Direct loading via entry points and filesystem discovery.
 
         Used when no source resolver is available (standalone tools, simple cases).
@@ -277,7 +306,9 @@ class ModuleLoader:
 
         return None
 
-    def _load_entry_point(self, module_id: str, config: dict[str, Any] | None = None) -> Callable | None:
+    def _load_entry_point(
+        self, module_id: str, config: dict[str, Any] | None = None
+    ) -> Callable | None:
         """Load module via entry point."""
         try:
             eps = importlib.metadata.entry_points(group="amplifier.modules")
@@ -289,17 +320,23 @@ class ModuleLoader:
                     logger.info(f"Loaded module '{module_id}' via entry point")
 
                     # Return a wrapper that passes config
-                    async def mount_with_config(coordinator: ModuleCoordinator, fn=mount_fn):
+                    async def mount_with_config(
+                        coordinator: ModuleCoordinator, fn=mount_fn
+                    ):
                         return await fn(coordinator, config or {})
 
                     return mount_with_config
 
         except Exception as e:
-            logger.error(f"Could not load '{module_id}' via entry point: {e}", exc_info=True)
+            logger.error(
+                f"Could not load '{module_id}' via entry point: {e}", exc_info=True
+            )
 
         return None
 
-    def _load_filesystem(self, module_id: str, config: dict[str, Any] | None = None) -> Callable | None:
+    def _load_filesystem(
+        self, module_id: str, config: dict[str, Any] | None = None
+    ) -> Callable | None:
         """Load module from filesystem."""
         try:
             # Try to import the module
@@ -324,7 +361,9 @@ class ModuleLoader:
 
     def _get_module_metadata(
         self, module_id: str, module_path: Path
-    ) -> tuple[Literal["orchestrator", "provider", "tool", "context", "hook", "resolver"], str]:
+    ) -> tuple[
+        Literal["orchestrator", "provider", "tool", "context", "hook", "resolver"], str
+    ]:
         """
         Get module type and derive mount point.
 
@@ -386,7 +425,9 @@ class ModuleLoader:
 
     def _guess_from_naming(
         self, module_id: str
-    ) -> tuple[Literal["orchestrator", "provider", "tool", "context", "hook", "resolver"], str]:
+    ) -> tuple[
+        Literal["orchestrator", "provider", "tool", "context", "hook", "resolver"], str
+    ]:
         """
         Guess module type and mount point from naming convention.
 
@@ -418,7 +459,9 @@ class ModuleLoader:
         # Default to tool
         return "tool", "tools"  # type: ignore[return-value]
 
-    async def _validate_module(self, module_id: str, module_path: Path, config: dict[str, Any] | None = None) -> None:
+    async def _validate_module(
+        self, module_id: str, module_path: Path, config: dict[str, Any] | None = None
+    ) -> None:
         """
         Validate a module before loading.
 
@@ -455,14 +498,18 @@ class ModuleLoader:
         validator_class = validators.get(module_type)
         if validator_class is None:
             # Unknown module type - skip validation with warning
-            logger.warning(f"Unknown module type '{module_type}' for '{module_id}', skipping validation")
+            logger.warning(
+                f"Unknown module type '{module_type}' for '{module_id}', skipping validation"
+            )
             return
 
         # Find the actual Python package directory within the module root
         # Module structure: amplifier-module-xyz/ contains amplifier_module_xyz/
         package_path = self._find_package_dir(module_id, module_path)
         if package_path is None:
-            raise ModuleValidationError(f"Module '{module_id}' has no valid Python package at {module_path}")
+            raise ModuleValidationError(
+                f"Module '{module_id}' has no valid Python package at {module_path}"
+            )
 
         # Run validation
         validator = validator_class()
@@ -505,12 +552,18 @@ class ModuleLoader:
 
         # Fallback: search for any amplifier_module_* directory
         for item in module_path.iterdir():
-            if item.is_dir() and item.name.startswith("amplifier_module_") and (item / "__init__.py").exists():
+            if (
+                item.is_dir()
+                and item.name.startswith("amplifier_module_")
+                and (item / "__init__.py").exists()
+            ):
                 return item
 
         return None
 
-    async def initialize(self, module: Any, coordinator: ModuleCoordinator) -> Callable[[], Awaitable[None]] | None:
+    async def initialize(
+        self, module: Any, coordinator: ModuleCoordinator
+    ) -> Callable[[], Awaitable[None]] | None:
         """
         Initialize a loaded module with the coordinator.
 
