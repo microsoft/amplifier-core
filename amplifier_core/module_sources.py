@@ -74,12 +74,12 @@ class ModuleSourceResolver(Protocol):
     This is app-layer policy - different apps can use different strategies.
     """
 
-    def resolve(self, module_id: str, profile_hint=None) -> ModuleSource:
+    def resolve(self, module_id: str, source_hint=None) -> ModuleSource:
         """Resolve module ID to a source.
 
         Args:
             module_id: Module identifier (e.g., "tool-bash")
-            profile_hint: Optional hint from profile (app-defined format)
+            source_hint: Optional hint from bundle config (app-defined format)
 
         Returns:
             ModuleSource that can be resolved to a path

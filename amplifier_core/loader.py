@@ -168,7 +168,7 @@ class ModuleLoader:
         return modules
 
     async def load(
-        self, module_id: str, config: dict[str, Any] | None = None, profile_source: str | dict | None = None
+        self, module_id: str, config: dict[str, Any] | None = None, source_hint: str | dict | None = None
     ) -> Callable[[ModuleCoordinator], Awaitable[Callable | None]]:
         """
         Load a specific module using source resolution.
@@ -176,7 +176,7 @@ class ModuleLoader:
         Args:
             module_id: Module identifier
             config: Optional module configuration
-            profile_source: Optional source URI/object from profile
+            source_hint: Optional source URI/object from bundle config
 
         Returns:
             Mount function for the module
@@ -205,7 +205,7 @@ class ModuleLoader:
                     if mount_fn:
                         return mount_fn
                     raise ValueError(f"Module '{module_id}' not found via entry points or filesystem")
-                source = source_resolver.resolve(module_id, profile_source)
+                source = source_resolver.resolve(module_id, source_hint)
                 module_path = source.resolve()
                 logger.info(f"[module:mount] {module_id} from {source}")
 

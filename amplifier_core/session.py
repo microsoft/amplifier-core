@@ -133,7 +133,7 @@ class AmplifierSession:
 
             try:
                 orchestrator_mount = await self.loader.load(
-                    orchestrator_id, orchestrator_config, profile_source=orchestrator_source
+                    orchestrator_id, orchestrator_config, source_hint=orchestrator_source
                 )
                 # Note: config is already embedded in orchestrator_mount by the loader
                 cleanup = await orchestrator_mount(self.coordinator)
@@ -158,7 +158,7 @@ class AmplifierSession:
             logger.info(f"Loading context manager: {context_id}")
 
             try:
-                context_mount = await self.loader.load(context_id, context_config, profile_source=context_source)
+                context_mount = await self.loader.load(context_id, context_config, source_hint=context_source)
                 cleanup = await context_mount(self.coordinator)
                 if cleanup:
                     self.coordinator.register_cleanup(cleanup)
@@ -175,7 +175,7 @@ class AmplifierSession:
                 try:
                     logger.info(f"Loading provider: {module_id}")
                     provider_mount = await self.loader.load(
-                        module_id, provider_config.get("config", {}), profile_source=provider_config.get("source")
+                        module_id, provider_config.get("config", {}), source_hint=provider_config.get("source")
                     )
                     cleanup = await provider_mount(self.coordinator)
                     if cleanup:
@@ -192,7 +192,7 @@ class AmplifierSession:
                 try:
                     logger.info(f"Loading tool: {module_id}")
                     tool_mount = await self.loader.load(
-                        module_id, tool_config.get("config", {}), profile_source=tool_config.get("source")
+                        module_id, tool_config.get("config", {}), source_hint=tool_config.get("source")
                     )
                     cleanup = await tool_mount(self.coordinator)
                     if cleanup:
@@ -212,7 +212,7 @@ class AmplifierSession:
                 try:
                     logger.info(f"Loading hook: {module_id}")
                     hook_mount = await self.loader.load(
-                        module_id, hook_config.get("config", {}), profile_source=hook_config.get("source")
+                        module_id, hook_config.get("config", {}), source_hint=hook_config.get("source")
                     )
                     cleanup = await hook_mount(self.coordinator)
                     if cleanup:
