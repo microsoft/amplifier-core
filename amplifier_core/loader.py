@@ -222,11 +222,16 @@ class ModuleLoader:
                     )
 
                 # Try async resolution first (supports lazy activation)
+                # FIXME: Passing both source_hint and profile_hint for backward compat
+                # Remove profile_hint after v2.0 when all downstream repos are updated
                 if hasattr(source_resolver, "async_resolve"):
-                    source = await source_resolver.async_resolve(module_id, source_hint)
+                    source = await source_resolver.async_resolve(
+                        module_id, source_hint=source_hint, profile_hint=source_hint
+                    )
                 else:
-                    # Fallback to sync resolution
-                    source = source_resolver.resolve(module_id, source_hint)
+                    source = source_resolver.resolve(
+                        module_id, source_hint=source_hint, profile_hint=source_hint
+                    )
                 module_path = source.resolve()
                 logger.info(f"[module:mount] {module_id} from {source}")
 
