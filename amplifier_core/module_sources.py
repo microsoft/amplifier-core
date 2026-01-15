@@ -74,17 +74,23 @@ class ModuleSourceResolver(Protocol):
     This is app-layer policy - different apps can use different strategies.
     """
 
-    def resolve(self, module_id: str, source_hint=None) -> ModuleSource:
+    def resolve(self, module_id: str, source_hint=None, profile_hint=None) -> ModuleSource:
         """Resolve module ID to a source.
 
         Args:
             module_id: Module identifier (e.g., "tool-bash")
             source_hint: Optional hint from bundle config (app-defined format)
+            profile_hint: DEPRECATED - use source_hint instead (for backward compat only)
 
         Returns:
             ModuleSource that can be resolved to a path
 
         Raises:
             ModuleNotFoundError: Module cannot be found
+            
+        FIXME: The profile_hint parameter exists only for backward compatibility
+        with implementations that haven't migrated yet. All callers should use
+        source_hint. Remove profile_hint after all downstream repos are updated
+        (target: v2.0 release).
         """
         ...
