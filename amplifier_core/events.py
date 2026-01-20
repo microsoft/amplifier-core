@@ -52,6 +52,9 @@ APPROVAL_REQUIRED = "approval:required"
 APPROVAL_GRANTED = "approval:granted"
 APPROVAL_DENIED = "approval:denied"
 
+# Module lifecycle
+MODULE_LOAD_ERROR = "module:load_error"  # Module failed to load (provider, tool, hook)
+
 # Cancellation lifecycle
 CANCEL_REQUESTED = "cancel:requested"  # Cancellation initiated (graceful or immediate)
 CANCEL_COMPLETED = "cancel:completed"  # Cancellation finalized, session stopping
@@ -108,4 +111,5 @@ ALL_EVENTS = [
     APPROVAL_DENIED,
     CANCEL_REQUESTED,
     CANCEL_COMPLETED,
+    MODULE_LOAD_ERROR,
 ]
