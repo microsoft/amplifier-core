@@ -46,6 +46,7 @@ class AmplifierSession:
         parent_id: str | None = None,
         approval_system: "ApprovalSystem | None" = None,
         display_system: "DisplaySystem | None" = None,
+        is_resumed: bool = False,
     ):
         """
         Initialize an Amplifier session with explicit configuration.
@@ -57,6 +58,8 @@ class AmplifierSession:
             parent_id: Optional parent session ID (None for top-level, UUID for child sessions)
             approval_system: Optional approval system (app-layer policy)
             display_system: Optional display system (app-layer policy)
+            is_resumed: Whether this session is being resumed (vs newly created).
+                        Controls whether session:start or session:resume events are emitted.
 
         Raises:
             ValueError: If config missing required fields
@@ -74,6 +77,8 @@ class AmplifierSession:
             raise ValueError("Configuration must specify session.context")
 
         # Use provided session_id or generate a new one
+        # Track whether this is a resumed session (explicit parameter from app layer)
+        self._is_resumed = is_resumed
         self.session_id = session_id if session_id else str(uuid.uuid4())
         self.parent_id = parent_id  # Track parent for child sessions
         self.config = config
@@ -325,11 +330,28 @@ class AmplifierSession:
         if not self._initialized:
             await self.initialize()
 
-        from .events import SESSION_START, SESSION_START_DEBUG, SESSION_START_RAW
-
-        # Emit session:start from kernel (single source of truth)
-        await self.coordinator.hooks.emit(
+        from .events import (
+            SESSION_RESUME,
+            SESSION_RESUME_DEBUG,
+            SESSION_RESUME_RAW,
             SESSION_START,
+            SESSION_START_DEBUG,
+            SESSION_START_RAW,
+        )
+
+        # Choose event type based on whether this is a new or resumed session
+        if self._is_resumed:
+            event_base = SESSION_RESUME
+            event_debug = SESSION_RESUME_DEBUG
+            event_raw = SESSION_RESUME_RAW
+        else:
+            event_base = SESSION_START
+            event_debug = SESSION_START_DEBUG
+            event_raw = SESSION_START_RAW
+
+        # Emit session lifecycle event from kernel (single source of truth)
+        await self.coordinator.hooks.emit(
+            event_base,
             {
                 "session_id": self.session_id,
                 "parent_id": self.parent_id,
@@ -343,7 +365,7 @@ class AmplifierSession:
         if debug:
             mount_plan_safe = redact_secrets(truncate_values(self.config))
             await self.coordinator.hooks.emit(
-                SESSION_START_DEBUG,
+                event_debug,
                 {
                     "lvl": "DEBUG",
                     "session_id": self.session_id,
@@ -354,7 +376,7 @@ class AmplifierSession:
         if debug and raw_debug:
             mount_plan_redacted = redact_secrets(self.config)
             await self.coordinator.hooks.emit(
-                SESSION_START_RAW,
+                event_raw,
                 {
                     "lvl": "DEBUG",
                     "session_id": self.session_id,
