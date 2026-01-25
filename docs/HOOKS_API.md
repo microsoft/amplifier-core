@@ -204,7 +204,7 @@ unregister = registry.register(
 **`event`** (required)
 - Type: `str`
 - Description: Event name to hook into (see [Events Reference](./HOOKS_EVENTS.md))
-- Examples: `"tool:pre"`, `"tool:post"`, `"prompt:submit"`, `"session:start"`
+- Examples: `"tool:pre"`, `"tool:post"`, `"prompt:submit"`, `"execution:start"`
 
 **`handler`** (required)
 - Type: `Callable[[str, dict[str, Any]], Awaitable[HookResult]]`

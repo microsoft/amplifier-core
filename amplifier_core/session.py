@@ -11,6 +11,7 @@ from typing import Any
 from .coordinator import ModuleCoordinator
 from .loader import ModuleLoader
 from .models import SessionStatus
+from .utils import redact_secrets, truncate_values
 
 if TYPE_CHECKING:
     from .approval import ApprovalSystem
@@ -29,7 +30,6 @@ def _safe_exception_str(e: Exception) -> str:
         return str(e)
     except UnicodeDecodeError:
         return repr(e)
-
 
 
 class AmplifierSession:
@@ -88,17 +88,25 @@ class AmplifierSession:
         )
 
         # Set default fields for all events (infrastructure propagation)
-        self.coordinator.hooks.set_default_fields(session_id=self.session_id, parent_id=self.parent_id)
+        self.coordinator.hooks.set_default_fields(
+            session_id=self.session_id, parent_id=self.parent_id
+        )
 
         # Create loader with coordinator (for resolver injection)
         self.loader = loader or ModuleLoader(coordinator=self.coordinator)
 
-    def _merge_configs(self, base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    def _merge_configs(
+        self, base: dict[str, Any], overlay: dict[str, Any]
+    ) -> dict[str, Any]:
         """Deep merge two config dicts."""
         result = base.copy()
 
         for key, value in overlay.items():
-            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            if (
+                key in result
+                and isinstance(result[key], dict)
+                and isinstance(value, dict)
+            ):
                 result[key] = self._merge_configs(result[key], value)
             else:
                 result[key] = value
@@ -119,33 +127,47 @@ class AmplifierSession:
         try:
             # Load orchestrator (required)
             # Handle both dict (ModuleConfig) and string formats
-            orchestrator_spec = self.config.get("session", {}).get("orchestrator", "loop-basic")
+            orchestrator_spec = self.config.get("session", {}).get(
+                "orchestrator", "loop-basic"
+            )
             if isinstance(orchestrator_spec, dict):
                 orchestrator_id = orchestrator_spec.get("module", "loop-basic")
                 orchestrator_source = orchestrator_spec.get("source")
                 orchestrator_config = orchestrator_spec.get("config", {})
             else:
                 orchestrator_id = orchestrator_spec
-                orchestrator_source = self.config.get("session", {}).get("orchestrator_source")
-                orchestrator_config = self.config.get("orchestrator", {}).get("config", {})
+                orchestrator_source = self.config.get("session", {}).get(
+                    "orchestrator_source"
+                )
+                orchestrator_config = self.config.get("orchestrator", {}).get(
+                    "config", {}
+                )
 
             logger.info(f"Loading orchestrator: {orchestrator_id}")
 
             try:
                 orchestrator_mount = await self.loader.load(
-                    orchestrator_id, orchestrator_config, source_hint=orchestrator_source
+                    orchestrator_id,
+                    orchestrator_config,
+                    source_hint=orchestrator_source,
                 )
                 # Note: config is already embedded in orchestrator_mount by the loader
                 cleanup = await orchestrator_mount(self.coordinator)
                 if cleanup:
                     self.coordinator.register_cleanup(cleanup)
             except Exception as e:
-                logger.error(f"Failed to load orchestrator '{orchestrator_id}': {_safe_exception_str(e)}")
-                raise RuntimeError(f"Cannot initialize without orchestrator: {_safe_exception_str(e)}")
+                logger.error(
+                    f"Failed to load orchestrator '{orchestrator_id}': {_safe_exception_str(e)}"
+                )
+                raise RuntimeError(
+                    f"Cannot initialize without orchestrator: {_safe_exception_str(e)}"
+                )
 
             # Load context manager (required)
             # Handle both dict (ModuleConfig) and string formats
-            context_spec = self.config.get("session", {}).get("context", "context-simple")
+            context_spec = self.config.get("session", {}).get(
+                "context", "context-simple"
+            )
             if isinstance(context_spec, dict):
                 context_id = context_spec.get("module", "context-simple")
                 context_source = context_spec.get("source")
@@ -158,13 +180,19 @@ class AmplifierSession:
             logger.info(f"Loading context manager: {context_id}")
 
             try:
-                context_mount = await self.loader.load(context_id, context_config, source_hint=context_source)
+                context_mount = await self.loader.load(
+                    context_id, context_config, source_hint=context_source
+                )
                 cleanup = await context_mount(self.coordinator)
                 if cleanup:
                     self.coordinator.register_cleanup(cleanup)
             except Exception as e:
-                logger.error(f"Failed to load context manager '{context_id}': {_safe_exception_str(e)}")
-                raise RuntimeError(f"Cannot initialize without context manager: {_safe_exception_str(e)}")
+                logger.error(
+                    f"Failed to load context manager '{context_id}': {_safe_exception_str(e)}"
+                )
+                raise RuntimeError(
+                    f"Cannot initialize without context manager: {_safe_exception_str(e)}"
+                )
 
             # Load providers
             for provider_config in self.config.get("providers", []):
@@ -175,13 +203,18 @@ class AmplifierSession:
                 try:
                     logger.info(f"Loading provider: {module_id}")
                     provider_mount = await self.loader.load(
-                        module_id, provider_config.get("config", {}), source_hint=provider_config.get("source")
+                        module_id,
+                        provider_config.get("config", {}),
+                        source_hint=provider_config.get("source"),
                     )
                     cleanup = await provider_mount(self.coordinator)
                     if cleanup:
                         self.coordinator.register_cleanup(cleanup)
                 except Exception as e:
-                    logger.warning(f"Failed to load provider '{module_id}': {_safe_exception_str(e)}", exc_info=True)
+                    logger.warning(
+                        f"Failed to load provider '{module_id}': {_safe_exception_str(e)}",
+                        exc_info=True,
+                    )
 
             # Load tools
             for tool_config in self.config.get("tools", []):
@@ -192,13 +225,18 @@ class AmplifierSession:
                 try:
                     logger.info(f"Loading tool: {module_id}")
                     tool_mount = await self.loader.load(
-                        module_id, tool_config.get("config", {}), source_hint=tool_config.get("source")
+                        module_id,
+                        tool_config.get("config", {}),
+                        source_hint=tool_config.get("source"),
                     )
                     cleanup = await tool_mount(self.coordinator)
                     if cleanup:
                         self.coordinator.register_cleanup(cleanup)
                 except Exception as e:
-                    logger.warning(f"Failed to load tool '{module_id}': {_safe_exception_str(e)}", exc_info=True)
+                    logger.warning(
+                        f"Failed to load tool '{module_id}': {_safe_exception_str(e)}",
+                        exc_info=True,
+                    )
 
             # Note: agents section is app-layer data (config overlays), not modules to mount
             # The kernel passes agents through in the mount plan without interpretation
@@ -212,21 +250,61 @@ class AmplifierSession:
                 try:
                     logger.info(f"Loading hook: {module_id}")
                     hook_mount = await self.loader.load(
-                        module_id, hook_config.get("config", {}), source_hint=hook_config.get("source")
+                        module_id,
+                        hook_config.get("config", {}),
+                        source_hint=hook_config.get("source"),
                     )
                     cleanup = await hook_mount(self.coordinator)
                     if cleanup:
                         self.coordinator.register_cleanup(cleanup)
                 except Exception as e:
-                    logger.warning(f"Failed to load hook '{module_id}': {_safe_exception_str(e)}", exc_info=True)
+                    logger.warning(
+                        f"Failed to load hook '{module_id}': {_safe_exception_str(e)}",
+                        exc_info=True,
+                    )
 
             self._initialized = True
 
             # Emit session:fork event if this is a child session
             if self.parent_id:
-                from .events import SESSION_FORK
+                from .events import SESSION_FORK, SESSION_FORK_DEBUG, SESSION_FORK_RAW
 
-                await self.coordinator.hooks.emit(SESSION_FORK, {"parent": self.parent_id})
+                await self.coordinator.hooks.emit(
+                    SESSION_FORK,
+                    {
+                        "parent": self.parent_id,
+                        "session_id": self.session_id,
+                    },
+                )
+
+                # Debug config from mount plan
+                session_config = self.config.get("session", {})
+                debug = session_config.get("debug", False)
+                raw_debug = session_config.get("raw_debug", False)
+
+                if debug:
+                    mount_plan_safe = redact_secrets(truncate_values(self.config))
+                    await self.coordinator.hooks.emit(
+                        SESSION_FORK_DEBUG,
+                        {
+                            "lvl": "DEBUG",
+                            "parent": self.parent_id,
+                            "session_id": self.session_id,
+                            "mount_plan": mount_plan_safe,
+                        },
+                    )
+
+                if debug and raw_debug:
+                    mount_plan_redacted = redact_secrets(self.config)
+                    await self.coordinator.hooks.emit(
+                        SESSION_FORK_RAW,
+                        {
+                            "lvl": "DEBUG",
+                            "parent": self.parent_id,
+                            "session_id": self.session_id,
+                            "mount_plan": mount_plan_redacted,
+                        },
+                    )
 
             logger.info(f"Session {self.session_id} initialized successfully")
 
@@ -246,6 +324,43 @@ class AmplifierSession:
         """
         if not self._initialized:
             await self.initialize()
+
+        from .events import SESSION_START, SESSION_START_DEBUG, SESSION_START_RAW
+
+        # Emit session:start from kernel (single source of truth)
+        await self.coordinator.hooks.emit(
+            SESSION_START,
+            {
+                "session_id": self.session_id,
+                "parent_id": self.parent_id,
+            },
+        )
+
+        session_config = self.config.get("session", {})
+        debug = session_config.get("debug", False)
+        raw_debug = session_config.get("raw_debug", False)
+
+        if debug:
+            mount_plan_safe = redact_secrets(truncate_values(self.config))
+            await self.coordinator.hooks.emit(
+                SESSION_START_DEBUG,
+                {
+                    "lvl": "DEBUG",
+                    "session_id": self.session_id,
+                    "mount_plan": mount_plan_safe,
+                },
+            )
+
+        if debug and raw_debug:
+            mount_plan_redacted = redact_secrets(self.config)
+            await self.coordinator.hooks.emit(
+                SESSION_START_RAW,
+                {
+                    "lvl": "DEBUG",
+                    "session_id": self.session_id,
+                    "mount_plan": mount_plan_redacted,
+                },
+            )
 
         orchestrator = self.coordinator.get("orchestrator")
         if not orchestrator:
@@ -284,9 +399,13 @@ class AmplifierSession:
                 self.status.status = "cancelled"
                 # Emit cancel:completed event
                 from .events import CANCEL_COMPLETED
-                await self.coordinator.hooks.emit(CANCEL_COMPLETED, {
-                    "was_immediate": self.coordinator.cancellation.is_immediate,
-                })
+
+                await self.coordinator.hooks.emit(
+                    CANCEL_COMPLETED,
+                    {
+                        "was_immediate": self.coordinator.cancellation.is_immediate,
+                    },
+                )
             else:
                 self.status.status = "completed"
             return result
@@ -296,10 +415,14 @@ class AmplifierSession:
             if self.coordinator.cancellation.is_cancelled:
                 self.status.status = "cancelled"
                 from .events import CANCEL_COMPLETED
-                await self.coordinator.hooks.emit(CANCEL_COMPLETED, {
-                    "was_immediate": self.coordinator.cancellation.is_immediate,
-                    "error": _safe_exception_str(e),
-                })
+
+                await self.coordinator.hooks.emit(
+                    CANCEL_COMPLETED,
+                    {
+                        "was_immediate": self.coordinator.cancellation.is_immediate,
+                        "error": _safe_exception_str(e),
+                    },
+                )
                 logger.info(f"Execution cancelled: {_safe_exception_str(e)}")
                 raise
             else:
