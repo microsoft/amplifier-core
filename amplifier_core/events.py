@@ -5,8 +5,12 @@ Stable surface for hooks and observability.
 
 # Session lifecycle
 SESSION_START = "session:start"
+SESSION_START_DEBUG = "session:start:debug"
+SESSION_START_RAW = "session:start:raw"
 SESSION_END = "session:end"
 SESSION_FORK = "session:fork"
+SESSION_FORK_DEBUG = "session:fork:debug"
+SESSION_FORK_RAW = "session:fork:raw"
 
 # Prompt lifecycle
 PROMPT_SUBMIT = "prompt:submit"
@@ -38,6 +42,8 @@ CONTEXT_COMPACTION = "context:compaction"
 
 # Orchestrator lifecycle
 ORCHESTRATOR_COMPLETE = "orchestrator:complete"
+EXECUTION_START = "execution:start"  # Orchestrator execution begins
+EXECUTION_END = "execution:end"  # Orchestrator execution completes
 
 # User notifications
 USER_NOTIFICATION = "user:notification"
@@ -57,6 +63,8 @@ CANCEL_REQUESTED = "cancel:requested"  # Cancellation initiated (graceful or imm
 CANCEL_COMPLETED = "cancel:completed"  # Cancellation finalized, session stopping
 
 SESSION_RESUME = "session:resume"
+SESSION_RESUME_DEBUG = "session:resume:debug"
+SESSION_RESUME_RAW = "session:resume:raw"
 LLM_REQUEST = "llm:request"
 LLM_REQUEST_DEBUG = "llm:request:debug"
 LLM_REQUEST_RAW = "llm:request:raw"
@@ -70,9 +78,15 @@ CONTEXT_INCLUDE = "context:include"
 # All canonical events (for iteration and validation)
 ALL_EVENTS = [
     SESSION_START,
+    SESSION_START_DEBUG,
+    SESSION_START_RAW,
     SESSION_END,
     SESSION_FORK,
+    SESSION_FORK_DEBUG,
+    SESSION_FORK_RAW,
     SESSION_RESUME,
+    SESSION_RESUME_DEBUG,
+    SESSION_RESUME_RAW,
     PROMPT_SUBMIT,
     PROMPT_COMPLETE,
     PLAN_START,
@@ -99,6 +113,8 @@ ALL_EVENTS = [
     CONTEXT_COMPACTION,
     CONTEXT_INCLUDE,
     ORCHESTRATOR_COMPLETE,
+    EXECUTION_START,
+    EXECUTION_END,
     USER_NOTIFICATION,
     ARTIFACT_WRITE,
     ARTIFACT_READ,

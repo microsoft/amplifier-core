@@ -62,7 +62,7 @@ class HookHandler(Protocol):
         Handle a lifecycle event.
 
         Args:
-            event: Event name (e.g., "tool:pre", "session:start")
+            event: Event name (e.g., "tool:pre", "execution:start")
             data: Event-specific data
 
         Returns:
@@ -177,8 +177,8 @@ unregister = registry.register(
 
 | Event | Trigger | Data Includes |
 |-------|---------|---------------|
-| `session:start` | Session created | session_id, config |
-| `session:end` | Session ending | session_id, stats |
+| `execution:start` | Orchestrator execution begins | prompt |
+| `execution:end` | Orchestrator execution completes | response |
 | `prompt:submit` | User input | prompt text |
 | `tool:pre` | Before tool execution | tool_name, tool_input |
 | `tool:post` | After tool execution | tool_name, tool_result |
