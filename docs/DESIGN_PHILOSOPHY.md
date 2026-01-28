@@ -286,6 +286,7 @@ When faced with implementation decisions, ask:
 ### In Module Development
 
 ❌ Depending on kernel internals (use protocols only)
+❌ Bypassing public interfaces to access internal state (extend the interface instead)
 ❌ Inventing ad-hoc event names (use canonical taxonomy)
 ❌ Private log files (write via `context.log` only)
 ❌ Failing to emit events for observable actions
