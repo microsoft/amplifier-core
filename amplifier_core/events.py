@@ -62,6 +62,10 @@ APPROVAL_DENIED = "approval:denied"
 CANCEL_REQUESTED = "cancel:requested"  # Cancellation initiated (graceful or immediate)
 CANCEL_COMPLETED = "cancel:completed"  # Cancellation finalized, session stopping
 
+# Session completion events (for spawn coordination)
+SESSION_COMPLETED = "session:completed"  # Spawned session finished successfully
+SESSION_ERROR = "session:error"  # Spawned session encountered an error
+
 SESSION_RESUME = "session:resume"
 SESSION_RESUME_DEBUG = "session:resume:debug"
 SESSION_RESUME_RAW = "session:resume:raw"
@@ -124,4 +128,6 @@ ALL_EVENTS = [
     APPROVAL_DENIED,
     CANCEL_REQUESTED,
     CANCEL_COMPLETED,
+    SESSION_COMPLETED,
+    SESSION_ERROR,
 ]
