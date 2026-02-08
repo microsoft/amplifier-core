@@ -43,7 +43,9 @@ class ThinkingBlock(BaseModel):
     thinking: str
     signature: str | None = None
     visibility: Literal["internal", "developer", "user"] | None = None
-    content: list[Any] | None = None  # OpenAI reasoning state: [encrypted_content, reasoning_id]
+    content: list[Any] | None = (
+        None  # OpenAI reasoning state: [encrypted_content, reasoning_id]
+    )
 
 
 class RedactedThinkingBlock(BaseModel):
@@ -127,7 +129,9 @@ class Message(BaseModel):
     content: Union[str, list[ContentBlockUnion]]
     name: str | None = None
     tool_call_id: str | None = None
-    metadata: dict[str, Any] | None = None  # Provider-specific state (e.g., OpenAI reasoning items)
+    metadata: dict[str, Any] | None = (
+        None  # Provider-specific state (e.g., OpenAI reasoning items)
+    )
 
 
 class ToolSpec(BaseModel):
@@ -174,6 +178,11 @@ class ChatRequest(BaseModel):
 
     This is the unified request format that all providers receive.
     Providers convert this to their native format.
+
+    Optional fields (model, tool_choice, stop, reasoning_effort, timeout) give
+    hooks and orchestrators a standard way to influence provider behavior.
+    Providers that don't support a field ignore it. Fields that providers
+    already read from **kwargs are surfaced here for hook visibility.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -187,6 +196,11 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
     stream: bool | None = False
     metadata: dict[str, Any] | None = None
+    model: str | None = None
+    tool_choice: str | dict[str, str] | None = None
+    stop: list[str] | None = None
+    reasoning_effort: str | None = None
+    timeout: float | None = None
 
 
 class ToolCall(BaseModel):
@@ -200,13 +214,25 @@ class ToolCall(BaseModel):
 
 
 class Usage(BaseModel):
-    """Token usage information."""
+    """Token usage information.
+
+    The three required fields (input_tokens, output_tokens, total_tokens) are
+    reported by all providers. Optional fields surface commonly-available
+    metrics that enable cross-provider cost tracking and cache optimization.
+
+    Providers that don't report optional metrics leave them as None.
+    Additional provider-specific metrics can be passed via extra="allow"
+    (e.g., Anthropic's cache_creation_input_tokens).
+    """
 
     model_config = ConfigDict(extra="allow")
 
     input_tokens: int
     output_tokens: int
     total_tokens: int
+    reasoning_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
 
 
 class Degradation(BaseModel):
