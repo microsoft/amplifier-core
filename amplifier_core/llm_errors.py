@@ -42,6 +42,16 @@ class LLMError(Exception):
         self.status_code = status_code
         self.retryable = retryable
 
+    def __repr__(self) -> str:
+        parts = [repr(str(self))]
+        if self.provider is not None:
+            parts.append(f"provider={self.provider!r}")
+        if self.status_code is not None:
+            parts.append(f"status_code={self.status_code!r}")
+        if self.retryable:
+            parts.append("retryable=True")
+        return f"{type(self).__name__}({', '.join(parts)})"
+
 
 class RateLimitError(LLMError):
     """Provider rate limit exceeded (HTTP 429 or equivalent).

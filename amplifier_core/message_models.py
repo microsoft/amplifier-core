@@ -196,13 +196,20 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
     stream: bool | None = False
     metadata: dict[str, Any] | None = None
-    model: str | None = (
-        None  # Per-request model override. Precedence vs provider defaults is provider/orchestrator policy.
+    model: str | None = Field(
+        default=None,
+        description=(
+            "Per-request model override. Precedence relative to"
+            " provider-configured defaults is provider/orchestrator policy."
+        ),
     )
     tool_choice: str | dict[str, Any] | None = None
     stop: list[str] | None = None
     reasoning_effort: str | None = None
-    timeout: float | None = None
+    timeout: float | None = Field(
+        default=None,
+        description="Per-request timeout in seconds. Complements session-level CancellationToken.",
+    )
 
 
 class ToolCall(BaseModel):

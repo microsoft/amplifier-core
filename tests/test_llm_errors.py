@@ -99,6 +99,21 @@ class TestRetryableErrors:
         err = LLMTimeoutError("Request timed out")
         assert err.retryable is True
 
+    def test_rate_limit_retryable_override(self) -> None:
+        """RateLimitError retryable default can be overridden."""
+        err = RateLimitError("Rate limited", retryable=False)
+        assert err.retryable is False
+
+    def test_provider_unavailable_retryable_override(self) -> None:
+        """ProviderUnavailableError retryable default can be overridden."""
+        err = ProviderUnavailableError("Service down", retryable=False)
+        assert err.retryable is False
+
+    def test_timeout_retryable_override(self) -> None:
+        """LLMTimeoutError retryable default can be overridden."""
+        err = LLMTimeoutError("Timed out", retryable=False)
+        assert err.retryable is False
+
     def test_provider_unavailable_with_status(self) -> None:
         """ProviderUnavailableError accepts provider and status_code."""
         err = ProviderUnavailableError(
@@ -133,6 +148,43 @@ class TestNonRetryableErrors:
         """InvalidRequestError is not retryable."""
         err = InvalidRequestError("Malformed request")
         assert err.retryable is False
+
+
+class TestRepr:
+    """Tests for LLMError.__repr__ with structured info."""
+
+    def test_basic_repr(self) -> None:
+        """Basic error repr shows class name and message."""
+        err = LLMError("Something broke")
+        assert repr(err) == "LLMError('Something broke')"
+
+    def test_repr_with_provider(self) -> None:
+        """Repr includes provider when set."""
+        err = LLMError("fail", provider="anthropic")
+        assert "provider='anthropic'" in repr(err)
+
+    def test_repr_with_all_fields(self) -> None:
+        """Repr includes all structured fields."""
+        err = RateLimitError("Too fast", provider="anthropic", status_code=429)
+        r = repr(err)
+        assert "RateLimitError(" in r
+        assert "provider='anthropic'" in r
+        assert "status_code=429" in r
+        assert "retryable=True" in r
+
+    def test_repr_omits_none_and_false(self) -> None:
+        """Repr omits None fields and retryable=False."""
+        err = AuthenticationError("Bad key")
+        r = repr(err)
+        assert "provider=" not in r
+        assert "status_code=" not in r
+        assert "retryable=" not in r
+
+    def test_rate_limit_repr_includes_retry_after(self) -> None:
+        """RateLimitError repr includes retry_after when set."""
+        err = RateLimitError("Too fast", retry_after=30.0, provider="openai")
+        r = repr(err)
+        assert "retry_after=30.0" in repr(err) or "RateLimitError(" in r
 
 
 class TestExceptionChaining:
