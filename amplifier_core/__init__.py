@@ -22,6 +22,14 @@ from .interfaces import HookHandler
 from .interfaces import Orchestrator
 from .interfaces import Provider
 from .interfaces import Tool
+from .llm_errors import AuthenticationError
+from .llm_errors import ContentFilterError
+from .llm_errors import ContextLengthError
+from .llm_errors import InvalidRequestError
+from .llm_errors import LLMError
+from .llm_errors import LLMTimeoutError
+from .llm_errors import ProviderUnavailableError
+from .llm_errors import RateLimitError
 from .loader import ModuleLoader
 from .loader import ModuleValidationError
 from .message_models import ChatRequest
@@ -100,6 +108,15 @@ __all__ = [
     "ResponseFormatText",
     "ResponseFormatJson",
     "ResponseFormatJsonSchema",
+    # LLM error taxonomy
+    "LLMError",
+    "RateLimitError",
+    "AuthenticationError",
+    "ContextLengthError",
+    "ContentFilterError",
+    "InvalidRequestError",
+    "ProviderUnavailableError",
+    "LLMTimeoutError",
     # Content models for provider streaming
     "ContentBlock",
     "ContentBlockType",

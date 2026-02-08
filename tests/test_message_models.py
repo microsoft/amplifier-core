@@ -380,7 +380,9 @@ class TestChatResponse:
                 TextBlock(text="I'll search for that"),
                 ToolCallBlock(id="call_1", name="search", input={"query": "test"}),
             ],
-            tool_calls=[ToolCall(id="call_1", name="search", arguments={"query": "test"})],
+            tool_calls=[
+                ToolCall(id="call_1", name="search", arguments={"query": "test"})
+            ],
             usage=Usage(input_tokens=20, output_tokens=10, total_tokens=30),
         )
 
@@ -532,3 +534,245 @@ class TestValidation:
         """Usage requires all token counts."""
         with pytest.raises(ValidationError):
             Usage(input_tokens=10, output_tokens=5)  # type: ignore[call-arg]
+
+
+class TestUsageOptionalFields:
+    """Tests for optional Usage fields (reasoning_tokens, cache tokens)."""
+
+    def test_usage_defaults_none(self) -> None:
+        """Optional Usage fields default to None."""
+        usage = Usage(input_tokens=100, output_tokens=50, total_tokens=150)
+        assert usage.reasoning_tokens is None
+        assert usage.cache_read_tokens is None
+        assert usage.cache_write_tokens is None
+
+    def test_usage_with_reasoning_tokens(self) -> None:
+        """Usage accepts reasoning_tokens."""
+        usage = Usage(
+            input_tokens=100,
+            output_tokens=50,
+            total_tokens=150,
+            reasoning_tokens=30,
+        )
+        assert usage.reasoning_tokens == 30
+
+    def test_usage_with_cache_tokens(self) -> None:
+        """Usage accepts cache read and write tokens."""
+        usage = Usage(
+            input_tokens=100,
+            output_tokens=50,
+            total_tokens=150,
+            cache_read_tokens=80,
+            cache_write_tokens=20,
+        )
+        assert usage.cache_read_tokens == 80
+        assert usage.cache_write_tokens == 20
+
+    def test_usage_all_optional_fields(self) -> None:
+        """Usage accepts all optional fields together."""
+        usage = Usage(
+            input_tokens=100,
+            output_tokens=50,
+            total_tokens=150,
+            reasoning_tokens=30,
+            cache_read_tokens=80,
+            cache_write_tokens=20,
+        )
+        assert usage.reasoning_tokens == 30
+        assert usage.cache_read_tokens == 80
+        assert usage.cache_write_tokens == 20
+
+    def test_usage_optional_fields_serialization(self) -> None:
+        """Optional fields serialize correctly."""
+        usage = Usage(
+            input_tokens=100,
+            output_tokens=50,
+            total_tokens=150,
+            reasoning_tokens=30,
+        )
+        data = usage.model_dump()
+        assert data["reasoning_tokens"] == 30
+        assert data["cache_read_tokens"] is None
+        assert data["cache_write_tokens"] is None
+
+    def test_usage_optional_fields_exclude_none(self) -> None:
+        """Optional fields can be excluded when None."""
+        usage = Usage(
+            input_tokens=100,
+            output_tokens=50,
+            total_tokens=150,
+            reasoning_tokens=30,
+        )
+        data = usage.model_dump(exclude_none=True)
+        assert "reasoning_tokens" in data
+        assert "cache_read_tokens" not in data
+        assert "cache_write_tokens" not in data
+
+    def test_usage_extra_fields_still_work(self) -> None:
+        """Provider-specific extras still pass through alongside named fields."""
+        usage = Usage(
+            input_tokens=100,
+            output_tokens=50,
+            total_tokens=150,
+            reasoning_tokens=30,
+            cache_creation_input_tokens=20,  # type: ignore[call-arg]
+        )
+        data = usage.model_dump()
+        assert data["reasoning_tokens"] == 30
+        assert data["cache_creation_input_tokens"] == 20
+
+    def test_usage_roundtrip_with_optional_fields(self) -> None:
+        """Usage with optional fields survives dict roundtrip."""
+        original = Usage(
+            input_tokens=100,
+            output_tokens=50,
+            total_tokens=150,
+            reasoning_tokens=30,
+            cache_read_tokens=80,
+        )
+        data = original.model_dump()
+        restored = Usage(**data)
+        assert restored.reasoning_tokens == original.reasoning_tokens
+        assert restored.cache_read_tokens == original.cache_read_tokens
+        assert restored.cache_write_tokens is None
+
+    def test_existing_usage_construction_unchanged(self) -> None:
+        """Existing Usage(input_tokens, output_tokens, total_tokens) still works."""
+        usage = Usage(input_tokens=10, output_tokens=5, total_tokens=15)
+        assert usage.input_tokens == 10
+        assert usage.output_tokens == 5
+        assert usage.total_tokens == 15
+
+
+class TestChatRequestNewFields:
+    """Tests for new optional ChatRequest fields."""
+
+    def test_new_fields_default_none(self) -> None:
+        """New ChatRequest fields default to None."""
+        request = ChatRequest(
+            messages=[Message(role="user", content="Hello")],
+        )
+        assert request.model is None
+        assert request.tool_choice is None
+        assert request.stop is None
+        assert request.reasoning_effort is None
+        assert request.timeout is None
+
+    def test_model_field(self) -> None:
+        """ChatRequest accepts model field."""
+        request = ChatRequest(
+            messages=[Message(role="user", content="Hello")],
+            model="claude-sonnet-4-5",
+        )
+        assert request.model == "claude-sonnet-4-5"
+
+    def test_tool_choice_string(self) -> None:
+        """ChatRequest accepts tool_choice as string."""
+        request = ChatRequest(
+            messages=[Message(role="user", content="Hello")],
+            tool_choice="required",
+        )
+        assert request.tool_choice == "required"
+
+    def test_tool_choice_dict(self) -> None:
+        """ChatRequest accepts tool_choice as dict for named tool."""
+        request = ChatRequest(
+            messages=[Message(role="user", content="Hello")],
+            tool_choice={"name": "search"},
+        )
+        assert request.tool_choice == {"name": "search"}
+
+    def test_tool_choice_nested_dict(self) -> None:
+        """ChatRequest accepts nested tool_choice (OpenAI function-forcing form)."""
+        tool_choice = {"type": "function", "function": {"name": "get_weather"}}
+        request = ChatRequest(
+            messages=[Message(role="user", content="Hello")],
+            tool_choice=tool_choice,
+        )
+        assert request.tool_choice == tool_choice
+        assert request.tool_choice["function"]["name"] == "get_weather"
+
+    def test_stop_sequences(self) -> None:
+        """ChatRequest accepts stop sequences."""
+        request = ChatRequest(
+            messages=[Message(role="user", content="Hello")],
+            stop=["END", "STOP"],
+        )
+        assert request.stop == ["END", "STOP"]
+
+    def test_reasoning_effort(self) -> None:
+        """ChatRequest accepts reasoning_effort."""
+        request = ChatRequest(
+            messages=[Message(role="user", content="Hello")],
+            reasoning_effort="high",
+        )
+        assert request.reasoning_effort == "high"
+
+    def test_timeout(self) -> None:
+        """ChatRequest accepts timeout in seconds."""
+        request = ChatRequest(
+            messages=[Message(role="user", content="Hello")],
+            timeout=30.0,
+        )
+        assert request.timeout == 30.0
+
+    def test_all_new_fields_together(self) -> None:
+        """All new fields work together with existing fields."""
+        request = ChatRequest(
+            messages=[Message(role="user", content="Hello")],
+            temperature=0.7,
+            model="gpt-5.2",
+            tool_choice="auto",
+            stop=["END"],
+            reasoning_effort="medium",
+            timeout=60.0,
+        )
+        assert request.temperature == 0.7
+        assert request.model == "gpt-5.2"
+        assert request.tool_choice == "auto"
+        assert request.stop == ["END"]
+        assert request.reasoning_effort == "medium"
+        assert request.timeout == 60.0
+
+    def test_new_fields_serialize(self) -> None:
+        """New fields serialize correctly."""
+        request = ChatRequest(
+            messages=[Message(role="user", content="Hello")],
+            model="claude-sonnet-4-5",
+            reasoning_effort="high",
+        )
+        data = request.model_dump()
+        assert data["model"] == "claude-sonnet-4-5"
+        assert data["reasoning_effort"] == "high"
+        assert data["tool_choice"] is None
+
+    def test_new_fields_roundtrip(self) -> None:
+        """New fields survive dict roundtrip."""
+        original = ChatRequest(
+            messages=[Message(role="user", content="Hello")],
+            model="gpt-5.2",
+            tool_choice="required",
+            stop=["END"],
+            reasoning_effort="low",
+            timeout=30.0,
+        )
+        data = original.model_dump()
+        restored = ChatRequest(**data)
+        assert restored.model == original.model
+        assert restored.tool_choice == original.tool_choice
+        assert restored.stop == original.stop
+        assert restored.reasoning_effort == original.reasoning_effort
+        assert restored.timeout == original.timeout
+
+    def test_existing_construction_unchanged(self) -> None:
+        """Existing ChatRequest construction patterns still work."""
+        request = ChatRequest(
+            messages=[Message(role="user", content="Test")],
+            tools=[ToolSpec(name="search", parameters={"type": "object"})],
+            temperature=0.5,
+        )
+        assert len(request.messages) == 1
+        assert request.tools is not None
+        assert len(request.tools) == 1
+        assert request.temperature == 0.5
+        assert request.model is None
