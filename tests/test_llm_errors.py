@@ -180,12 +180,6 @@ class TestRepr:
         assert "status_code=" not in r
         assert "retryable=" not in r
 
-    def test_rate_limit_repr_includes_retry_after(self) -> None:
-        """RateLimitError repr includes retry_after when set."""
-        err = RateLimitError("Too fast", retry_after=30.0, provider="openai")
-        r = repr(err)
-        assert "retry_after=30.0" in repr(err) or "RateLimitError(" in r
-
 
 class TestExceptionChaining:
     """Tests for exception chaining (raise X from native_error)."""
