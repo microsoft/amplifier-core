@@ -56,9 +56,16 @@ class RateLimitError(LLMError):
         message: str,
         *,
         retry_after: float | None = None,
-        **kwargs: object,
+        provider: str | None = None,
+        status_code: int | None = None,
+        retryable: bool = True,
     ) -> None:
-        super().__init__(message, retryable=True, **kwargs)  # type: ignore[arg-type]
+        super().__init__(
+            message,
+            provider=provider,
+            status_code=status_code,
+            retryable=retryable,
+        )
         self.retry_after = retry_after
 
 
@@ -92,8 +99,20 @@ class ProviderUnavailableError(LLMError):
     Retryable by default — the provider may recover.
     """
 
-    def __init__(self, message: str, **kwargs: object) -> None:
-        super().__init__(message, retryable=True, **kwargs)  # type: ignore[arg-type]
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider: str | None = None,
+        status_code: int | None = None,
+        retryable: bool = True,
+    ) -> None:
+        super().__init__(
+            message,
+            provider=provider,
+            status_code=status_code,
+            retryable=retryable,
+        )
 
 
 class LLMTimeoutError(LLMError):
@@ -102,5 +121,17 @@ class LLMTimeoutError(LLMError):
     Retryable by default — timeouts are often transient.
     """
 
-    def __init__(self, message: str, **kwargs: object) -> None:
-        super().__init__(message, retryable=True, **kwargs)  # type: ignore[arg-type]
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider: str | None = None,
+        status_code: int | None = None,
+        retryable: bool = True,
+    ) -> None:
+        super().__init__(
+            message,
+            provider=provider,
+            status_code=status_code,
+            retryable=retryable,
+        )

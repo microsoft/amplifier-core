@@ -196,8 +196,10 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
     stream: bool | None = False
     metadata: dict[str, Any] | None = None
-    model: str | None = None
-    tool_choice: str | dict[str, str] | None = None
+    model: str | None = (
+        None  # Per-request model override. Precedence vs provider defaults is provider/orchestrator policy.
+    )
+    tool_choice: str | dict[str, Any] | None = None
     stop: list[str] | None = None
     reasoning_effort: str | None = None
     timeout: float | None = None

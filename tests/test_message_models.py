@@ -682,6 +682,16 @@ class TestChatRequestNewFields:
         )
         assert request.tool_choice == {"name": "search"}
 
+    def test_tool_choice_nested_dict(self) -> None:
+        """ChatRequest accepts nested tool_choice (OpenAI function-forcing form)."""
+        tool_choice = {"type": "function", "function": {"name": "get_weather"}}
+        request = ChatRequest(
+            messages=[Message(role="user", content="Hello")],
+            tool_choice=tool_choice,
+        )
+        assert request.tool_choice == tool_choice
+        assert request.tool_choice["function"]["name"] == "get_weather"
+
     def test_stop_sequences(self) -> None:
         """ChatRequest accepts stop sequences."""
         request = ChatRequest(
