@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _safe_exception_str(e: Exception) -> str:
+def _safe_exception_str(e: BaseException) -> str:
     """
     CRITICAL: Explicitly handle exception string conversion for Windows cp1252 compatibility.
     Default encoding can fail on non-cp1252 characters, causing a crash during error handling.
@@ -432,7 +432,7 @@ class AmplifierSession:
                 self.status.status = "completed"
             return result
 
-        except Exception as e:
+        except BaseException as e:
             # Check if this was a cancellation-related exception
             if self.coordinator.cancellation.is_cancelled:
                 self.status.status = "cancelled"
@@ -455,8 +455,11 @@ class AmplifierSession:
 
     async def cleanup(self: "AmplifierSession") -> None:
         """Clean up session resources."""
-        await self.coordinator.cleanup()
-        # Clean up sys.path modifications
+        try:
+            await self.coordinator.cleanup()
+        except BaseException as e:
+            logger.error(f"Error during coordinator cleanup: {e}")
+        # Clean up sys.path modifications - must always run
         if self.loader:
             self.loader.cleanup()
 
