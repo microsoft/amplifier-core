@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _safe_exception_str(e: Exception) -> str:
+def _safe_exception_str(e: BaseException) -> str:
     """
     CRITICAL: Explicitly handle exception string conversion for Windows cp1252 compatibility.
     Default encoding can fail on non-cp1252 characters, causing a crash during error handling.
@@ -432,8 +432,9 @@ class AmplifierSession:
                 self.status.status = "completed"
             return result
 
-        except Exception as e:
-            # Check if this was a cancellation-related exception
+        except BaseException as e:
+            # Catch BaseException to handle asyncio.CancelledError (a BaseException
+            # subclass since Python 3.9). All paths re-raise after status tracking.
             if self.coordinator.cancellation.is_cancelled:
                 self.status.status = "cancelled"
                 from .events import CANCEL_COMPLETED
@@ -455,10 +456,13 @@ class AmplifierSession:
 
     async def cleanup(self: "AmplifierSession") -> None:
         """Clean up session resources."""
-        await self.coordinator.cleanup()
-        # Clean up sys.path modifications
-        if self.loader:
-            self.loader.cleanup()
+        try:
+            await self.coordinator.cleanup()
+        finally:
+            # Clean up sys.path modifications - must always run even if
+            # coordinator cleanup raises (e.g., asyncio.CancelledError)
+            if self.loader:
+                self.loader.cleanup()
 
     async def __aenter__(self: "AmplifierSession"):
         """Async context manager entry."""

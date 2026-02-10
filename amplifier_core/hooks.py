@@ -70,18 +70,24 @@ class HookRegistry:
         Returns:
             Unregister function
         """
-        hook_handler = HookHandler(handler=handler, priority=priority, name=name or handler.__name__)
+        hook_handler = HookHandler(
+            handler=handler, priority=priority, name=name or handler.__name__
+        )
 
         self._handlers[event].append(hook_handler)
         self._handlers[event].sort()  # Keep sorted by priority
 
-        logger.debug(f"Registered hook '{hook_handler.name}' for event '{event}' with priority {priority}")
+        logger.debug(
+            f"Registered hook '{hook_handler.name}' for event '{event}' with priority {priority}"
+        )
 
         def unregister():
             """Remove this handler from the registry."""
             if hook_handler in self._handlers[event]:
                 self._handlers[event].remove(hook_handler)
-                logger.debug(f"Unregistered hook '{hook_handler.name}' from event '{event}'")
+                logger.debug(
+                    f"Unregistered hook '{hook_handler.name}' from event '{event}'"
+                )
 
         return unregister
 
@@ -140,11 +146,15 @@ class HookRegistry:
                 result = await hook_handler.handler(event, current_data)
 
                 if not isinstance(result, HookResult):
-                    logger.warning(f"Handler '{hook_handler.name}' returned invalid result type")
+                    logger.warning(
+                        f"Handler '{hook_handler.name}' returned invalid result type"
+                    )
                     continue
 
                 if result.action == "deny":
-                    logger.info(f"Event '{event}' denied by handler '{hook_handler.name}': {result.reason}")
+                    logger.info(
+                        f"Event '{event}' denied by handler '{hook_handler.name}': {result.reason}"
+                    )
                     return result
 
                 if result.action == "modify" and result.data is not None:
@@ -154,15 +164,27 @@ class HookRegistry:
                 # Collect inject_context actions for merging
                 if result.action == "inject_context" and result.context_injection:
                     inject_context_results.append(result)
-                    logger.debug(f"Handler '{hook_handler.name}' returned inject_context")
+                    logger.debug(
+                        f"Handler '{hook_handler.name}' returned inject_context"
+                    )
 
                 # Preserve ask_user (only first one, can't merge approvals)
                 if result.action == "ask_user" and special_result is None:
                     special_result = result
                     logger.debug(f"Handler '{hook_handler.name}' returned ask_user")
 
+            except asyncio.CancelledError:
+                # CancelledError is a BaseException (Python 3.9+). Log and continue
+                # so all handlers observe the event (important for cleanup events
+                # like session:end that flow through emit).
+                logger.error(
+                    f"CancelledError in hook handler '{hook_handler.name}' "
+                    f"for event '{event}'"
+                )
             except Exception as e:
-                logger.error(f"Error in hook handler '{hook_handler.name}' for event '{event}': {e}")
+                logger.error(
+                    f"Error in hook handler '{hook_handler.name}' for event '{event}': {e}"
+                )
                 # Continue with other handlers even if one fails
 
         # If multiple inject_context results, merge them.
@@ -173,7 +195,9 @@ class HookRegistry:
             merged_inject = self._merge_inject_context_results(inject_context_results)
             if special_result is None:
                 special_result = merged_inject
-                logger.debug(f"Merged {len(inject_context_results)} inject_context results")
+                logger.debug(
+                    f"Merged {len(inject_context_results)} inject_context results"
+                )
             else:
                 # ask_user already captured - don't overwrite it
                 logger.debug(
@@ -208,7 +232,9 @@ class HookRegistry:
             return results[0]
 
         # Combine all injections
-        combined_content = "\n\n".join(result.context_injection for result in results if result.context_injection)
+        combined_content = "\n\n".join(
+            result.context_injection for result in results if result.context_injection
+        )
 
         # Use settings from first result (role, ephemeral, suppress_output)
         first = results[0]
@@ -221,7 +247,9 @@ class HookRegistry:
             suppress_output=first.suppress_output,
         )
 
-    async def emit_and_collect(self, event: str, data: dict[str, Any], timeout: float = 1.0) -> list[Any]:
+    async def emit_and_collect(
+        self, event: str, data: dict[str, Any], timeout: float = 1.0
+    ) -> list[Any]:
         """
         Emit event and collect data from all handler responses.
 
@@ -247,27 +275,46 @@ class HookRegistry:
             logger.debug(f"No handlers for event '{event}'")
             return []
 
-        logger.debug(f"Collecting responses for event '{event}' from {len(handlers)} handlers")
+        logger.debug(
+            f"Collecting responses for event '{event}' from {len(handlers)} handlers"
+        )
 
         responses = []
         for hook_handler in handlers:
             try:
                 # Call handler with timeout
-                result = await asyncio.wait_for(hook_handler.handler(event, data), timeout=timeout)
+                result = await asyncio.wait_for(
+                    hook_handler.handler(event, data), timeout=timeout
+                )
 
                 if not isinstance(result, HookResult):
-                    logger.warning(f"Handler '{hook_handler.name}' returned invalid result type")
+                    logger.warning(
+                        f"Handler '{hook_handler.name}' returned invalid result type"
+                    )
                     continue
 
                 # Collect response data if present
                 if result.data is not None:
                     responses.append(result.data)
-                    logger.debug(f"Collected response from handler '{hook_handler.name}'")
+                    logger.debug(
+                        f"Collected response from handler '{hook_handler.name}'"
+                    )
 
             except TimeoutError:
-                logger.warning(f"Handler '{hook_handler.name}' timed out after {timeout}s")
+                logger.warning(
+                    f"Handler '{hook_handler.name}' timed out after {timeout}s"
+                )
+            except asyncio.CancelledError:
+                # CancelledError is a BaseException (Python 3.9+). Log and continue
+                # so all handlers get a chance to respond.
+                logger.error(
+                    f"CancelledError in hook handler '{hook_handler.name}' "
+                    f"for event '{event}'"
+                )
             except Exception as e:
-                logger.error(f"Error in hook handler '{hook_handler.name}' for event '{event}': {e}")
+                logger.error(
+                    f"Error in hook handler '{hook_handler.name}' for event '{event}': {e}"
+                )
                 # Continue with other handlers
 
         logger.debug(f"Collected {len(responses)} responses for event '{event}'")
@@ -286,4 +333,7 @@ class HookRegistry:
         if event:
             handlers = self._handlers.get(event, [])
             return {event: [h.name for h in handlers if h.name is not None]}
-        return {evt: [h.name for h in handlers if h.name is not None] for evt, handlers in self._handlers.items()}
+        return {
+            evt: [h.name for h in handlers if h.name is not None]
+            for evt, handlers in self._handlers.items()
+        }

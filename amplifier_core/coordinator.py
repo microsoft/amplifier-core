@@ -12,6 +12,7 @@ This embodies kernel philosophy's "minimal context plumbing" - providing
 identifiers and basic state necessary to make module boundaries work.
 """
 
+import asyncio
 import inspect
 import logging
 from collections.abc import Awaitable
@@ -335,6 +336,14 @@ class ModuleCoordinator:
 
                 if result is not None:
                     contributions.append(result)
+            except asyncio.CancelledError:
+                # CancelledError is a BaseException (Python 3.9+) - catch specifically.
+                # Stop collecting (honor cancellation signal) and return what we have.
+                logger.warning(
+                    f"Collection cancelled during contributor "
+                    f"'{contributor['name']}' on channel '{channel}'"
+                )
+                break
             except Exception as e:
                 logger.warning(
                     f"Contributor '{contributor['name']}' on channel '{channel}' failed: {e}"
@@ -344,6 +353,7 @@ class ModuleCoordinator:
 
     async def cleanup(self):
         """Call all registered cleanup functions."""
+        first_fatal = None
         for cleanup_fn in reversed(self._cleanup_functions):
             try:
                 if callable(cleanup_fn):
@@ -353,8 +363,16 @@ class ModuleCoordinator:
                         result = cleanup_fn()
                         if inspect.iscoroutine(result):
                             await result
-            except Exception as e:
+            except BaseException as e:
+                # Catch BaseException to survive asyncio.CancelledError (a BaseException
+                # subclass since Python 3.9) so remaining cleanup functions still run.
+                # Track fatal exceptions (KeyboardInterrupt, SystemExit) for re-raise
+                # after all cleanup completes.
                 logger.error(f"Error during cleanup: {e}")
+                if first_fatal is None and not isinstance(e, Exception):
+                    first_fatal = e
+        if first_fatal is not None:
+            raise first_fatal
 
     def reset_turn(self):
         """Reset per-turn tracking. Call at turn boundaries."""
