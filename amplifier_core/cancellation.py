@@ -5,6 +5,8 @@ The kernel provides the MECHANISM (token with state).
 The app layer provides the POLICY (when to cancel).
 """
 
+import asyncio
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Awaitable, Callable, Set
@@ -161,8 +163,22 @@ class CancellationToken:
 
     async def trigger_callbacks(self) -> None:
         """Trigger all registered cancellation callbacks."""
+        _logger = logging.getLogger(__name__)
+        first_fatal = None
         for callback in self._on_cancel_callbacks:
             try:
                 await callback()
+            except asyncio.CancelledError:
+                # CancelledError is a BaseException (Python 3.9+). Log and continue
+                # so all cancellation callbacks run.
+                _logger.warning("CancelledError in cancellation callback")
             except Exception:
                 pass  # Don't let callback errors prevent cancellation
+            except BaseException as e:
+                # Track fatal exceptions (KeyboardInterrupt, SystemExit) for re-raise
+                # after all callbacks complete.
+                _logger.warning(f"Fatal exception in cancellation callback: {e}")
+                if first_fatal is None:
+                    first_fatal = e
+        if first_fatal is not None:
+            raise first_fatal
