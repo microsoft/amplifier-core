@@ -335,7 +335,7 @@ class ModuleCoordinator:
 
                 if result is not None:
                     contributions.append(result)
-            except Exception as e:
+            except BaseException as e:
                 logger.warning(
                     f"Contributor '{contributor['name']}' on channel '{channel}' failed: {e}"
                 )
@@ -353,7 +353,7 @@ class ModuleCoordinator:
                         result = cleanup_fn()
                         if inspect.iscoroutine(result):
                             await result
-            except Exception as e:
+            except BaseException as e:
                 logger.error(f"Error during cleanup: {e}")
 
     def reset_turn(self):
