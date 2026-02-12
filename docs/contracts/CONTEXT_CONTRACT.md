@@ -373,7 +373,8 @@ async def _compact_internal(self) -> None:
     # Emit pre-compaction event
     await self._hooks.emit("context:pre_compact", {
         "message_count": len(self._messages),
-        "token_count": self._token_count
+        "token_count": self._token_count,
+        "metadata": None,  # Optional dict for implementation-specific data
     })
 
     # Build tool_call_id -> tool_use index map
@@ -415,7 +416,8 @@ async def _compact_internal(self) -> None:
     # Emit post-compaction event
     await self._hooks.emit("context:post_compact", {
         "message_count": len(self._messages),
-        "token_count": self._token_count
+        "token_count": self._token_count,
+        "metadata": None,  # Optional dict for implementation-specific data
     })
 ```
 
@@ -496,8 +498,14 @@ coordinator.register_contributor(
 ```
 
 Standard events to emit:
-- `context:pre_compact` - Before compaction (include message_count, token_count)
-- `context:post_compact` - After compaction (include new counts)
+- `context:pre_compact` - Before compaction (include message_count, token_count, metadata)
+- `context:post_compact` - After compaction (include new counts, metadata)
+- `context:compaction` - After compaction with strategy details (include before/after stats, metadata)
+
+All context events should include an optional `metadata: dict | null` field as an
+extensible property bag for implementation-specific data (e.g., compaction strategy
+variant, trigger reason, context manager configuration). Consumers that don't need
+metadata ignore it. Set to `null` when no implementation-specific data is available.
 
 See [CONTRIBUTION_CHANNELS.md](../specs/CONTRIBUTION_CHANNELS.md) for the pattern.
 
@@ -530,7 +538,7 @@ Additional examples:
 ### Recommended
 
 - [ ] Token counting for accurate compaction triggers
-- [ ] Emits context:pre_compact and context:post_compact events
+- [ ] Emits context:pre_compact and context:post_compact events with metadata field
 - [ ] Preserves system messages during compaction
 - [ ] Thread-safe for concurrent access
 - [ ] Configurable thresholds
