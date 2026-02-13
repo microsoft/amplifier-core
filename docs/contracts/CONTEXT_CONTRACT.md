@@ -374,7 +374,7 @@ async def _compact_internal(self) -> None:
     await self._hooks.emit("context:pre_compact", {
         "message_count": len(self._messages),
         "token_count": self._token_count,
-        "metadata": None,  # Optional dict for implementation-specific data
+        "metadata": {"strategy": "sliding_window", "trigger": "token_limit", "budget": 195000},
     })
 
     # Build tool_call_id -> tool_use index map
@@ -409,15 +409,26 @@ async def _compact_internal(self) -> None:
             break
 
     recent_messages = self._messages[recent_start:]
-
+    messages_removed = len(self._messages) - len(recent_messages)
     self._messages = system_messages + recent_messages
     self._token_count = sum(self._estimate_tokens(m) for m in self._messages)
+
+    # Emit compaction event
+    await self._hooks.emit("context:compaction", {
+        "message_count": len(self._messages),
+        "token_count": self._token_count,
+        "metadata": {
+            "compaction_trigger": "token-budget-exceeded",
+            "strategy": "budget",
+            "messages_removed": messages_removed,
+        },
+    })
 
     # Emit post-compaction event
     await self._hooks.emit("context:post_compact", {
         "message_count": len(self._messages),
         "token_count": self._token_count,
-        "metadata": None,  # Optional dict for implementation-specific data
+        "metadata": {"budget_remaining": 97500, "storage_quota_pct": 0.42},
     })
 ```
 
