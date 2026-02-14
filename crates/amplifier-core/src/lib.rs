@@ -18,6 +18,8 @@
 
 pub mod events;
 pub mod errors;
+pub mod models;
+pub mod messages;
 
 #[cfg(test)]
 mod tests {
