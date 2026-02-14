@@ -24,6 +24,8 @@ pub mod traits;
 pub mod testing;
 pub mod cancellation;
 pub mod hooks;
+pub mod coordinator;
+pub mod session;
 
 // ---------------------------------------------------------------------------
 // Re-exports — consumers write `use amplifier_core::Tool`, not
@@ -54,6 +56,12 @@ pub use cancellation::{CancellationState, CancellationToken};
 
 // Hooks
 pub use hooks::HookRegistry;
+
+// Coordinator
+pub use coordinator::Coordinator;
+
+// Session
+pub use session::{Session, SessionConfig};
 
 #[cfg(test)]
 mod tests {
