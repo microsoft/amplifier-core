@@ -22,6 +22,8 @@ pub mod models;
 pub mod messages;
 pub mod traits;
 pub mod testing;
+pub mod cancellation;
+pub mod hooks;
 
 // ---------------------------------------------------------------------------
 // Re-exports — consumers write `use amplifier_core::Tool`, not
@@ -46,6 +48,12 @@ pub use messages::{
     ChatRequest, ChatResponse, ContentBlock, ContentBlockType, Degradation, Message,
     MessageContent, ResponseFormat, Role, ToolCall, ToolChoice, ToolSpec, Usage, Visibility,
 };
+
+// Cancellation
+pub use cancellation::{CancellationState, CancellationToken};
+
+// Hooks
+pub use hooks::HookRegistry;
 
 #[cfg(test)]
 mod tests {
