@@ -16,7 +16,7 @@
 //! - `coordinator` — ModuleCoordinator mount points and capabilities
 //! - `session` — AmplifierSession lifecycle management
 
-// Modules will be added as they are implemented.
+pub mod events;
 
 #[cfg(test)]
 mod tests {
