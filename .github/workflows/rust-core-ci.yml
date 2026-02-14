@@ -1,0 +1,49 @@
+name: Rust Core CI
+
+on:
+  push:
+    branches: [rust-core]
+  pull_request:
+    branches: [rust-core, main]
+
+jobs:
+  rust-tests:
+    name: Rust Kernel Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Run Rust tests
+        run: cargo test -p amplifier-core --verbose
+      - name: Check workspace
+        run: cargo check --workspace
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+
+  python-tests:
+    name: Python Tests (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install maturin and build wheel
+        run: |
+          pip install maturin
+          cd bindings/python && maturin develop --release
+      - name: Install test dependencies
+        run: |
+          pip install pytest pytest-asyncio pydantic pyyaml click tomli typing-extensions
+      - name: Run original Python tests
+        run: pytest tests/ -v --tb=short
+      - name: Run bridge tests
+        run: pytest bindings/python/tests/ -v --tb=short
