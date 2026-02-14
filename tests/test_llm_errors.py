@@ -2,14 +2,22 @@
 
 import pytest
 from amplifier_core.llm_errors import (
+    AbortError,
+    AccessDeniedError,
     AuthenticationError,
+    ConfigurationError,
     ContentFilterError,
     ContextLengthError,
     InvalidRequestError,
+    InvalidToolCallError,
     LLMError,
     LLMTimeoutError,
+    NetworkError,
+    NotFoundError,
     ProviderUnavailableError,
+    QuotaExceededError,
     RateLimitError,
+    StreamError,
 )
 
 
@@ -249,6 +257,261 @@ class TestImportFromCore:
             "LLMTimeoutError",
         ]
         for name in error_names:
+            assert hasattr(amplifier_core, name), (
+                f"{name} not exported from amplifier_core"
+            )
+            cls = getattr(amplifier_core, name)
+            assert issubclass(cls, Exception), f"{name} is not an Exception subclass"
+            assert issubclass(cls, LLMError), f"{name} is not an LLMError subclass"
+
+
+class TestNotFoundError:
+    """Tests for NotFoundError."""
+
+    def test_instantiation(self) -> None:
+        err = NotFoundError("Model gpt-99 not found", provider="openai", status_code=404)
+        assert str(err) == "Model gpt-99 not found"
+        assert err.provider == "openai"
+        assert err.status_code == 404
+
+    def test_inherits_from_llm_error(self) -> None:
+        err = NotFoundError("not found")
+        assert isinstance(err, LLMError)
+        assert isinstance(err, Exception)
+
+    def test_not_retryable_by_default(self) -> None:
+        err = NotFoundError("not found")
+        assert err.retryable is False
+
+    def test_caught_by_except_llm_error(self) -> None:
+        with pytest.raises(LLMError):
+            raise NotFoundError("not found")
+
+
+class TestStreamError:
+    """Tests for StreamError."""
+
+    def test_retryable_by_default(self) -> None:
+        err = StreamError("Connection dropped mid-stream")
+        assert err.retryable is True
+
+    def test_inherits_from_llm_error(self) -> None:
+        err = StreamError("stream broke")
+        assert isinstance(err, LLMError)
+
+    def test_retryable_override(self) -> None:
+        err = StreamError("corrupt", retryable=False)
+        assert err.retryable is False
+
+    def test_caught_by_except_llm_error(self) -> None:
+        with pytest.raises(LLMError):
+            raise StreamError("stream broke")
+
+
+class TestAbortError:
+    """Tests for AbortError."""
+
+    def test_not_retryable_by_default(self) -> None:
+        err = AbortError("User cancelled")
+        assert err.retryable is False
+
+    def test_inherits_from_llm_error(self) -> None:
+        err = AbortError("cancelled")
+        assert isinstance(err, LLMError)
+
+    def test_caught_by_except_llm_error(self) -> None:
+        with pytest.raises(LLMError):
+            raise AbortError("cancelled")
+
+
+class TestInvalidToolCallError:
+    """Tests for InvalidToolCallError."""
+
+    def test_not_retryable_by_default(self) -> None:
+        err = InvalidToolCallError("Bad JSON in arguments")
+        assert err.retryable is False
+
+    def test_tool_name_and_raw_arguments(self) -> None:
+        err = InvalidToolCallError(
+            "Failed to parse arguments",
+            tool_name="read_file",
+            raw_arguments='{"path": broken}',
+        )
+        assert err.tool_name == "read_file"
+        assert err.raw_arguments == '{"path": broken}'
+
+    def test_tool_name_defaults_to_none(self) -> None:
+        err = InvalidToolCallError("bad call")
+        assert err.tool_name is None
+        assert err.raw_arguments is None
+
+    def test_inherits_from_llm_error(self) -> None:
+        err = InvalidToolCallError("bad call")
+        assert isinstance(err, LLMError)
+
+    def test_accepts_provider_and_status_code(self) -> None:
+        err = InvalidToolCallError(
+            "bad call",
+            tool_name="foo",
+            raw_arguments="bar",
+            provider="anthropic",
+            status_code=400,
+        )
+        assert err.provider == "anthropic"
+        assert err.status_code == 400
+
+    def test_caught_by_except_llm_error(self) -> None:
+        with pytest.raises(LLMError):
+            raise InvalidToolCallError("bad")
+
+
+class TestConfigurationError:
+    """Tests for ConfigurationError."""
+
+    def test_not_retryable_by_default(self) -> None:
+        err = ConfigurationError("Missing API key")
+        assert err.retryable is False
+
+    def test_inherits_from_llm_error(self) -> None:
+        err = ConfigurationError("bad config")
+        assert isinstance(err, LLMError)
+
+    def test_caught_by_except_llm_error(self) -> None:
+        with pytest.raises(LLMError):
+            raise ConfigurationError("bad config")
+
+
+class TestAccessDeniedError:
+    """Tests for AccessDeniedError (subclass of AuthenticationError)."""
+
+    def test_not_retryable_by_default(self) -> None:
+        err = AccessDeniedError("Forbidden")
+        assert err.retryable is False
+
+    def test_inherits_from_authentication_error(self) -> None:
+        err = AccessDeniedError("forbidden")
+        assert isinstance(err, AuthenticationError)
+
+    def test_inherits_from_llm_error(self) -> None:
+        err = AccessDeniedError("forbidden")
+        assert isinstance(err, LLMError)
+
+    def test_caught_by_except_authentication_error(self) -> None:
+        """Backward compat: existing `except AuthenticationError:` catches this."""
+        with pytest.raises(AuthenticationError):
+            raise AccessDeniedError("forbidden")
+
+    def test_caught_by_except_llm_error(self) -> None:
+        with pytest.raises(LLMError):
+            raise AccessDeniedError("forbidden")
+
+
+class TestNetworkError:
+    """Tests for NetworkError (subclass of ProviderUnavailableError)."""
+
+    def test_retryable_by_default(self) -> None:
+        """Inherits retryable=True from ProviderUnavailableError."""
+        err = NetworkError("DNS resolution failed")
+        assert err.retryable is True
+
+    def test_inherits_from_provider_unavailable(self) -> None:
+        err = NetworkError("connection refused")
+        assert isinstance(err, ProviderUnavailableError)
+
+    def test_inherits_from_llm_error(self) -> None:
+        err = NetworkError("connection refused")
+        assert isinstance(err, LLMError)
+
+    def test_caught_by_except_provider_unavailable(self) -> None:
+        """Backward compat: existing `except ProviderUnavailableError:` catches this."""
+        with pytest.raises(ProviderUnavailableError):
+            raise NetworkError("connection refused")
+
+    def test_caught_by_except_llm_error(self) -> None:
+        with pytest.raises(LLMError):
+            raise NetworkError("connection refused")
+
+
+class TestQuotaExceededError:
+    """Tests for QuotaExceededError (subclass of RateLimitError)."""
+
+    def test_not_retryable_by_default(self) -> None:
+        """Unlike parent RateLimitError (retryable=True), QuotaExceededError defaults to False."""
+        err = QuotaExceededError("Monthly quota exhausted")
+        assert err.retryable is False
+
+    def test_inherits_from_rate_limit_error(self) -> None:
+        err = QuotaExceededError("quota exceeded")
+        assert isinstance(err, RateLimitError)
+
+    def test_inherits_from_llm_error(self) -> None:
+        err = QuotaExceededError("quota exceeded")
+        assert isinstance(err, LLMError)
+
+    def test_has_retry_after(self) -> None:
+        """Inherits retry_after from RateLimitError."""
+        err = QuotaExceededError("quota exceeded", retry_after=3600.0)
+        assert err.retry_after == 3600.0
+
+    def test_caught_by_except_rate_limit_error(self) -> None:
+        """Backward compat: existing `except RateLimitError:` catches this."""
+        with pytest.raises(RateLimitError):
+            raise QuotaExceededError("quota exceeded")
+
+    def test_caught_by_except_llm_error(self) -> None:
+        with pytest.raises(LLMError):
+            raise QuotaExceededError("quota exceeded")
+
+    def test_retryable_can_be_overridden(self) -> None:
+        err = QuotaExceededError("quota exceeded", retryable=True)
+        assert err.retryable is True
+
+
+class TestNewErrorsInAllSubtypesCheck:
+    """Verify all 15 error types are caught by except LLMError."""
+
+    def test_all_types_are_llm_errors(self) -> None:
+        errors = [
+            # Original 7
+            RateLimitError("rate limited"),
+            AuthenticationError("bad key"),
+            ContextLengthError("too long"),
+            ContentFilterError("blocked"),
+            InvalidRequestError("bad request"),
+            ProviderUnavailableError("down"),
+            LLMTimeoutError("timed out"),
+            # New 8
+            NotFoundError("not found"),
+            StreamError("stream broke"),
+            AbortError("cancelled"),
+            InvalidToolCallError("bad tool call"),
+            ConfigurationError("bad config"),
+            AccessDeniedError("forbidden"),
+            NetworkError("connection refused"),
+            QuotaExceededError("quota exceeded"),
+        ]
+        for err in errors:
+            assert isinstance(err, LLMError), f"{type(err).__name__} is not an LLMError"
+            assert isinstance(err, Exception)
+
+
+class TestNewErrorsImportFromCore:
+    """Verify all 8 new error types are importable from amplifier_core."""
+
+    def test_import_new_types_from_top_level(self) -> None:
+        import amplifier_core
+
+        new_error_names = [
+            "NotFoundError",
+            "StreamError",
+            "AbortError",
+            "InvalidToolCallError",
+            "ConfigurationError",
+            "AccessDeniedError",
+            "NetworkError",
+            "QuotaExceededError",
+        ]
+        for name in new_error_names:
             assert hasattr(amplifier_core, name), (
                 f"{name} not exported from amplifier_core"
             )
