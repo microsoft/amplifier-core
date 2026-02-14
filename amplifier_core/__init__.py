@@ -22,14 +22,22 @@ from .interfaces import HookHandler
 from .interfaces import Orchestrator
 from .interfaces import Provider
 from .interfaces import Tool
+from .llm_errors import AbortError
+from .llm_errors import AccessDeniedError
 from .llm_errors import AuthenticationError
+from .llm_errors import ConfigurationError
 from .llm_errors import ContentFilterError
 from .llm_errors import ContextLengthError
 from .llm_errors import InvalidRequestError
+from .llm_errors import InvalidToolCallError
 from .llm_errors import LLMError
 from .llm_errors import LLMTimeoutError
+from .llm_errors import NetworkError
+from .llm_errors import NotFoundError
 from .llm_errors import ProviderUnavailableError
+from .llm_errors import QuotaExceededError
 from .llm_errors import RateLimitError
+from .llm_errors import StreamError
 from .loader import ModuleLoader
 from .loader import ModuleValidationError
 from .message_models import ChatRequest
@@ -65,6 +73,9 @@ from .testing import ScriptedOrchestrator
 from .testing import TestCoordinator
 from .testing import create_test_coordinator
 from .testing import wait_for
+from .utils.retry import RetryConfig
+from .utils.retry import classify_error_message
+from .utils.retry import retry_with_backoff
 
 __all__ = [
     "AmplifierSession",
@@ -117,6 +128,15 @@ __all__ = [
     "InvalidRequestError",
     "ProviderUnavailableError",
     "LLMTimeoutError",
+    # Phase 3 additions
+    "AbortError",
+    "AccessDeniedError",
+    "ConfigurationError",
+    "InvalidToolCallError",
+    "NetworkError",
+    "NotFoundError",
+    "QuotaExceededError",
+    "StreamError",
     # Content models for provider streaming
     "ContentBlock",
     "ContentBlockType",
@@ -124,6 +144,10 @@ __all__ = [
     "ThinkingContent",
     "ToolCallContent",
     "ToolResultContent",
+    # Retry utilities
+    "RetryConfig",
+    "retry_with_backoff",
+    "classify_error_message",
     # Testing utilities
     "TestCoordinator",
     "MockTool",
