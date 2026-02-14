@@ -473,6 +473,55 @@ pub struct SessionStatus {
 }
 
 // ---------------------------------------------------------------------------
+// Approval types (from interfaces.py)
+// ---------------------------------------------------------------------------
+
+/// Request for user approval of a tool action.
+///
+/// Maps to Python's `ApprovalRequest(BaseModel)` in `interfaces.py`.
+///
+/// # Validation
+///
+/// `timeout`, if provided, must be positive. Callers should validate before
+/// constructing; the Python side enforces this via `model_post_init`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ApprovalRequest {
+    /// Name of the tool requesting approval.
+    pub tool_name: String,
+
+    /// Human-readable description of the action.
+    pub action: String,
+
+    /// Tool-specific context and parameters.
+    #[serde(default)]
+    pub details: HashMap<String, Value>,
+
+    /// Risk level: "low", "medium", "high", or "critical".
+    pub risk_level: String,
+
+    /// Timeout in seconds (`None` = wait indefinitely).
+    #[serde(default)]
+    pub timeout: Option<f64>,
+}
+
+/// Response to an approval request.
+///
+/// Maps to Python's `ApprovalResponse(BaseModel)` in `interfaces.py`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ApprovalResponse {
+    /// Whether the action was approved.
+    pub approved: bool,
+
+    /// Explanation for approval/denial.
+    #[serde(default)]
+    pub reason: Option<String>,
+
+    /// Cache this decision for future similar requests.
+    #[serde(default)]
+    pub remember: bool,
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
