@@ -68,3 +68,8 @@ next-steps.md
 
 # Working folders
 ai_working/tmp
+
+##############################
+# Rust specific ignores      #
+##############################
+target/
