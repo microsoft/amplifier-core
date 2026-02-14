@@ -41,6 +41,7 @@ class Orchestrator(Protocol):
         providers: dict[str, "Provider"],
         tools: dict[str, "Tool"],
         hooks: "HookRegistry",
+        **kwargs: Any,
     ) -> str:
         """
         Execute the agent loop with given prompt.
@@ -51,6 +52,11 @@ class Orchestrator(Protocol):
             providers: Available LLM providers
             tools: Available tools
             hooks: Hook registry for lifecycle events
+            **kwargs: Additional kernel-injected arguments. The kernel
+                (session.py) passes ``coordinator=<ModuleCoordinator>``
+                so orchestrators can process hook results and coordinate
+                module interactions. Implementations may accept this
+                explicitly or ignore it via **kwargs.
 
         Returns:
             Final response string
@@ -225,9 +231,15 @@ class ApprovalRequest(BaseModel):
 
     tool_name: str = Field(..., description="Name of the tool requesting approval")
     action: str = Field(..., description="Human-readable description of the action")
-    details: dict[str, Any] = Field(default_factory=dict, description="Tool-specific context and parameters")
-    risk_level: str = Field(..., description="Risk level: low, medium, high, or critical")
-    timeout: float | None = Field(default=None, description="Timeout in seconds (None = wait indefinitely)")
+    details: dict[str, Any] = Field(
+        default_factory=dict, description="Tool-specific context and parameters"
+    )
+    risk_level: str = Field(
+        ..., description="Risk level: low, medium, high, or critical"
+    )
+    timeout: float | None = Field(
+        default=None, description="Timeout in seconds (None = wait indefinitely)"
+    )
 
     def model_post_init(self, __context: Any) -> None:
         """Validate timeout if provided."""
@@ -239,8 +251,12 @@ class ApprovalResponse(BaseModel):
     """Response to an approval request."""
 
     approved: bool = Field(..., description="Whether the action was approved")
-    reason: str | None = Field(default=None, description="Explanation for approval/denial")
-    remember: bool = Field(default=False, description="Cache this decision for future requests")
+    reason: str | None = Field(
+        default=None, description="Explanation for approval/denial"
+    )
+    remember: bool = Field(
+        default=False, description="Cache this decision for future requests"
+    )
 
 
 @runtime_checkable
