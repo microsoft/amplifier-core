@@ -17,6 +17,7 @@
 //! - `session` — AmplifierSession lifecycle management
 
 pub mod events;
+pub mod errors;
 
 #[cfg(test)]
 mod tests {
