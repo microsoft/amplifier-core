@@ -73,6 +73,9 @@ from .testing import ScriptedOrchestrator
 from .testing import TestCoordinator
 from .testing import create_test_coordinator
 from .testing import wait_for
+from .utils.retry import RetryConfig
+from .utils.retry import classify_error_message
+from .utils.retry import retry_with_backoff
 
 __all__ = [
     "AmplifierSession",
@@ -141,6 +144,10 @@ __all__ = [
     "ThinkingContent",
     "ToolCallContent",
     "ToolResultContent",
+    # Retry utilities
+    "RetryConfig",
+    "retry_with_backoff",
+    "classify_error_message",
     # Testing utilities
     "TestCoordinator",
     "MockTool",
