@@ -39,11 +39,9 @@ jobs:
       - name: Install maturin and build wheel
         run: |
           pip install maturin
-          cd bindings/python && maturin develop --release
+          maturin develop --release
       - name: Install test dependencies
         run: |
           pip install pytest pytest-asyncio pydantic pyyaml click tomli typing-extensions
-      - name: Run original Python tests
-        run: pytest tests/ -v --tb=short
-      - name: Run bridge tests
-        run: pytest bindings/python/tests/ -v --tb=short
+      - name: Run all Python tests
+        run: pytest tests/ bindings/python/tests/ -v --tb=short

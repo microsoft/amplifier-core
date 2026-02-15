@@ -1,11 +1,5 @@
 """
 Amplifier Core - Ultra-thin coordination layer for modular AI agents.
-
-All imports below mirror the original amplifier_core/__init__.py exactly.
-Session, Coordinator, HookRegistry, and CancellationToken are still the
-Python implementations. The Rust-backed types are exposed separately as
-RustSession, RustHookRegistry, RustCancellationToken, RustCoordinator
-for parallel testing. The actual switchover happens in Milestone 7.
 """
 
 __version__ = "1.0.0"
@@ -72,11 +66,14 @@ from .testing import TestCoordinator
 from .testing import create_test_coordinator
 from .testing import wait_for
 
-# Rust-backed types for parallel testing (Milestone 7 switchover)
-from ._engine import RustCancellationToken
-from ._engine import RustCoordinator
-from ._engine import RustHookRegistry
-from ._engine import RustSession
+# Rust engine types (parallel availability for testing)
+from ._engine import (
+    RUST_AVAILABLE,
+    RustCancellationToken,
+    RustCoordinator,
+    RustHookRegistry,
+    RustSession,
+)
 
 __all__ = [
     "AmplifierSession",
@@ -144,7 +141,8 @@ __all__ = [
     "ScriptedOrchestrator",
     "create_test_coordinator",
     "wait_for",
-    # Rust-backed types (parallel testing)
+    # Rust engine types
+    "RUST_AVAILABLE",
     "RustSession",
     "RustHookRegistry",
     "RustCancellationToken",

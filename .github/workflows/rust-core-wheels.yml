@@ -24,14 +24,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: PyO3/maturin-action@v1
         with:
-          working-directory: bindings/python
           target: ${{ matrix.target }}
           args: --release --out dist
           manylinux: auto
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.os }}
-          path: bindings/python/dist/*.whl
+          path: dist/*.whl
 
   build-linux-aarch64:
     name: Build wheels (Linux aarch64)
@@ -40,11 +39,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: PyO3/maturin-action@v1
         with:
-          working-directory: bindings/python
           target: aarch64
           args: --release --out dist
           manylinux: auto
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-aarch64
-          path: bindings/python/dist/*.whl
+          path: dist/*.whl
