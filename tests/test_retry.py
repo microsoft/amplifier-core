@@ -223,6 +223,60 @@ class TestRetryWithBackoff:
         result = await retry_with_backoff(operation, None)
         assert result == "ok"
 
+    @pytest.mark.asyncio
+    async def test_honor_retry_after_false_ignores_retry_after(self) -> None:
+        """When honor_retry_after=False, retry_after from RateLimitError should be ignored."""
+        attempts: list[int] = []
+
+        async def operation() -> str:
+            attempts.append(1)
+            if len(attempts) < 2:
+                raise RateLimitError("rate limited", retry_after=120.0)
+            return "ok"
+
+        config = RetryConfig(
+            max_retries=3,
+            min_delay=0.01,
+            max_delay=0.05,
+            jitter=0.0,
+            honor_retry_after=False,
+        )
+
+        import asyncio
+
+        start = asyncio.get_event_loop().time()
+        result = await retry_with_backoff(operation, config)
+        elapsed = asyncio.get_event_loop().time() - start
+
+        assert result == "ok"
+        assert elapsed < 1.0  # Should be ~0.01s, NOT 120s
+
+    @pytest.mark.asyncio
+    async def test_retry_after_can_exceed_max_delay(self) -> None:
+        """retry_after from server takes precedence over max_delay cap."""
+        delays: list[float] = []
+
+        async def operation() -> str:
+            if len(delays) < 1:
+                raise RateLimitError("rate limited", retry_after=5.0)
+            return "ok"
+
+        async def on_retry(attempt: int, delay: float, error: LLMError) -> None:
+            delays.append(delay)
+
+        config = RetryConfig(
+            max_retries=3,
+            min_delay=0.01,
+            max_delay=0.1,
+            jitter=0.0,
+            honor_retry_after=True,
+        )
+
+        result = await retry_with_backoff(operation, config, on_retry=on_retry)
+        assert result == "ok"
+        assert len(delays) == 1
+        assert delays[0] >= 5.0  # retry_after (5s) wins over max_delay (0.1s)
+
 
 class TestClassifyErrorMessage:
     """Tests for classify_error_message() heuristic classifier."""
