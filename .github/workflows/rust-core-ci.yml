@@ -36,13 +36,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Create venv and install
+      - name: Create venv and build
         run: |
           python -m venv .venv
           source .venv/bin/activate
           pip install maturin
-          maturin develop --release
-          pip install pytest pytest-asyncio pydantic pyyaml click tomli typing-extensions
+          maturin build --release --out dist
+          pip install dist/amplifier_core-*.whl
+      - name: Install test dependencies
+        run: |
+          source .venv/bin/activate
+          pip install pytest pytest-asyncio
       - name: Run all Python tests
         run: |
           source .venv/bin/activate
