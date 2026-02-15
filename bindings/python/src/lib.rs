@@ -209,6 +209,7 @@ impl PySession {
 struct PyHookRegistry {
     inner: Arc<amplifier_core::HookRegistry>,
     /// Stored unregister closures keyed by handler name.
+    #[allow(clippy::type_complexity)]
     unregister_fns: Arc<std::sync::Mutex<HashMap<String, Box<dyn Fn() + Send + Sync>>>>,
 }
 
