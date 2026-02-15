@@ -36,12 +36,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install maturin and build wheel
+      - name: Create venv and install
         run: |
+          python -m venv .venv
+          source .venv/bin/activate
           pip install maturin
           maturin develop --release
-      - name: Install test dependencies
-        run: |
           pip install pytest pytest-asyncio pydantic pyyaml click tomli typing-extensions
       - name: Run all Python tests
-        run: pytest tests/ bindings/python/tests/ -v --tb=short
+        run: |
+          source .venv/bin/activate
+          pytest tests/ bindings/python/tests/ -v --tb=short
