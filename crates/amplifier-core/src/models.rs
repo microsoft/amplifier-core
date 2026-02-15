@@ -21,9 +21,10 @@ use serde_json::Value;
 /// - `Modify` — modify event data (chains through handlers)
 /// - `InjectContext` — add content to agent's conversation context
 /// - `AskUser` — request user approval before proceeding
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HookAction {
+    #[default]
     Continue,
     Deny,
     Modify,
@@ -31,75 +32,54 @@ pub enum HookAction {
     AskUser,
 }
 
-impl Default for HookAction {
-    fn default() -> Self {
-        Self::Continue
-    }
-}
 
 /// Role for context injection messages.
 ///
 /// - `System` (default) — environmental feedback
 /// - `User` — simulate user input
 /// - `Assistant` — agent self-talk
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ContextInjectionRole {
+    #[default]
     System,
     User,
     Assistant,
 }
 
-impl Default for ContextInjectionRole {
-    fn default() -> Self {
-        Self::System
-    }
-}
 
 /// Default decision on approval timeout or error.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalDefault {
     Allow,
+    #[default]
     Deny,
 }
 
-impl Default for ApprovalDefault {
-    fn default() -> Self {
-        Self::Deny
-    }
-}
 
 /// Severity level for user messages from hooks.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UserMessageLevel {
+    #[default]
     Info,
     Warning,
     Error,
 }
 
-impl Default for UserMessageLevel {
-    fn default() -> Self {
-        Self::Info
-    }
-}
 
 /// Configuration field type.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConfigFieldType {
+    #[default]
     Text,
     Secret,
     Choice,
     Boolean,
 }
 
-impl Default for ConfigFieldType {
-    fn default() -> Self {
-        Self::Text
-    }
-}
 
 /// Module type classification.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,20 +96,16 @@ pub enum ModuleType {
 /// Session state.
 ///
 /// Matches the Python `Literal["running", "completed", "failed", "cancelled"]`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionState {
+    #[default]
     Running,
     Completed,
     Failed,
     Cancelled,
 }
 
-impl Default for SessionState {
-    fn default() -> Self {
-        Self::Running
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Structs

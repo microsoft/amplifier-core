@@ -36,10 +36,11 @@ use serde::{Deserialize, Serialize};
 /// Cancellation state machine states.
 ///
 /// Matches Python's `CancellationState(Enum)`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CancellationState {
     /// Running normally.
+    #[default]
     None,
     /// Waiting for current tools to complete (graceful shutdown).
     Graceful,
@@ -47,11 +48,6 @@ pub enum CancellationState {
     Immediate,
 }
 
-impl Default for CancellationState {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Callback type alias
