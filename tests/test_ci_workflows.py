@@ -187,7 +187,7 @@ class TestBuildWheelsWorkflow:
         steps = wf["jobs"]["build-linux-aarch64"]["steps"]
         maturin_steps = [s for s in steps if "maturin-action" in s.get("uses", "")]
         assert len(maturin_steps) == 1
-        assert maturin_steps[0]["with"]["target"] == "aarch64"
+        assert maturin_steps[0]["with"]["target"] == "aarch64-unknown-linux-gnu"
 
     def test_linux_aarch64_uploads_artifacts(self):
         wf = self._load()
