@@ -22,3 +22,23 @@ def test_on_is_alias_for_register():
     # Python HookRegistry has: on = register
     registry.on("tool:pre", "test-handler", my_handler, 50)
     # If it doesn't raise, the method exists and accepts the same args
+
+
+def test_list_handlers_empty():
+    """list_handlers() returns an empty dict when no handlers registered."""
+    registry = RustHookRegistry()
+    result = registry.list_handlers()
+    assert isinstance(result, dict)
+    assert len(result) == 0
+
+
+def test_list_handlers_with_event_filter():
+    """list_handlers(event) returns only handlers for that event."""
+    registry = RustHookRegistry()
+    registry.register("tool:pre", "my-hook", lambda e, d: None, 0)
+    registry.register("tool:post", "other-hook", lambda e, d: None, 0)
+
+    result = registry.list_handlers("tool:pre")
+    assert "tool:pre" in result
+    assert "my-hook" in result["tool:pre"]
+    assert "tool:post" not in result
