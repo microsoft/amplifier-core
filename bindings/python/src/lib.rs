@@ -125,11 +125,13 @@ impl PySession {
     /// Create a new session matching the Python AmplifierSession constructor.
     ///
     /// The dict must contain `session.orchestrator` and `session.context`.
+    #[allow(clippy::too_many_arguments)]
     #[new]
     #[pyo3(signature = (config, loader=None, session_id=None, parent_id=None, approval_system=None, display_system=None, is_resumed=false))]
     fn new(
         py: Python<'_>,
         config: &Bound<'_, PyDict>,
+        #[allow(unused_variables)]
         loader: Option<Bound<'_, PyAny>>,
         session_id: Option<String>,
         parent_id: Option<String>,
@@ -147,12 +149,12 @@ impl PySession {
         let session_section = config.get_item("session")?;
         let (has_orchestrator, has_context) = match &session_section {
             Some(s) => {
-                let s_dict = s.downcast::<PyDict>()?;
+                let s_dict = s.cast::<PyDict>()?;
                 let orch = s_dict.get_item("orchestrator")?;
                 let ctx = s_dict.get_item("context")?;
                 (
-                    orch.map_or(false, |o| !o.is_none()),
-                    ctx.map_or(false, |c| !c.is_none()),
+                    orch.is_some_and(|o| !o.is_none()),
+                    ctx.is_some_and(|c| !c.is_none()),
                 )
             }
             None => (false, false),
@@ -414,6 +416,7 @@ struct PyHookRegistry {
 #[pymethods]
 impl PyHookRegistry {
     /// Create a new empty hook registry.
+    #[allow(clippy::too_many_arguments)]
     #[new]
     fn new() -> Self {
         Self {
@@ -614,6 +617,7 @@ struct PyCancellationToken {
 #[pymethods]
 impl PyCancellationToken {
     /// Create a new cancellation token in the `None` state.
+    #[allow(clippy::too_many_arguments)]
     #[new]
     fn new() -> Self {
         Self {
@@ -701,6 +705,7 @@ impl PyCoordinator {
     /// This enables Python subclasses (e.g. `TestCoordinator`) to call
     /// `super().__init__(session, ...)` from `__init__` instead of needing
     /// to pass arguments through `__new__`.
+    #[allow(clippy::too_many_arguments)]
     #[new]
     #[pyo3(signature = (session=None, approval_system=None, display_system=None))]
     fn new(
@@ -903,7 +908,7 @@ impl PyCoordinator {
                 match name {
                     None => Ok(sub_dict_any.unbind()),
                     Some(n) => {
-                        let sub = sub_dict_any.downcast::<PyDict>()?;
+                        let sub = sub_dict_any.cast::<PyDict>()?;
                         match sub.get_item(n)? {
                             Some(item) => Ok(item.unbind()),
                             None => Ok(py.None()),
@@ -948,7 +953,7 @@ impl PyCoordinator {
                             "Mount point missing: {mount_point}"
                         ))
                     })?;
-                    let sub_dict = sub_any.downcast::<PyDict>()?;
+                    let sub_dict = sub_any.cast::<PyDict>()?;
                     sub_dict.del_item(n).ok(); // Ignore if not present
                 } else {
                     return Err(PyErr::new::<PyValueError, _>(format!(
@@ -1088,7 +1093,7 @@ impl PyCoordinator {
             channels.set_item(channel, PyList::empty(py))?;
         }
         let list_any = channels.get_item(channel)?.unwrap();
-        let list = list_any.downcast::<PyList>()?;
+        let list = list_any.cast::<PyList>()?;
         let entry = PyDict::new(py);
         entry.set_item("name", name)?;
         entry.set_item("callback", &callback)?;
@@ -1129,7 +1134,7 @@ impl PyCoordinator {
                             Some(list) => list,
                             None => return Ok(Vec::new()),
                         };
-                        let list = contributors.downcast::<PyList>()?;
+                        let list = contributors.cast::<PyList>()?;
                         let mut results: Vec<Py<PyAny>> = Vec::new();
 
                         for i in 0..list.len() {
