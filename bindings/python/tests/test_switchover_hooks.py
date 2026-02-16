@@ -42,3 +42,20 @@ def test_list_handlers_with_event_filter():
     assert "tool:pre" in result
     assert "my-hook" in result["tool:pre"]
     assert "tool:post" not in result
+
+
+@pytest.mark.asyncio
+async def test_emit_and_collect_empty():
+    """emit_and_collect returns empty list when no handlers registered."""
+    registry = RustHookRegistry()
+    result = await registry.emit_and_collect("test:event", {"key": "value"})
+    assert isinstance(result, list)
+    assert len(result) == 0
+
+
+@pytest.mark.asyncio
+async def test_emit_and_collect_with_timeout():
+    """emit_and_collect accepts an optional timeout parameter."""
+    registry = RustHookRegistry()
+    result = await registry.emit_and_collect("test:event", {}, timeout=2.0)
+    assert isinstance(result, list)
