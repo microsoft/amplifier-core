@@ -59,3 +59,15 @@ async def test_emit_and_collect_with_timeout():
     registry = RustHookRegistry()
     result = await registry.emit_and_collect("test:event", {}, timeout=2.0)
     assert isinstance(result, list)
+
+
+def test_event_constants_on_class():
+    """RustHookRegistry has class-level event name constants matching Python."""
+    assert RustHookRegistry.SESSION_START == "session:start"
+    assert RustHookRegistry.SESSION_END == "session:end"
+    assert RustHookRegistry.PROMPT_SUBMIT == "prompt:submit"
+    assert RustHookRegistry.TOOL_PRE == "tool:pre"
+    assert RustHookRegistry.TOOL_POST == "tool:post"
+    assert RustHookRegistry.CONTEXT_PRE_COMPACT == "context:pre_compact"
+    assert RustHookRegistry.ORCHESTRATOR_COMPLETE == "orchestrator:complete"
+    assert RustHookRegistry.USER_NOTIFICATION == "user:notification"

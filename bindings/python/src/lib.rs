@@ -381,6 +381,24 @@ impl PyHookRegistry {
             Ok(json_strings)
         })
     }
+
+    // Class-level event name constants matching Python HookRegistry
+    #[classattr]
+    const SESSION_START: &'static str = "session:start";
+    #[classattr]
+    const SESSION_END: &'static str = "session:end";
+    #[classattr]
+    const PROMPT_SUBMIT: &'static str = "prompt:submit";
+    #[classattr]
+    const TOOL_PRE: &'static str = "tool:pre";
+    #[classattr]
+    const TOOL_POST: &'static str = "tool:post";
+    #[classattr]
+    const CONTEXT_PRE_COMPACT: &'static str = "context:pre_compact";
+    #[classattr]
+    const ORCHESTRATOR_COMPLETE: &'static str = "orchestrator:complete";
+    #[classattr]
+    const USER_NOTIFICATION: &'static str = "user:notification";
 }
 
 // ---------------------------------------------------------------------------
