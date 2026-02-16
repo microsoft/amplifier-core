@@ -22,6 +22,7 @@ dependencies = [
  "pyo3-async-runtimes",
  "serde_json",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

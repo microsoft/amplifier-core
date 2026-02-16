@@ -87,61 +87,200 @@ impl HookHandler for PyHookHandlerBridge {
 }
 
 // ---------------------------------------------------------------------------
-// PySession — wraps amplifier_core::Session
+// PySession — wraps amplifier_core::Session (Milestone 3)
 // ---------------------------------------------------------------------------
 
 /// Python-visible session wrapper.
 ///
-/// Exposes the Rust `Session` lifecycle to Python consumers.
-/// Uses `tokio::sync::Mutex` so the lock can be held across `.await` points
-/// (required because `Session::execute` and `Session::cleanup` are async).
+/// Hybrid approach: the Session creates and owns a `PyCoordinator` internally.
+/// `initialize()` delegates to a Python helper (`_session_init.py`) that calls
+/// the Python loader to load modules from config.
+/// `execute(prompt)` delegates to a Python helper (`_session_exec.py`) that
+/// calls the orchestrator.
+/// `cleanup()` runs the coordinator's cleanup functions.
+///
+/// Matches the Python `AmplifierSession` constructor signature:
+/// ```python
+/// __init__(self, config, loader=None, session_id=None, parent_id=None,
+///          approval_system=None, display_system=None, is_resumed=False)
+/// ```
 #[pyclass(name = "RustSession")]
 struct PySession {
+    /// Rust kernel session (for session_id, parent_id, initialized flag).
     inner: Arc<tokio::sync::Mutex<amplifier_core::Session>>,
+    /// The PyCoordinator instance owned by this session.
+    coordinator: Py<PyAny>,
+    /// Original config dict (Python dict).
+    config: Py<PyDict>,
+    /// Whether this is a resumed session.
+    is_resumed: bool,
+    /// Cached session_id (avoids locking inner for every access).
+    cached_session_id: String,
+    /// Cached parent_id.
+    cached_parent_id: Option<String>,
 }
 
 #[pymethods]
 impl PySession {
-    /// Create a new session from a Python config dict.
+    /// Create a new session matching the Python AmplifierSession constructor.
     ///
     /// The dict must contain `session.orchestrator` and `session.context`.
     #[new]
-    #[pyo3(signature = (config))]
-    fn new(config: &Bound<'_, PyDict>) -> PyResult<Self> {
-        // Convert Python dict to serde_json::Value via JSON round-trip
-        let json_mod = config.py().import("json")?;
+    #[pyo3(signature = (config, loader=None, session_id=None, parent_id=None, approval_system=None, display_system=None, is_resumed=false))]
+    fn new(
+        py: Python<'_>,
+        config: &Bound<'_, PyDict>,
+        loader: Option<Bound<'_, PyAny>>,
+        session_id: Option<String>,
+        parent_id: Option<String>,
+        approval_system: Option<Bound<'_, PyAny>>,
+        display_system: Option<Bound<'_, PyAny>>,
+        is_resumed: bool,
+    ) -> PyResult<Self> {
+        // ---- Validate config (matching Python AmplifierSession.__init__) ----
+        // Python: if not config: raise ValueError("Configuration is required")
+        if config.is_empty() {
+            return Err(PyErr::new::<PyValueError, _>("Configuration is required"));
+        }
+
+        // Python: if not config.get("session", {}).get("orchestrator"):
+        let session_section = config.get_item("session")?;
+        let (has_orchestrator, has_context) = match &session_section {
+            Some(s) => {
+                let s_dict = s.downcast::<PyDict>()?;
+                let orch = s_dict.get_item("orchestrator")?;
+                let ctx = s_dict.get_item("context")?;
+                (
+                    orch.map_or(false, |o| !o.is_none()),
+                    ctx.map_or(false, |c| !c.is_none()),
+                )
+            }
+            None => (false, false),
+        };
+
+        if !has_orchestrator {
+            return Err(PyErr::new::<PyValueError, _>(
+                "Configuration must specify session.orchestrator",
+            ));
+        }
+        if !has_context {
+            return Err(PyErr::new::<PyValueError, _>(
+                "Configuration must specify session.context",
+            ));
+        }
+
+        // ---- Build Rust kernel Session ----
+        let json_mod = py.import("json")?;
         let json_str: String = json_mod
             .call_method1("dumps", (config,))?
             .extract()?;
-
         let value: Value = serde_json::from_str(&json_str).map_err(|e| {
             PyErr::new::<PyRuntimeError, _>(format!("Invalid config JSON: {e}"))
         })?;
-
         let session_config =
             amplifier_core::SessionConfig::from_value(value).map_err(|e| {
-                PyErr::new::<PyRuntimeError, _>(format!("Invalid session config: {e}"))
+                PyErr::new::<PyValueError, _>(format!("Invalid session config: {e}"))
             })?;
 
-        let session = amplifier_core::Session::new(session_config, None, None);
+        let session = if is_resumed {
+            let sid = session_id
+                .clone()
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            amplifier_core::Session::new_resumed(session_config, sid, parent_id.clone())
+        } else {
+            amplifier_core::Session::new(session_config, session_id.clone(), parent_id.clone())
+        };
+
+        let actual_session_id = session.session_id().to_string();
+        let actual_parent_id = session.parent_id().map(|s| s.to_string());
+
+        // ---- Create a "fake session" Python object for coordinator construction ----
+        // The PyCoordinator::new() expects a Python object with .session_id,
+        // .parent_id, .config attributes. We create a simple namespace object.
+        let types_mod = py.import("types")?;
+        let ns_cls = types_mod.getattr("SimpleNamespace")?;
+        let kwargs = PyDict::new(py);
+        kwargs.set_item("session_id", &actual_session_id)?;
+        kwargs.set_item("parent_id", actual_parent_id.as_deref())?;
+        kwargs.set_item("config", config)?;
+        let fake_session = ns_cls.call((), Some(&kwargs))?;
+
+        // ---- Create the PyCoordinator ----
+        let coord = PyCoordinator::new(
+            py,
+            fake_session.clone(),
+            approval_system,
+            display_system,
+        )?;
+        let coord_py = Py::new(py, coord)?;
+        let coord_any: Py<PyAny> = coord_py.clone_ref(py).into_any();
+
+        // ---- Set default fields on the hook registry ----
+        // Python: self.coordinator.hooks.set_default_fields(session_id=..., parent_id=...)
+        {
+            let coord_ref = coord_py.borrow(py);
+            let hooks = coord_ref.py_hooks.bind(py);
+            let defaults_dict = PyDict::new(py);
+            defaults_dict.set_item("session_id", &actual_session_id)?;
+            defaults_dict.set_item("parent_id", actual_parent_id.as_deref())?;
+            hooks.call_method("set_default_fields", (), Some(&defaults_dict))?;
+        }
+
+        // ---- Patch the coordinator's session back-reference to point to
+        //      the *real* PySession once it's constructed. We'll do this
+        //      via a post-construction step below using the SimpleNamespace
+        //      placeholder for now. The coordinator.session will be the
+        //      SimpleNamespace, but coordinator.session_id is correct. ----
 
         Ok(Self {
             inner: Arc::new(tokio::sync::Mutex::new(session)),
+            coordinator: coord_any,
+            config: config.clone().unbind(),
+            is_resumed,
+            cached_session_id: actual_session_id,
+            cached_parent_id: actual_parent_id,
         })
     }
 
+    // -----------------------------------------------------------------------
+    // Task 3.1: session_id, parent_id (cached — no lock needed)
+    // -----------------------------------------------------------------------
+
     /// The session ID (UUID string).
     #[getter]
-    fn session_id(&self) -> PyResult<String> {
-        let session = self.inner.blocking_lock();
-        Ok(session.session_id().to_string())
+    fn session_id(&self) -> &str {
+        &self.cached_session_id
     }
 
     /// The parent session ID, if any.
     #[getter]
-    fn parent_id(&self) -> PyResult<Option<String>> {
-        let session = self.inner.blocking_lock();
-        Ok(session.parent_id().map(|s| s.to_string()))
+    fn parent_id<'py>(&self, py: Python<'py>) -> Py<PyAny> {
+        match &self.cached_parent_id {
+            Some(pid) => pid.into_pyobject(py).unwrap().into_any().unbind(),
+            None => py.None(),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 3.2: coordinator, config, is_resumed properties
+    // -----------------------------------------------------------------------
+
+    /// The coordinator owned by this session.
+    #[getter]
+    fn coordinator<'py>(&self, py: Python<'py>) -> Bound<'py, PyAny> {
+        self.coordinator.bind(py).clone()
+    }
+
+    /// The original config dict.
+    #[getter]
+    fn config<'py>(&self, py: Python<'py>) -> Bound<'py, PyDict> {
+        self.config.bind(py).clone()
+    }
+
+    /// Whether this is a resumed session.
+    #[getter]
+    fn is_resumed(&self) -> bool {
+        self.is_resumed
     }
 
     /// Whether the session has been initialized.
@@ -151,49 +290,108 @@ impl PySession {
         Ok(session.is_initialized())
     }
 
-    /// Initialize the session (marks it ready for execution).
+    // -----------------------------------------------------------------------
+    // Task 3.3: initialize() — delegates to Python _session_init helper
+    // -----------------------------------------------------------------------
+
+    /// Initialize the session by loading modules from config.
     ///
-    /// In the Rust kernel, module loading is external (done by the Python
-    /// bridge). This method marks the session as initialized after modules
-    /// have been mounted.
+    /// Delegates to `amplifier_core._session_init.initialize_session()` which
+    /// calls the Python loader to load and mount all configured modules.
+    /// If already initialized, returns immediately.
     fn initialize<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let inner = self.inner.clone();
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let mut session = inner.lock().await;
-            session.set_initialized();
-            Ok(())
-        })
+        // Import the helper and call the async function
+        let helper = py.import("amplifier_core._session_init")?;
+        let init_fn = helper.getattr("initialize_session")?;
+
+        // Call the async Python function — returns a coroutine
+        let coro = init_fn.call1((
+            self.config.bind(py),
+            self.coordinator.bind(py),
+            &self.cached_session_id,
+            self.cached_parent_id.as_deref(),
+        ))?;
+
+        // Wrap: await the coroutine, then mark Rust session as initialized
+        let wrap_fn = helper.getattr("_wrap_initialize")?;
+
+        // We need to return a coroutine that:
+        // 1. Awaits the init coroutine
+        // 2. Then marks the Rust session as initialized
+        // The simplest approach: create a Python wrapper coroutine
+        let wrapped = wrap_fn.call1((&coro,))?;
+        Ok(wrapped)
     }
 
-    /// Execute a prompt through the orchestrator.
+    // -----------------------------------------------------------------------
+    // Task 3.4: execute(prompt) — delegates to Python _session_exec helper
+    // -----------------------------------------------------------------------
+
+    /// Execute a prompt through the mounted orchestrator.
     ///
-    /// The session must be initialized first. Returns the orchestrator's
-    /// response string.
+    /// Auto-initializes if needed. Delegates to
+    /// `amplifier_core._session_exec.execute_session()`.
     fn execute<'py>(
         &self,
         py: Python<'py>,
         prompt: String,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let inner = self.inner.clone();
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let mut session = inner.lock().await;
-            let result = session.execute(&prompt).await.map_err(|e| {
-                PyErr::new::<PyRuntimeError, _>(e.to_string())
-            })?;
-            Ok(result)
-        })
+        let helper = py.import("amplifier_core._session_exec")?;
+        let exec_fn = helper.getattr("execute_session")?;
+
+        // Build a session-like object the helper can access
+        let types_mod = py.import("types")?;
+        let ns_cls = types_mod.getattr("SimpleNamespace")?;
+        let kwargs = PyDict::new(py);
+        kwargs.set_item("coordinator", self.coordinator.bind(py))?;
+        kwargs.set_item("config", self.config.bind(py))?;
+        kwargs.set_item("session_id", &self.cached_session_id)?;
+        kwargs.set_item("parent_id", self.cached_parent_id.as_deref())?;
+        kwargs.set_item("is_resumed", self.is_resumed)?;
+        let session_proxy = ns_cls.call((), Some(&kwargs))?;
+
+        let coro = exec_fn.call1((&session_proxy, prompt))?;
+        Ok(coro)
     }
+
+    // -----------------------------------------------------------------------
+    // Task 3.5: cleanup() — delegates to coordinator cleanup
+    // -----------------------------------------------------------------------
 
     /// Clean up session resources.
     ///
-    /// Emits `session:end` event and runs cleanup functions.
+    /// Calls the coordinator's cleanup functions in reverse order,
+    /// matching Python `AmplifierSession.cleanup()`.
     fn cleanup<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let inner = self.inner.clone();
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let session = inner.lock().await;
-            session.cleanup().await;
-            Ok(())
-        })
+        let coordinator = self.coordinator.bind(py);
+        // Call coordinator.cleanup() which returns a coroutine
+        let coro = coordinator.call_method0("cleanup")?;
+        Ok(coro)
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 3.6: async context manager support
+    // -----------------------------------------------------------------------
+
+    /// Async context manager entry: initializes the session and returns self.
+    fn __aenter__<'py>(slf: Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        let py = slf.py();
+        // Create a Python wrapper coroutine that initializes then returns self
+        let helper = py.import("amplifier_core._session_init")?;
+        let aenter_fn = helper.getattr("_session_aenter")?;
+        let coro = aenter_fn.call1((&slf,))?;
+        Ok(coro)
+    }
+
+    /// Async context manager exit: runs cleanup.
+    fn __aexit__<'py>(
+        &self,
+        py: Python<'py>,
+        _exc_type: &Bound<'py, PyAny>,
+        _exc_val: &Bound<'py, PyAny>,
+        _exc_tb: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        self.cleanup(py)
     }
 }
 
