@@ -299,6 +299,28 @@ impl PyHookRegistry {
         }
         Ok(())
     }
+
+    /// Set default fields merged into every emit() call.
+    ///
+    /// Accepts keyword arguments matching the Python `set_default_fields(**kwargs)`.
+    /// Internally converts to a serde_json::Value and delegates to the Rust registry.
+    #[pyo3(signature = (**kwargs))]
+    fn set_default_fields(&self, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> {
+        let value = match kwargs {
+            Some(dict) => {
+                let json_mod = dict.py().import("json")?;
+                let json_str: String = json_mod
+                    .call_method1("dumps", (dict,))?
+                    .extract()?;
+                serde_json::from_str(&json_str).map_err(|e| {
+                    PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}"))
+                })?
+            }
+            None => serde_json::json!({}),
+        };
+        self.inner.set_default_fields(value);
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
