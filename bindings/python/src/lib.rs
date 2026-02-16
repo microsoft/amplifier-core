@@ -342,6 +342,45 @@ impl PyHookRegistry {
     fn list_handlers(&self, event: Option<&str>) -> PyResult<HashMap<String, Vec<String>>> {
         Ok(self.inner.list_handlers(event))
     }
+
+    /// Emit event and collect data from all handler responses.
+    ///
+    /// Unlike emit() which processes action semantics (deny short-circuits, etc.),
+    /// this method simply collects result.data from all handlers for aggregation.
+    ///
+    /// Returns a list of JSON strings, each representing a handler's result.data.
+    /// The Python switchover shim (Milestone 4) will parse these into dicts.
+    ///
+    /// Matches Python `HookRegistry.emit_and_collect(event, data, timeout=1.0)`.
+    #[pyo3(signature = (event, data, timeout = 1.0))]
+    fn emit_and_collect<'py>(
+        &self,
+        py: Python<'py>,
+        event: String,
+        data: Bound<'py, PyAny>,
+        timeout: f64,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+        let json_mod = py.import("json")?;
+        let json_str: String = json_mod
+            .call_method1("dumps", (&data,))?
+            .extract()?;
+        let value: Value = serde_json::from_str(&json_str).map_err(|e| {
+            PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}"))
+        })?;
+        let timeout_dur = std::time::Duration::from_secs_f64(timeout);
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let results = inner.emit_and_collect(&event, value, timeout_dur).await;
+            // Convert each HashMap<String, Value> to a JSON string.
+            // Returns Vec<String> which becomes a Python list of strings.
+            let json_strings: Vec<String> = results
+                .iter()
+                .map(|r| serde_json::to_string(r).unwrap_or_else(|_| "{}".to_string()))
+                .collect();
+            Ok(json_strings)
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------
