@@ -321,6 +321,18 @@ impl PyHookRegistry {
         self.inner.set_default_fields(value);
         Ok(())
     }
+
+    /// Alias for `register()` -- backward compatibility with Python HookRegistry.
+    #[pyo3(signature = (event, name, handler, priority = 100))]
+    fn on(
+        &self,
+        event: &str,
+        name: &str,
+        handler: Py<PyAny>,
+        priority: i32,
+    ) -> PyResult<()> {
+        self.register(event, name, handler, priority)
+    }
 }
 
 // ---------------------------------------------------------------------------
