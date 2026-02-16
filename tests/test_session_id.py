@@ -1,4 +1,9 @@
-"""Test session ID handling in AmplifierSession."""
+"""Test session ID handling in AmplifierSession.
+
+Uses the top-level AmplifierSession (Rust-backed after switchover).
+The Rust session does not expose a `.status` object, so tests verify
+session_id directly via the public `.session_id` property.
+"""
 
 import uuid
 
@@ -21,7 +26,6 @@ def test_session_id_provided():
 
     # Verify the session uses the provided ID
     assert session.session_id == custom_id
-    assert session.status.session_id == custom_id
 
 
 def test_session_id_generated():
@@ -43,8 +47,6 @@ def test_session_id_generated():
         uuid.UUID(session.session_id)
     except ValueError:
         pytest.fail(f"Generated session_id is not a valid UUID: {session.session_id}")
-
-    assert session.status.session_id == session.session_id
 
 
 def test_session_id_none_generates_uuid():

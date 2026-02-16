@@ -1,19 +1,29 @@
 """
 Amplifier Core - Ultra-thin coordination layer for modular AI agents.
+
+Switchover: Top-level imports now return Rust-backed types from the _engine
+extension module. Submodule paths (e.g. `from amplifier_core.session import
+AmplifierSession`) still give the pure-Python implementations.
 """
 
 __version__ = "1.0.0"
 
+# --- Rust-backed primary types (THE SWITCHOVER) ---
+# These four were previously imported from their Python submodules.
+# Now they come from the Rust engine / thin Python wrappers.
+from ._engine import RustCancellationToken as CancellationToken
+from ._engine import RustHookRegistry as HookRegistry
+from ._engine import RustSession as AmplifierSession
+from ._rust_wrappers import ModuleCoordinator  # RustCoordinator + process_hook_result
+
+# --- Pure-Python types that have no Rust equivalent yet ---
 from .cancellation import CancellationState
-from .cancellation import CancellationToken
 from .content_models import ContentBlock
 from .content_models import ContentBlockType
 from .content_models import TextContent
 from .content_models import ThinkingContent
 from .content_models import ToolCallContent
 from .content_models import ToolResultContent
-from .coordinator import ModuleCoordinator
-from .hooks import HookRegistry
 from .interfaces import ApprovalProvider
 from .interfaces import ApprovalRequest
 from .interfaces import ApprovalResponse
@@ -57,7 +67,8 @@ from .models import ModuleInfo
 from .models import ProviderInfo
 from .models import SessionStatus
 from .models import ToolResult
-from .session import AmplifierSession
+
+# --- Testing utilities (must come after Rust type imports) ---
 from .testing import EventRecorder
 from .testing import MockContextManager
 from .testing import MockTool
@@ -66,7 +77,7 @@ from .testing import TestCoordinator
 from .testing import create_test_coordinator
 from .testing import wait_for
 
-# Rust engine types (parallel availability for testing)
+# --- Rust engine types re-exported under original names for direct access ---
 from ._engine import (
     RUST_AVAILABLE,
     RustCancellationToken,
