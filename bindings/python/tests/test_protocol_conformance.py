@@ -222,7 +222,12 @@ def test_rust_coordinator_interface():
     """Verify RustCoordinator has the expected interface."""
     from amplifier_core._engine import RustCoordinator
 
-    coordinator = RustCoordinator()
+    class _FakeSession:
+        session_id = "test-123"
+        parent_id = None
+        config = {"session": {"orchestrator": "loop-basic"}}
+
+    coordinator = RustCoordinator(_FakeSession())
 
     assert hasattr(coordinator, "hooks")
     assert hasattr(coordinator, "cancellation")

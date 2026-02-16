@@ -18,9 +18,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyList};
 use serde_json::Value;
 
 use amplifier_core::errors::HookError;
@@ -441,62 +441,681 @@ impl PyCancellationToken {
 }
 
 // ---------------------------------------------------------------------------
-// PyCoordinator — wraps amplifier_core::Coordinator
+// PyCoordinator — wraps amplifier_core::Coordinator (Milestone 2)
 // ---------------------------------------------------------------------------
 
 /// Python-visible coordinator wrapper.
 ///
-/// Provides access to the hook registry, cancellation token, and config.
-#[pyclass(name = "RustCoordinator")]
+/// Hybrid approach: stores Python objects (`Py<PyAny>`) for modules in a
+/// Python dict (`mount_points`), because the ecosystem passes Python Protocol
+/// objects, not Rust trait objects. The Rust kernel's typed mount points are
+/// NOT used by the Python bridge.
+///
+/// The `mount_points` dict is directly accessible and mutable from Python,
+/// matching `ModuleCoordinator.mount_points` behavior that the ecosystem
+/// (pytest_plugin, testing.py) depends on.
+#[pyclass(name = "RustCoordinator", subclass)]
 struct PyCoordinator {
+    /// Rust kernel coordinator (for reset_turn, injection tracking, config).
     inner: Arc<amplifier_core::Coordinator>,
+    /// Python-side mount_points dict matching ModuleCoordinator structure.
+    mount_points: Py<PyDict>,
+    /// Python HookRegistry — also stored in mount_points["hooks"].
+    py_hooks: Py<PyAny>,
+    /// Cancellation token.
+    py_cancellation: Py<PyCancellationToken>,
+    /// Session back-reference.
+    session_ref: Py<PyAny>,
+    /// Session ID (from session object).
+    session_id: String,
+    /// Parent ID (from session object).
+    parent_id: Option<String>,
+    /// Config dict (from session object).
+    config_dict: Py<PyAny>,
+    /// Capability registry.
+    capabilities: Py<PyDict>,
+    /// Cleanup callables.
+    cleanup_fns: Py<PyList>,
+    /// Contribution channels: channel -> list of {name, callback}.
+    channels_dict: Py<PyDict>,
+    /// Per-turn injection counter (Python-side, mirrors Rust kernel).
+    current_turn_injections: usize,
+    /// Approval system (Python object or None).
+    approval_system_obj: Py<PyAny>,
+    /// Display system (Python object or None).
+    display_system_obj: Py<PyAny>,
+    /// Module loader (Python object or None).
+    loader_obj: Py<PyAny>,
 }
 
 #[pymethods]
 impl PyCoordinator {
-    /// Create a new coordinator with default (empty) config.
+    /// Create a new coordinator from a session object.
+    ///
+    /// Matches Python `ModuleCoordinator.__init__(self, session, approval_system=None, display_system=None)`.
+    ///
+    /// The session object must have:
+    /// - `session_id: str`
+    /// - `parent_id: str | None`
+    /// - `config: dict`
     #[new]
-    fn new() -> Self {
-        Self {
-            inner: Arc::new(amplifier_core::Coordinator::new(HashMap::new())),
+    #[pyo3(signature = (session, approval_system=None, display_system=None))]
+    fn new(
+        py: Python<'_>,
+        session: Bound<'_, PyAny>,
+        approval_system: Option<Bound<'_, PyAny>>,
+        display_system: Option<Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        // Extract session_id, parent_id, config from the session object
+        let session_id: String = session.getattr("session_id")?.extract()?;
+        let parent_id: Option<String> = {
+            let pid = session.getattr("parent_id")?;
+            if pid.is_none() {
+                None
+            } else {
+                Some(pid.extract()?)
+            }
+        };
+        let config_obj = session.getattr("config")?;
+
+        // Convert config to Rust HashMap<String, Value> for the Rust Coordinator
+        let rust_config: HashMap<String, Value> = {
+            let json_mod = py.import("json")?;
+            let json_str: String = json_mod
+                .call_method1("dumps", (&config_obj,))?
+                .extract()?;
+            serde_json::from_str(&json_str).unwrap_or_default()
+        };
+
+        let inner = Arc::new(amplifier_core::Coordinator::new(rust_config));
+
+        // Create the hooks registry
+        let hooks_instance = Py::new(py, PyHookRegistry::new())?;
+        let hooks_any: Py<PyAny> = hooks_instance.clone_ref(py).into_any();
+
+        // Create the cancellation token
+        let cancel_instance = Py::new(py, PyCancellationToken::new())?;
+
+        // Build mount_points dict matching Python ModuleCoordinator
+        let mp = PyDict::new(py);
+        mp.set_item("orchestrator", py.None())?;
+        mp.set_item("providers", PyDict::new(py))?;
+        mp.set_item("tools", PyDict::new(py))?;
+        mp.set_item("context", py.None())?;
+        mp.set_item("hooks", &hooks_any)?;
+        mp.set_item("module-source-resolver", py.None())?;
+
+        Ok(Self {
+            inner,
+            mount_points: mp.unbind(),
+            py_hooks: hooks_any,
+            py_cancellation: cancel_instance,
+            session_ref: session.unbind(),
+            session_id,
+            parent_id,
+            config_dict: config_obj.unbind(),
+            capabilities: PyDict::new(py).unbind(),
+            cleanup_fns: PyList::empty(py).unbind(),
+            channels_dict: PyDict::new(py).unbind(),
+            current_turn_injections: 0,
+            approval_system_obj: approval_system
+                .map(|a| a.unbind())
+                .unwrap_or_else(|| py.None()),
+            display_system_obj: display_system
+                .map(|d| d.unbind())
+                .unwrap_or_else(|| py.None()),
+            loader_obj: py.None(),
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 2.1: mount_points property
+    // -----------------------------------------------------------------------
+
+    /// The mount_points dict — direct access for backward compatibility.
+    /// Tests and pytest_plugin access coordinator.mount_points["tools"]["echo"] directly.
+    #[getter]
+    fn mount_points<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        Ok(self.mount_points.bind(py).clone())
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 2.2: mount() and get()
+    // -----------------------------------------------------------------------
+
+    /// Mount a module at a specific mount point.
+    ///
+    /// Matches Python `ModuleCoordinator.mount(mount_point, module, name=None)`.
+    /// For single-slot points (orchestrator, context, module-source-resolver),
+    /// `name` is ignored. For multi-slot points (providers, tools), `name` is
+    /// required or auto-detected from `module.name`.
+    #[pyo3(signature = (mount_point, module, name=None))]
+    fn mount<'py>(
+        &self,
+        py: Python<'py>,
+        mount_point: &str,
+        module: Bound<'py, PyAny>,
+        name: Option<String>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let mp = self.mount_points.bind(py);
+
+        // Validate mount point exists
+        if !mp.contains(mount_point)? {
+            return Err(PyErr::new::<PyValueError, _>(format!(
+                "Unknown mount point: {mount_point}"
+            )));
+        }
+
+        if mount_point == "hooks" {
+            return Err(PyErr::new::<PyValueError, _>(
+                "Hooks should be registered directly with the HookRegistry",
+            ));
+        }
+
+        match mount_point {
+            "orchestrator" | "context" | "module-source-resolver" => {
+                mp.set_item(mount_point, &module)?;
+            }
+            "providers" | "tools" | "agents" => {
+                let resolved_name = match name {
+                    Some(n) => n,
+                    None => match module.getattr("name") {
+                        Ok(attr) => attr.extract::<String>()?,
+                        Err(_) => {
+                            return Err(PyErr::new::<PyValueError, _>(format!(
+                                "Name required for {mount_point}"
+                            )));
+                        }
+                    },
+                };
+                let sub_dict = mp
+                    .get_item(mount_point)?
+                    .ok_or_else(|| {
+                        PyErr::new::<PyRuntimeError, _>(format!(
+                            "Mount point sub-dict missing: {mount_point}"
+                        ))
+                    })?;
+                sub_dict.set_item(&resolved_name, &module)?;
+            }
+            _ => {}
+        }
+
+        // Return an awaitable that resolves to None (mount is async in Python)
+        pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(()) })
+    }
+
+    /// Get a mounted module.
+    ///
+    /// Matches Python `ModuleCoordinator.get(mount_point, name=None)`.
+    /// For single-slot: returns the module or None.
+    /// For multi-slot without name: returns the dict of all modules.
+    /// For multi-slot with name: returns one module or None.
+    #[pyo3(signature = (mount_point, name=None))]
+    fn get<'py>(
+        &self,
+        py: Python<'py>,
+        mount_point: &str,
+        name: Option<&str>,
+    ) -> PyResult<Py<PyAny>> {
+        let mp = self.mount_points.bind(py);
+
+        if !mp.contains(mount_point)? {
+            return Err(PyErr::new::<PyValueError, _>(format!(
+                "Unknown mount point: {mount_point}"
+            )));
+        }
+
+        match mount_point {
+            "orchestrator" | "context" | "hooks" | "module-source-resolver" => {
+                let item = mp
+                    .get_item(mount_point)?
+                    .ok_or_else(|| {
+                        PyErr::new::<PyRuntimeError, _>(format!(
+                            "Mount point missing: {mount_point}"
+                        ))
+                    })?;
+                Ok(item.unbind())
+            }
+            "providers" | "tools" | "agents" => {
+                let sub_dict_any = mp
+                    .get_item(mount_point)?
+                    .ok_or_else(|| {
+                        PyErr::new::<PyRuntimeError, _>(format!(
+                            "Mount point missing: {mount_point}"
+                        ))
+                    })?;
+                match name {
+                    None => Ok(sub_dict_any.unbind()),
+                    Some(n) => {
+                        let sub = sub_dict_any.downcast::<PyDict>()?;
+                        match sub.get_item(n)? {
+                            Some(item) => Ok(item.unbind()),
+                            None => Ok(py.None()),
+                        }
+                    }
+                }
+            }
+            _ => Ok(py.None()),
         }
     }
 
-    /// Access the hook registry.
+    // -----------------------------------------------------------------------
+    // Task 2.3: unmount()
+    // -----------------------------------------------------------------------
+
+    /// Unmount a module from a mount point.
     ///
-    /// Note: Returns a standalone registry. The coordinator's internal
-    /// registry is not yet shared via Arc (planned for milestone 6).
-    #[getter]
-    fn hooks(&self) -> PyHookRegistry {
-        // We can't extract the inner HookRegistry from Coordinator (it's owned),
-        // so we create a new one. In practice, the Python layer uses its own
-        // registry or accesses hooks through the session.
-        // TODO(milestone-6): Share the coordinator's registry via Arc.
-        PyHookRegistry::new()
+    /// Matches Python `ModuleCoordinator.unmount(mount_point, name=None)`.
+    #[pyo3(signature = (mount_point, name=None))]
+    fn unmount<'py>(
+        &self,
+        py: Python<'py>,
+        mount_point: &str,
+        name: Option<&str>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let mp = self.mount_points.bind(py);
+
+        if !mp.contains(mount_point)? {
+            return Err(PyErr::new::<PyValueError, _>(format!(
+                "Unknown mount point: {mount_point}"
+            )));
+        }
+
+        match mount_point {
+            "orchestrator" | "context" | "module-source-resolver" => {
+                mp.set_item(mount_point, py.None())?;
+            }
+            "providers" | "tools" | "agents" => {
+                if let Some(n) = name {
+                    let sub_any = mp.get_item(mount_point)?.ok_or_else(|| {
+                        PyErr::new::<PyRuntimeError, _>(format!(
+                            "Mount point missing: {mount_point}"
+                        ))
+                    })?;
+                    let sub_dict = sub_any.downcast::<PyDict>()?;
+                    sub_dict.del_item(n).ok(); // Ignore if not present
+                } else {
+                    return Err(PyErr::new::<PyValueError, _>(format!(
+                        "Name required to unmount from {mount_point}"
+                    )));
+                }
+            }
+            _ => {}
+        }
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move { Ok(()) })
     }
 
-    /// Access the cancellation token.
-    ///
-    /// Note: Returns a standalone token. The coordinator's internal
-    /// token is not yet shared (planned for milestone 6).
+    // -----------------------------------------------------------------------
+    // Task 2.4: session_id, parent_id, session properties
+    // -----------------------------------------------------------------------
+
+    /// Current session ID.
     #[getter]
-    fn cancellation(&self) -> PyCancellationToken {
-        // Same limitation as hooks — create a standalone token.
-        // TODO(milestone-6): Share the coordinator's token.
-        PyCancellationToken::new()
+    fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    /// Parent session ID, or None.
+    #[getter]
+    fn parent_id<'py>(&self, py: Python<'py>) -> Py<PyAny> {
+        match &self.parent_id {
+            Some(pid) => pid.into_pyobject(py).unwrap().into_any().unbind(),
+            None => py.None(),
+        }
+    }
+
+    /// Parent session reference.
+    #[getter]
+    fn session<'py>(&self, py: Python<'py>) -> Bound<'py, PyAny> {
+        self.session_ref.bind(py).clone()
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 2.5: register_capability / get_capability
+    // -----------------------------------------------------------------------
+
+    /// Register a capability for inter-module communication.
+    fn register_capability(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        value: Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let caps = self.capabilities.bind(py);
+        caps.set_item(name, value)?;
+        Ok(())
+    }
+
+    /// Get a registered capability, or None.
+    fn get_capability<'py>(&self, py: Python<'py>, name: &str) -> PyResult<Py<PyAny>> {
+        let caps = self.capabilities.bind(py);
+        match caps.get_item(name)? {
+            Some(item) => Ok(item.unbind()),
+            None => Ok(py.None()),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 2.6: register_cleanup / cleanup
+    // -----------------------------------------------------------------------
+
+    /// Register a cleanup function to be called on shutdown.
+    fn register_cleanup(&self, py: Python<'_>, cleanup_fn: Bound<'_, PyAny>) -> PyResult<()> {
+        let list = self.cleanup_fns.bind(py);
+        list.append(&cleanup_fn)?;
+        Ok(())
+    }
+
+    /// Call all registered cleanup functions in reverse order.
+    ///
+    /// Matches Python `ModuleCoordinator.cleanup()`.
+    /// Errors in individual cleanup functions are logged but don't stop execution.
+    fn cleanup<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let fns = self.cleanup_fns.clone_ref(py);
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let result: PyResult<()> = Python::try_attach(|py| -> PyResult<()> {
+                let list = fns.bind(py);
+                let len = list.len();
+                // Execute in reverse order
+                for i in (0..len).rev() {
+                    let cleanup_fn = list.get_item(i)?;
+                    // Try calling; catch and log errors
+                    match cleanup_fn.call0() {
+                        Ok(result) => {
+                            // If it returned a coroutine, we need to handle it
+                            let inspect = py.import("inspect")?;
+                            let is_coro: bool =
+                                inspect.call_method1("iscoroutine", (&result,))?.extract()?;
+                            if is_coro {
+                                // Run the coroutine in the event loop
+                                let asyncio = py.import("asyncio")?;
+                                let _ = asyncio.call_method1("get_event_loop", ())
+                                    .and_then(|loop_| loop_.call_method1("run_until_complete", (&result,)));
+                            }
+                        }
+                        Err(e) => {
+                            // Log but continue — matches Python behavior
+                            let logging = py.import("logging")?;
+                            let logger = logging.call_method1("getLogger", ("amplifier_core.coordinator",))?;
+                            let _ = logger.call_method1(
+                                "error",
+                                (format!("Error during cleanup: {e}"),),
+                            );
+                        }
+                    }
+                }
+                Ok(())
+            })
+            .unwrap_or(Ok(()));
+            result?;
+            Ok(())
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 2.7: register_contributor / collect_contributions
+    // -----------------------------------------------------------------------
+
+    /// Register a contributor to a named channel.
+    ///
+    /// Matches Python `ModuleCoordinator.register_contributor(channel, name, callback)`.
+    fn register_contributor(
+        &self,
+        py: Python<'_>,
+        channel: &str,
+        name: &str,
+        callback: Bound<'_, PyAny>,
+    ) -> PyResult<()> {
+        let channels = self.channels_dict.bind(py);
+        if !channels.contains(channel)? {
+            channels.set_item(channel, PyList::empty(py))?;
+        }
+        let list_any = channels.get_item(channel)?.unwrap();
+        let list = list_any.downcast::<PyList>()?;
+        let entry = PyDict::new(py);
+        entry.set_item("name", name)?;
+        entry.set_item("callback", &callback)?;
+        list.append(entry)?;
+        Ok(())
+    }
+
+    /// Collect contributions from a channel.
+    ///
+    /// Matches Python `ModuleCoordinator.collect_contributions(channel)`.
+    /// Errors in individual contributors are logged, not propagated.
+    /// None returns are filtered out. Supports both sync and async callbacks.
+    fn collect_contributions<'py>(
+        &self,
+        py: Python<'py>,
+        channel: String,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        // Build a Python coroutine that handles both sync and async callbacks,
+        // matching the Python ModuleCoordinator.collect_contributions behavior.
+        let channels = self.channels_dict.clone_ref(py);
+
+        // Create a Python helper function to do the collection properly in Python
+        // This handles async callbacks naturally since it runs in the Python event loop
+        let collect_code = py.import("amplifier_core._collect_helper");
+        if let Ok(helper_mod) = collect_code {
+            let collect_fn = helper_mod.getattr("collect_contributions")?;
+            let coro = collect_fn.call1((&channels, &channel))?;
+            // Return the coroutine directly - it will be awaited by the caller
+            Ok(coro)
+        } else {
+            // Fallback: sync-only collection via Rust
+            let channels_ref = channels;
+            pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                let results: Vec<Py<PyAny>> = Python::try_attach(
+                    |py| -> PyResult<Vec<Py<PyAny>>> {
+                        let channels_dict = channels_ref.bind(py);
+                        let contributors = match channels_dict.get_item(&channel)? {
+                            Some(list) => list,
+                            None => return Ok(Vec::new()),
+                        };
+                        let list = contributors.downcast::<PyList>()?;
+                        let mut results: Vec<Py<PyAny>> = Vec::new();
+
+                        for i in 0..list.len() {
+                            let entry = list.get_item(i)?;
+                            let callback = entry.get_item("callback")?;
+                            match callback.call0() {
+                                Ok(result) => {
+                                    if !result.is_none() {
+                                        results.push(result.unbind());
+                                    }
+                                }
+                                Err(_) => continue,
+                            }
+                        }
+                        Ok(results)
+                    },
+                )
+                .unwrap_or(Ok(Vec::new()))?;
+                Ok(results)
+            })
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 2.8: request_cancel / reset_turn
+    // -----------------------------------------------------------------------
+
+    /// Request session cancellation.
+    ///
+    /// Matches Python `ModuleCoordinator.request_cancel(immediate=False)`.
+    #[pyo3(signature = (immediate=false))]
+    fn request_cancel<'py>(
+        &self,
+        py: Python<'py>,
+        immediate: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        // Delegate to the PyCancellationToken
+        let cancel = self.py_cancellation.clone_ref(py);
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let result: PyResult<()> = Python::try_attach(|py| -> PyResult<()> {
+                let token = cancel.borrow(py);
+                if immediate {
+                    token.inner.request_immediate();
+                } else {
+                    token.inner.request_graceful();
+                }
+                Ok(())
+            })
+            .unwrap_or(Ok(()));
+            result?;
+            Ok(())
+        })
+    }
+
+    /// Reset per-turn tracking. Call at turn boundaries.
+    ///
+    /// Matches Python `ModuleCoordinator.reset_turn()`.
+    fn reset_turn(&mut self) {
+        self.current_turn_injections = 0;
+        self.inner.reset_turn();
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 2.4 (continued): _current_turn_injections
+    // -----------------------------------------------------------------------
+
+    /// Per-turn injection counter.
+    #[getter(_current_turn_injections)]
+    fn get_current_turn_injections(&self) -> usize {
+        self.current_turn_injections
+    }
+
+    /// Set per-turn injection counter.
+    #[setter(_current_turn_injections)]
+    fn set_current_turn_injections(&mut self, value: usize) {
+        self.current_turn_injections = value;
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 2.9: injection_budget_per_turn / injection_size_limit
+    // -----------------------------------------------------------------------
+
+    /// Injection budget per turn from session config (policy).
+    ///
+    /// Returns int or None. Matches Python `ModuleCoordinator.injection_budget_per_turn`.
+    #[getter]
+    fn injection_budget_per_turn<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        let config = self.config_dict.bind(py);
+        // config is a Python dict; use call to get("session")
+        let session = config.call_method1("get", ("session",))?;
+        if session.is_none() {
+            return Ok(py.None());
+        }
+        let val = session.call_method1("get", ("injection_budget_per_turn",))?;
+        if val.is_none() {
+            Ok(py.None())
+        } else {
+            Ok(val.unbind())
+        }
+    }
+
+    /// Per-injection size limit from session config (policy).
+    ///
+    /// Returns int or None. Matches Python `ModuleCoordinator.injection_size_limit`.
+    #[getter]
+    fn injection_size_limit<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        let config = self.config_dict.bind(py);
+        let session = config.call_method1("get", ("session",))?;
+        if session.is_none() {
+            return Ok(py.None());
+        }
+        let val = session.call_method1("get", ("injection_size_limit",))?;
+        if val.is_none() {
+            Ok(py.None())
+        } else {
+            Ok(val.unbind())
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 2.10: loader, approval_system, display_system properties
+    // -----------------------------------------------------------------------
+
+    /// Module loader (Python object or None).
+    #[getter]
+    fn loader<'py>(&self, py: Python<'py>) -> Py<PyAny> {
+        let obj = self.loader_obj.bind(py);
+        if obj.is_none() {
+            py.None()
+        } else {
+            self.loader_obj.clone_ref(py)
+        }
+    }
+
+    /// Set the module loader.
+    #[setter]
+    fn set_loader(&mut self, value: Py<PyAny>) {
+        self.loader_obj = value;
+    }
+
+    /// Approval system (Python object or None).
+    #[getter]
+    fn approval_system<'py>(&self, py: Python<'py>) -> Py<PyAny> {
+        let obj = self.approval_system_obj.bind(py);
+        if obj.is_none() {
+            py.None()
+        } else {
+            self.approval_system_obj.clone_ref(py)
+        }
+    }
+
+    /// Set the approval system.
+    #[setter]
+    fn set_approval_system(&mut self, value: Py<PyAny>) {
+        self.approval_system_obj = value;
+    }
+
+    /// Display system (Python object or None).
+    #[getter]
+    fn display_system<'py>(&self, py: Python<'py>) -> Py<PyAny> {
+        let obj = self.display_system_obj.bind(py);
+        if obj.is_none() {
+            py.None()
+        } else {
+            self.display_system_obj.clone_ref(py)
+        }
+    }
+
+    /// Set the display system.
+    #[setter]
+    fn set_display_system(&mut self, value: Py<PyAny>) {
+        self.display_system_obj = value;
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 2.10 (continued): channels, config, hooks, cancellation properties
+    // -----------------------------------------------------------------------
+
+    /// Contribution channels dict.
+    #[getter]
+    fn channels<'py>(&self, py: Python<'py>) -> Bound<'py, PyDict> {
+        self.channels_dict.bind(py).clone()
     }
 
     /// Session configuration as a Python dict.
     #[getter]
-    fn config<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let config = self.inner.config();
-        let json_str = serde_json::to_string(config).map_err(|e| {
-            PyErr::new::<PyRuntimeError, _>(format!("Config serialization error: {e}"))
-        })?;
+    fn config<'py>(&self, py: Python<'py>) -> Py<PyAny> {
+        self.config_dict.clone_ref(py)
+    }
 
-        let json_mod = py.import("json")?;
-        let result = json_mod.call_method1("loads", (&json_str,))?;
-        Ok(result)
+    /// Access the hook registry.
+    ///
+    /// Returns the same PyHookRegistry stored in mount_points["hooks"].
+    #[getter]
+    fn hooks<'py>(&self, py: Python<'py>) -> Bound<'py, PyAny> {
+        self.py_hooks.bind(py).clone()
+    }
+
+    /// Access the cancellation token.
+    #[getter]
+    fn cancellation<'py>(&self, py: Python<'py>) -> Bound<'py, PyCancellationToken> {
+        self.py_cancellation.bind(py).clone()
     }
 }
 
@@ -549,12 +1168,12 @@ mod tests {
         };
     }
 
-    /// Verify PyCoordinator type exists and is constructable.
+    /// Verify PyCoordinator type name exists (no longer constructable without Python GIL).
     #[test]
     fn py_coordinator_type_exists() {
-        let _: fn() -> PyCoordinator = || {
-            panic!("just checking type exists")
-        };
+        // PyCoordinator now requires a Python session object in its constructor,
+        // so we can only verify the type compiles.
+        fn _assert_type_compiles(_: &PyCoordinator) {}
     }
 
     /// Verify CancellationToken can be created and used without Python.

@@ -74,7 +74,12 @@ def test_rust_coordinator_has_stub_members():
     """Verify RustCoordinator exposes every member declared in the stub."""
     from amplifier_core._engine import RustCoordinator
 
-    coordinator = RustCoordinator()
+    class _FakeSession:
+        session_id = "test-123"
+        parent_id = None
+        config = {"session": {"orchestrator": "loop-basic"}}
+
+    coordinator = RustCoordinator(_FakeSession())
 
     # Properties declared in stubs
     assert hasattr(coordinator, "hooks")
