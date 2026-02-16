@@ -333,6 +333,15 @@ impl PyHookRegistry {
     ) -> PyResult<()> {
         self.register(event, name, handler, priority)
     }
+
+    /// List registered handlers, optionally filtered by event.
+    ///
+    /// Returns dict of event names to lists of handler names.
+    /// Matches Python `HookRegistry.list_handlers(event=None)`.
+    #[pyo3(signature = (event = None))]
+    fn list_handlers(&self, event: Option<&str>) -> PyResult<HashMap<String, Vec<String>>> {
+        Ok(self.inner.list_handlers(event))
+    }
 }
 
 // ---------------------------------------------------------------------------
