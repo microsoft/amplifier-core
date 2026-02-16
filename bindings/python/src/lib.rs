@@ -208,7 +208,7 @@ impl PySession {
         // ---- Create the PyCoordinator ----
         let coord = PyCoordinator::new(
             py,
-            fake_session.clone(),
+            Some(fake_session.clone()),
             approval_system,
             display_system,
         )?;
@@ -696,33 +696,51 @@ impl PyCoordinator {
     /// - `session_id: str`
     /// - `parent_id: str | None`
     /// - `config: dict`
+    ///
+    /// When `session` is `None` (default), a lightweight placeholder is used.
+    /// This enables Python subclasses (e.g. `TestCoordinator`) to call
+    /// `super().__init__(session, ...)` from `__init__` instead of needing
+    /// to pass arguments through `__new__`.
     #[new]
-    #[pyo3(signature = (session, approval_system=None, display_system=None))]
+    #[pyo3(signature = (session=None, approval_system=None, display_system=None))]
     fn new(
         py: Python<'_>,
-        session: Bound<'_, PyAny>,
+        session: Option<Bound<'_, PyAny>>,
         approval_system: Option<Bound<'_, PyAny>>,
         display_system: Option<Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
-        // Extract session_id, parent_id, config from the session object
-        let session_id: String = session.getattr("session_id")?.extract()?;
-        let parent_id: Option<String> = {
-            let pid = session.getattr("parent_id")?;
-            if pid.is_none() {
-                None
-            } else {
-                Some(pid.extract()?)
+        // If no session provided, use empty defaults.  The Python subclass
+        // __init__ is expected to call super().__init__(real_session, ...)
+        // which will re-initialise via __init__, but PyO3 #[new] is __new__
+        // so we build a valid-but-placeholder struct first.
+        let (session_id, parent_id, config_obj_py, session_ref, rust_config) = match &session {
+            Some(sess) => {
+                let sid: String = sess.getattr("session_id")?.extract()?;
+                let pid: Option<String> = {
+                    let p = sess.getattr("parent_id")?;
+                    if p.is_none() { None } else { Some(p.extract()?) }
+                };
+                let cfg = sess.getattr("config")?;
+                let rc: HashMap<String, Value> = {
+                    let json_mod = py.import("json")?;
+                    let json_str: String = json_mod
+                        .call_method1("dumps", (&cfg,))?
+                        .extract()?;
+                    serde_json::from_str(&json_str).unwrap_or_default()
+                };
+                (sid, pid, cfg.unbind(), sess.clone().unbind(), rc)
             }
-        };
-        let config_obj = session.getattr("config")?;
-
-        // Convert config to Rust HashMap<String, Value> for the Rust Coordinator
-        let rust_config: HashMap<String, Value> = {
-            let json_mod = py.import("json")?;
-            let json_str: String = json_mod
-                .call_method1("dumps", (&config_obj,))?
-                .extract()?;
-            serde_json::from_str(&json_str).unwrap_or_default()
+            None => {
+                // Placeholder defaults — Python subclass will set real values
+                let empty_dict = PyDict::new(py);
+                (
+                    String::new(),
+                    None,
+                    empty_dict.clone().into_any().unbind(),
+                    py.None(),
+                    HashMap::new(),
+                )
+            }
         };
 
         let inner = Arc::new(amplifier_core::Coordinator::new(rust_config));
@@ -748,10 +766,10 @@ impl PyCoordinator {
             mount_points: mp.unbind(),
             py_hooks: hooks_any,
             py_cancellation: cancel_instance,
-            session_ref: session.unbind(),
+            session_ref,
             session_id,
             parent_id,
-            config_dict: config_obj.unbind(),
+            config_dict: config_obj_py,
             capabilities: PyDict::new(py).unbind(),
             cleanup_fns: PyList::empty(py).unbind(),
             channels_dict: PyDict::new(py).unbind(),

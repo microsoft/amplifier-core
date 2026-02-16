@@ -4,6 +4,7 @@ Provides test fixtures and helpers for module testing.
 """
 
 import asyncio
+import types
 from collections.abc import Callable
 from typing import Any
 from unittest.mock import AsyncMock
@@ -14,48 +15,47 @@ from amplifier_core import ToolResult
 
 
 class TestCoordinator(ModuleCoordinator):
-    """Test coordinator with additional debugging capabilities."""
+    """Test coordinator with additional debugging capabilities.
 
-    def __init__(self):
-        # Create mock approval/display systems to suppress warnings during testing/validation
+    Subclasses the Rust-backed ModuleCoordinator (via _rust_wrappers).
+    Uses ``__new__`` to pass the required session object to the Rust
+    ``PyCoordinator.__new__`` (PyO3 processes constructor args in ``__new__``,
+    not ``__init__``).
+    """
+
+    def __new__(cls):
+        # Create mock approval/display systems to suppress warnings during testing
         mock_approval = AsyncMock(return_value={"approved": True})
         mock_display = AsyncMock()
 
-        # Create a mock session for testing with minimal valid config
-        # Pass mock systems to avoid warnings during session creation
-        from amplifier_core.session import AmplifierSession
-
+        # Build a lightweight session namespace with the attributes that the
+        # Rust PyCoordinator.__new__ extracts: session_id, parent_id, config.
         minimal_config = {
             "session": {
                 "orchestrator": "test-orchestrator",
                 "context": "test-context",
             }
         }
-        mock_session = AmplifierSession(
-            config=minimal_config,
+        mock_session = types.SimpleNamespace(
             session_id="test-session",
-            approval_system=mock_approval,
-            display_system=mock_display,
+            parent_id=None,
+            config=minimal_config,
         )
 
-        # Use the session's coordinator (which already has the mock systems)
-        # Don't call super().__init__ - just copy what we need from the session's coordinator
-        coord = mock_session.coordinator
-        self._session = mock_session
-        self.mount_points = coord.mount_points
-        self._cleanup_functions = coord._cleanup_functions
-        self._capabilities = coord._capabilities
-        self.channels = coord.channels
-        self.hooks = coord.hooks
-        self.approval_system = coord.approval_system
-        self.display_system = coord.display_system
-        self._current_turn_injections = 0
+        # PyO3 #[new] is __new__ — pass all constructor args here
+        return super().__new__(cls, mock_session, mock_approval, mock_display)
+
+    def __init__(self):
+        # Rust struct already initialised in __new__.
+        # Only set Python-side tracking attributes here.
         self.mount_history = []
         self.unmount_history = []
 
     async def mount(self, mount_point: str, module: Any, name: str | None = None):
         """Track mount operations."""
-        self.mount_history.append({"mount_point": mount_point, "module": module, "name": name})
+        self.mount_history.append(
+            {"mount_point": mount_point, "module": module, "name": name}
+        )
         await super().mount(mount_point, module, name)
 
     async def unmount(self, mount_point: str, name: str | None = None):
@@ -87,7 +87,9 @@ class MockContextManager:
         self.messages = messages or []
         self.add_message = AsyncMock(side_effect=self._add_message)
         self.get_messages = AsyncMock(return_value=self.messages)
-        self.get_messages_for_request = AsyncMock(side_effect=self._get_messages_for_request)
+        self.get_messages_for_request = AsyncMock(
+            side_effect=self._get_messages_for_request
+        )
         self.clear = AsyncMock()
         # Internal compaction methods (not called by orchestrators)
         self._should_compact = AsyncMock(return_value=False)

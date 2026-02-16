@@ -1,5 +1,9 @@
 """
 Tests for Amplifier core session functionality.
+
+Uses the top-level AmplifierSession (Rust-backed after switchover).
+Tests that need Python-internal attributes (loader, status, _initialized)
+use the Python session via submodule import.
 """
 
 from unittest.mock import AsyncMock
@@ -10,6 +14,9 @@ from amplifier_core import AmplifierSession
 from amplifier_core import ChatResponse
 from amplifier_core import TextBlock
 from amplifier_core import Usage
+
+# Python session for tests that poke internal attrs
+from amplifier_core.session import AmplifierSession as PyAmplifierSession
 
 
 class MockProvider:
@@ -52,14 +59,16 @@ async def test_session_initialization(minimal_config):
 
     assert session.session_id is not None
     assert session.coordinator is not None
-    assert session.loader is not None
-    assert not session._initialized
+    # Rust session: use .initialized (public API), not ._initialized
+    assert not session.initialized
 
 
 @pytest.mark.asyncio
 async def test_session_with_config():
     """Test session accepts configuration."""
-    config = {"session": {"orchestrator": "test-orchestrator", "context": "test-context"}}
+    config = {
+        "session": {"orchestrator": "test-orchestrator", "context": "test-context"}
+    }
 
     session = AmplifierSession(config)
     assert session.config["session"]["orchestrator"] == "test-orchestrator"
@@ -67,8 +76,12 @@ async def test_session_with_config():
 
 @pytest.mark.asyncio
 async def test_session_context_manager(minimal_config):
-    """Test session works as async context manager."""
-    session = AmplifierSession(minimal_config)
+    """Test session works as async context manager.
+
+    Uses the Python session since the Rust session doesn't allow
+    monkey-patching initialize/cleanup (they are compiled methods).
+    """
+    session = PyAmplifierSession(minimal_config)
 
     # Mock initialize to avoid actual module loading
     session.initialize = AsyncMock()
@@ -84,8 +97,12 @@ async def test_session_context_manager(minimal_config):
 
 @pytest.mark.asyncio
 async def test_session_execute_requires_modules(minimal_config):
-    """Test session execution requires modules to be mounted."""
-    session = AmplifierSession(minimal_config)
+    """Test session execution requires modules to be mounted.
+
+    Uses the Python session since Rust session doesn't expose _initialized
+    for direct assignment.
+    """
+    session = PyAmplifierSession(minimal_config)
 
     # Create mock orchestrator and context to bypass loader
     mock_orchestrator = AsyncMock()
@@ -109,10 +126,12 @@ async def test_session_execute_requires_modules(minimal_config):
 
 @pytest.mark.asyncio
 async def test_session_with_mock_modules(minimal_config):
-    """Test session with mock modules."""
-    # This would require setting up mock module loading
-    # For now, directly mount mock modules
-    session = AmplifierSession(minimal_config)
+    """Test session with mock modules.
+
+    Uses the Python session since Rust session doesn't expose _initialized
+    for direct assignment.
+    """
+    session = PyAmplifierSession(minimal_config)
 
     # Create mock orchestrator
     mock_orchestrator = AsyncMock()
@@ -171,7 +190,10 @@ async def test_session_requires_context():
 
 @pytest.mark.asyncio
 async def test_session_with_custom_loader():
-    """Test session accepts custom loader."""
+    """Test session accepts custom loader.
+
+    Uses the Python session since the Rust session doesn't expose .loader.
+    """
     from pathlib import Path
 
     from amplifier_core import ModuleLoader
@@ -184,6 +206,6 @@ async def test_session_with_custom_loader():
     }
 
     custom_loader = ModuleLoader(search_paths=[Path("/custom/path")])
-    session = AmplifierSession(config, loader=custom_loader)
+    session = PyAmplifierSession(config, loader=custom_loader)
 
     assert session.loader is custom_loader
