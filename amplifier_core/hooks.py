@@ -236,8 +236,12 @@ class HookRegistry:
             result.context_injection for result in results if result.context_injection
         )
 
-        # Use settings from first result (role, ephemeral, suppress_output)
+        # Use settings from first result (role, ephemeral, suppress_output).
+        # Preserve append_to_last_tool_result if ANY result requested it -
+        # dropping this flag causes the orchestrator to skip the tool-result
+        # merge path and create consecutive same-role messages instead.
         first = results[0]
+        any_append = any(r.append_to_last_tool_result for r in results)
 
         return HookResult(
             action="inject_context",
@@ -245,6 +249,7 @@ class HookRegistry:
             context_injection_role=first.context_injection_role,
             ephemeral=first.ephemeral,
             suppress_output=first.suppress_output,
+            append_to_last_tool_result=any_append,
         )
 
     async def emit_and_collect(
