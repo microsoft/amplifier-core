@@ -24,6 +24,7 @@ PLAN_END = "plan:end"
 PROVIDER_REQUEST = "provider:request"
 PROVIDER_RESPONSE = "provider:response"
 PROVIDER_ERROR = "provider:error"
+PROVIDER_RETRY = "provider:retry"
 
 # Content Block Events (for real-time display)
 CONTENT_BLOCK_START = "content_block:start"
@@ -94,6 +95,7 @@ ALL_EVENTS = [
     PROVIDER_REQUEST,
     PROVIDER_RESPONSE,
     PROVIDER_ERROR,
+    PROVIDER_RETRY,
     LLM_REQUEST,
     LLM_REQUEST_DEBUG,
     LLM_REQUEST_RAW,
