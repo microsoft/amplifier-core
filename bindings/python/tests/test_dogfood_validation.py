@@ -221,9 +221,9 @@ def test_cancellation_token_through_coordinator():
     session = AmplifierSession(config=MINIMAL_CONFIG)
 
     token = session.coordinator.cancellation
-    assert not token.is_cancelled()
+    assert not token.is_cancelled
     token.request_cancellation()
-    assert token.is_cancelled()
+    assert token.is_cancelled
 
 
 # ---------------------------------------------------------------------------

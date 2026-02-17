@@ -120,7 +120,7 @@ async def execute_session(session: Any, prompt: str) -> str:
         )
 
         # Check if session was cancelled during execution
-        if coordinator.cancellation.is_cancelled():
+        if coordinator.cancellation.is_cancelled:
             from .events import CANCEL_COMPLETED
 
             await coordinator.hooks.emit(
@@ -133,7 +133,7 @@ async def execute_session(session: Any, prompt: str) -> str:
         return result
 
     except BaseException as e:
-        if coordinator.cancellation.is_cancelled():
+        if coordinator.cancellation.is_cancelled:
             from .events import CANCEL_COMPLETED
 
             await coordinator.hooks.emit(

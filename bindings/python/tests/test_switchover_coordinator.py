@@ -439,7 +439,7 @@ async def test_request_cancel_graceful():
     """request_cancel() marks cancellation as graceful."""
     coord = RustCoordinator(FakeSession())
     await coord.request_cancel()
-    assert coord.cancellation.is_cancelled()
+    assert coord.cancellation.is_cancelled
 
 
 @pytest.mark.asyncio
@@ -447,7 +447,7 @@ async def test_request_cancel_immediate():
     """request_cancel(immediate=True) marks immediate cancellation."""
     coord = RustCoordinator(FakeSession())
     await coord.request_cancel(immediate=True)
-    assert coord.cancellation.is_cancelled()
+    assert coord.cancellation.is_cancelled
 
 
 def test_reset_turn():
@@ -604,4 +604,4 @@ def test_cancellation_property():
     coord = RustCoordinator(FakeSession())
     cancel = coord.cancellation
     assert isinstance(cancel, RustCancellationToken)
-    assert cancel.is_cancelled() is False
+    assert cancel.is_cancelled is False
