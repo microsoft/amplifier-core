@@ -49,39 +49,82 @@ impl HookHandler for PyHookHandlerBridge {
         &self,
         event: &str,
         data: Value,
-    ) -> Pin<Box<dyn Future<Output = Result<HookResult, HookError>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<HookResult, HookError>> + Send + '_>,
+    > {
         let event = event.to_string();
-        let data_str = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
-
+        // Clone the Py<PyAny> reference inside the GIL to safely move into async block
+        let callable = Python::try_attach(|py| {
+            Ok::<_, PyErr>(self.callable.clone_ref(py))
+        }).unwrap().unwrap();
         Box::pin(async move {
-            // Acquire GIL to call the Python callable.
-            // Python::try_attach is the PyO3 0.28 way to get the GIL.
-            let result = Python::try_attach(|py| -> PyResult<HookResult> {
+            // Call the Python handler and handle both sync and async returns
+            let result_json: String = Python::try_attach(|py| -> PyResult<String> {
                 let json_mod = py.import("json")?;
+                let data_str = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
                 let py_data = json_mod.call_method1("loads", (&data_str,))?;
 
-                let result = self.callable.call(py, (&event, py_data), None)?;
+                let call_result = callable.call(py, (&event, py_data), None)?;
+                let bound = call_result.bind(py);
 
-                // If the callable returns None, treat as continue
-                if result.is_none(py) {
-                    return Ok(HookResult::default());
+                // Check if the result is a coroutine (async handler)
+                let inspect = py.import("inspect")?;
+                let is_coro: bool = inspect.call_method1("iscoroutine", (bound,))?.extract()?;
+
+                if is_coro {
+                    // Await the coroutine using asyncio
+                    let asyncio = py.import("asyncio")?;
+                    // Try to get the running loop and create a task
+                    // If we're in an async context, use ensure_future + loop.run_until_complete
+                    match asyncio.call_method1("get_running_loop", ()) {
+                        Ok(loop_) => {
+                            // We're inside a running loop — we can't run_until_complete.
+                            // Instead, use a thread to run the coroutine.
+                            // But for simplicity, let's try the concurrent.futures approach
+                            let concurrent = py.import("concurrent.futures")?;
+                            let thread_pool = concurrent.getattr("ThreadPoolExecutor")?.call1((1,))?;
+                            let future = asyncio.call_method1("run_coroutine_threadsafe", (bound, &loop_))?;
+                            let awaited = future.call_method1("result", (5.0,))?; // 5s timeout
+                            drop(thread_pool);
+
+                            if awaited.is_none() {
+                                return Ok("{}".to_string());
+                            }
+                            let json_str: String = json_mod.call_method1("dumps", (&awaited,))?
+                                .extract()
+                                .unwrap_or_else(|_| "{}".to_string());
+                            Ok(json_str)
+                        }
+                        Err(_) => {
+                            // No running loop — use asyncio.run() in a new loop
+                            let awaited = asyncio.call_method1("run", (bound,))?;
+                            if awaited.is_none() {
+                                return Ok("{}".to_string());
+                            }
+                            let json_str: String = json_mod.call_method1("dumps", (&awaited,))?
+                                .extract()
+                                .unwrap_or_else(|_| "{}".to_string());
+                            Ok(json_str)
+                        }
+                    }
+                } else {
+                    // Sync handler — process the result directly
+                    if bound.is_none() {
+                        return Ok("{}".to_string());
+                    }
+                    let json_str: String = json_mod.call_method1("dumps", (bound,))?
+                        .extract()
+                        .unwrap_or_else(|_| "{}".to_string());
+                    Ok(json_str)
                 }
+            })
+            .ok_or_else(|| HookError::HandlerFailed { message: "Failed to attach to Python runtime".to_string(), handler_name: None })?
+            .map_err(|e| HookError::HandlerFailed { message: format!("Python handler error: {e}"), handler_name: None })?;
 
-                // For any non-None return, default to continue
-                // TODO(milestone-6): Parse dict result into full HookResult
-                Ok(HookResult::default())
-            });
-
-            match result {
-                Some(Ok(hook_result)) => Ok(hook_result),
-                Some(Err(py_err)) => Err(HookError::Other {
-                    message: format!("Python hook handler error: {py_err}"),
-                }),
-                None => {
-                    // No Python interpreter attached — return default
-                    Ok(HookResult::default())
-                }
-            }
+            // Parse the JSON result into a HookResult
+            let hook_result: HookResult = serde_json::from_str(&result_json)
+                .unwrap_or_default();
+            Ok(hook_result)
         })
     }
 }
@@ -822,6 +865,12 @@ impl PyCoordinator {
         Ok(self.mount_points.bind(py).clone())
     }
 
+    #[setter]
+    fn set_mount_points(&mut self, _py: Python<'_>, value: Bound<'_, PyDict>) -> PyResult<()> {
+        self.mount_points = value.unbind();
+        Ok(())
+    }
+
     // -----------------------------------------------------------------------
     // Task 2.2: mount() and get()
     // -----------------------------------------------------------------------
@@ -1079,15 +1128,25 @@ impl PyCoordinator {
                     // Try calling; catch and log errors
                     match cleanup_fn.call0() {
                         Ok(result) => {
-                            // If it returned a coroutine, we need to handle it
+                            // If it returned a coroutine, await it properly
                             let inspect = py.import("inspect")?;
                             let is_coro: bool =
                                 inspect.call_method1("iscoroutine", (&result,))?.extract()?;
                             if is_coro {
-                                // Run the coroutine in the event loop
                                 let asyncio = py.import("asyncio")?;
-                                let _ = asyncio.call_method1("get_event_loop", ())
-                                    .and_then(|loop_| loop_.call_method1("run_until_complete", (&result,)));
+                                // Try to schedule in the running loop
+                                match asyncio.call_method1("get_running_loop", ()) {
+                                    Ok(loop_) => {
+                                        let future = asyncio.call_method1(
+                                            "run_coroutine_threadsafe", (&result, &loop_)
+                                        )?;
+                                        let _ = future.call_method1("result", (5.0,));
+                                    }
+                                    Err(_) => {
+                                        // No running loop, use asyncio.run
+                                        let _ = asyncio.call_method1("run", (&result,));
+                                    }
+                                }
                             }
                         }
                         Err(e) => {
