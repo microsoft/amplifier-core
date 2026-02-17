@@ -390,71 +390,63 @@ async def test_deny_takes_precedence_over_ask_user():
     )
 
 
-# --- Tests for _prepare_event_data() ---
+# --- Tests for _inject_event_identity() ---
 
 
-class TestPrepareEventData:
-    """Unit tests for HookRegistry._prepare_event_data()."""
+class TestInjectEventIdentity:
+    """Unit tests for HookRegistry._inject_event_identity()."""
 
-    def test_merges_defaults_with_data(self):
-        """Defaults are merged, explicit data wins on collision."""
+    def test_injects_event_id_and_sequence(self):
+        """event_id and sequence are injected into the data dict."""
         registry = HookRegistry()
-        registry.set_default_fields(session_id="sess-1", env="test")
 
-        result = registry._prepare_event_data({"custom": "value", "env": "prod"})
+        data = {"session_id": "sess-1", "custom": "value"}
+        result = registry._inject_event_identity(data)
 
         assert result["session_id"] == "sess-1"
-        assert result["env"] == "prod"  # explicit wins
         assert result["custom"] == "value"
+        assert isinstance(result["event_id"], str)
+        assert len(result["event_id"]) > 0
+        assert result["sequence"] == 1
 
     def test_sequence_increments_monotonically(self):
         """Each call increments the sequence counter starting at 1."""
         registry = HookRegistry()
-        registry.set_default_fields(session_id="sess-1")
 
-        r1 = registry._prepare_event_data({})
-        r2 = registry._prepare_event_data({})
-        r3 = registry._prepare_event_data({})
+        r1 = registry._inject_event_identity({"session_id": "sess-1"})
+        r2 = registry._inject_event_identity({"session_id": "sess-1"})
+        r3 = registry._inject_event_identity({"session_id": "sess-1"})
 
         assert r1["sequence"] == 1
         assert r2["sequence"] == 2
         assert r3["sequence"] == 3
 
-    def test_event_id_is_nonempty_string(self):
-        """event_id is a non-empty string."""
-        registry = HookRegistry()
-        registry.set_default_fields(session_id="sess-1")
-
-        result = registry._prepare_event_data({})
-
-        assert isinstance(result["event_id"], str)
-        assert len(result["event_id"]) > 0
-
     def test_event_ids_are_unique_across_calls(self):
         """Each call produces a distinct event_id."""
         registry = HookRegistry()
-        registry.set_default_fields(session_id="sess-1")
 
-        ids = [registry._prepare_event_data({})["event_id"] for _ in range(5)]
+        ids = [
+            registry._inject_event_identity({"session_id": "sess-1"})["event_id"]
+            for _ in range(5)
+        ]
 
         assert len(set(ids)) == 5
 
     def test_missing_session_id_falls_back_to_unknown(self):
-        """Without session_id in defaults or data, fallback to 'unknown'."""
+        """Without session_id, event_id uses 'unknown' prefix."""
         registry = HookRegistry()
-        # No set_default_fields called, no session_id in data
 
-        result = registry._prepare_event_data({})
+        result = registry._inject_event_identity({})
 
         assert result["event_id"].startswith("unknown:")
 
     def test_infrastructure_keys_overwrite_caller_values(self):
         """Callers cannot override event_id or sequence."""
         registry = HookRegistry()
-        registry.set_default_fields(session_id="sess-1")
 
-        result = registry._prepare_event_data(
+        result = registry._inject_event_identity(
             {
+                "session_id": "sess-1",
                 "event_id": "caller-fake-id",
                 "sequence": 999,
             }
@@ -463,24 +455,24 @@ class TestPrepareEventData:
         assert result["event_id"] != "caller-fake-id"
         assert result["sequence"] == 1  # first call, must be 1
 
-    def test_handles_none_data(self):
-        """Passing None as data does not crash."""
+    def test_mutates_input_dict(self):
+        """The method mutates the input dict in place (and returns it)."""
         registry = HookRegistry()
-        registry.set_default_fields(session_id="sess-1")
 
-        result = registry._prepare_event_data(None)
+        data = {"session_id": "sess-1"}
+        result = registry._inject_event_identity(data)
 
-        assert result["session_id"] == "sess-1"
-        assert result["sequence"] == 1
-        assert isinstance(result["event_id"], str)
+        assert result is data  # same object
+        assert "event_id" in data
+        assert "sequence" in data
 
 
-# --- Tests for emit_and_collect() with _prepare_event_data() ---
+# --- Tests for emit_and_collect() with _inject_event_identity() ---
 
 
 @pytest.mark.asyncio
-async def test_emit_and_collect_injects_session_id():
-    """emit_and_collect() now merges defaults (bug fix)."""
+async def test_emit_and_collect_does_not_merge_defaults():
+    """emit_and_collect() does NOT merge defaults (intentional design)."""
     registry = HookRegistry()
     registry.set_default_fields(session_id="sess-1")
 
@@ -496,9 +488,13 @@ async def test_emit_and_collect_injects_session_id():
 
     responses = await registry.emit_and_collect("test:event", {"key": "val"})
 
-    assert captured[0]["session_id"] == "sess-1"
+    # session_id is NOT present — emit_and_collect doesn't merge defaults
+    assert "session_id" not in captured[0]
     assert captured[0]["key"] == "val"
-    assert responses == [{"saw_session": "sess-1"}]
+    # But event_id and sequence ARE present
+    assert "event_id" in captured[0]
+    assert "sequence" in captured[0]
+    assert responses == [{"saw_session": None}]
 
 
 @pytest.mark.asyncio

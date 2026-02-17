@@ -97,39 +97,36 @@ class HookRegistry:
 
     def set_default_fields(self, **defaults):
         """
-        Set default fields that will be merged into all emitted events.
+        Set default fields that will be merged with events emitted via emit().
 
-        These defaults are applied by both emit() and emit_and_collect().
+        Note: These defaults only apply to emit(), not emit_and_collect().
 
         Args:
-            **defaults: Key-value pairs to include in event data
+            **defaults: Key-value pairs to include in emit() events
         """
         self._defaults = defaults
         logger.debug(f"Set default fields: {list(defaults.keys())}")
 
-    def _prepare_event_data(self, data: dict[str, Any] | None) -> dict[str, Any]:
-        """Merge defaults, assign event_id and sequence.
+    def _inject_event_identity(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Assign event_id and sequence to event data.
 
         Called by both emit() and emit_and_collect() to ensure every event
-        gets consistent default fields and a unique identifier.
+        gets a unique identifier regardless of dispatch method.
 
         Args:
-            data: Caller-provided event data (may be None).
+            data: Event data dict (already prepared by caller).
 
         Returns:
-            Prepared data dict with defaults merged, event_id and sequence injected.
+            The same dict with event_id and sequence injected.
         """
-        defaults = getattr(self, "_defaults", {})
-        prepared = {**(defaults or {}), **(data or {})}
-
         self._sequence += 1
         seq = self._sequence
-        session_id = prepared.get("session_id", "unknown")
+        session_id = data.get("session_id", "unknown")
 
-        prepared["event_id"] = f"{session_id}:{seq}"
-        prepared["sequence"] = seq
+        data["event_id"] = f"{session_id}:{seq}"
+        data["sequence"] = seq
 
-        return prepared
+        return data
 
     async def emit(self, event: str, data: dict[str, Any]) -> HookResult:
         """
@@ -155,8 +152,13 @@ class HookRegistry:
 
         logger.debug(f"Emitting event '{event}' to {len(handlers)} handlers")
 
-        # Merge defaults, assign event_id and sequence.
-        current_data = self._prepare_event_data(data)
+        # Merge default fields (e.g., session_id) with explicit event data.
+        # Explicit event data takes precedence over defaults.
+        defaults = getattr(self, "_defaults", {})
+        current_data = {**(defaults or {}), **(data or {})}
+
+        # Assign event_id and sequence.
+        self._inject_event_identity(current_data)
 
         # Track special actions to return
         special_result = None
@@ -302,8 +304,10 @@ class HookRegistry:
             f"Collecting responses for event '{event}' from {len(handlers)} handlers"
         )
 
-        # Merge defaults, assign event_id and sequence.
-        current_data = self._prepare_event_data(data)
+        # Assign event_id and sequence (no default merging — emit_and_collect
+        # passes raw caller data, unlike emit() which enriches with defaults).
+        current_data = {**(data or {})}
+        self._inject_event_identity(current_data)
 
         responses = []
         for hook_handler in handlers:
