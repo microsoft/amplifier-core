@@ -50,6 +50,7 @@ class HookRegistry:
     def __init__(self):
         """Initialize empty hook registry."""
         self._handlers: dict[str, list[HookHandler]] = defaultdict(list)
+        self._sequence: int = 0
 
     def register(
         self,
@@ -105,6 +106,30 @@ class HookRegistry:
         """
         self._defaults = defaults
         logger.debug(f"Set default fields: {list(defaults.keys())}")
+
+    def _prepare_event_data(self, data: dict[str, Any] | None) -> dict[str, Any]:
+        """Merge defaults, assign event_id and sequence.
+
+        Called by both emit() and emit_and_collect() to ensure every event
+        gets consistent default fields and a unique identifier.
+
+        Args:
+            data: Caller-provided event data (may be None).
+
+        Returns:
+            Prepared data dict with defaults merged, event_id and sequence injected.
+        """
+        defaults = getattr(self, "_defaults", {})
+        prepared = {**(defaults or {}), **(data or {})}
+
+        self._sequence += 1
+        seq = self._sequence
+        session_id = prepared.get("session_id", "unknown")
+
+        prepared["event_id"] = f"{session_id}:{seq}"
+        prepared["sequence"] = seq
+
+        return prepared
 
     async def emit(self, event: str, data: dict[str, Any]) -> HookResult:
         """

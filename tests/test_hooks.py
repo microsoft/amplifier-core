@@ -388,3 +388,88 @@ async def test_deny_takes_precedence_over_ask_user():
         f"Expected only deny_handler to run, but got {execution_log}. "
         "deny should short-circuit and prevent subsequent handlers from executing."
     )
+
+
+# --- Tests for _prepare_event_data() ---
+
+
+class TestPrepareEventData:
+    """Unit tests for HookRegistry._prepare_event_data()."""
+
+    def test_merges_defaults_with_data(self):
+        """Defaults are merged, explicit data wins on collision."""
+        registry = HookRegistry()
+        registry.set_default_fields(session_id="sess-1", env="test")
+
+        result = registry._prepare_event_data({"custom": "value", "env": "prod"})
+
+        assert result["session_id"] == "sess-1"
+        assert result["env"] == "prod"  # explicit wins
+        assert result["custom"] == "value"
+
+    def test_sequence_increments_monotonically(self):
+        """Each call increments the sequence counter starting at 1."""
+        registry = HookRegistry()
+        registry.set_default_fields(session_id="sess-1")
+
+        r1 = registry._prepare_event_data({})
+        r2 = registry._prepare_event_data({})
+        r3 = registry._prepare_event_data({})
+
+        assert r1["sequence"] == 1
+        assert r2["sequence"] == 2
+        assert r3["sequence"] == 3
+
+    def test_event_id_is_nonempty_string(self):
+        """event_id is a non-empty string."""
+        registry = HookRegistry()
+        registry.set_default_fields(session_id="sess-1")
+
+        result = registry._prepare_event_data({})
+
+        assert isinstance(result["event_id"], str)
+        assert len(result["event_id"]) > 0
+
+    def test_event_ids_are_unique_across_calls(self):
+        """Each call produces a distinct event_id."""
+        registry = HookRegistry()
+        registry.set_default_fields(session_id="sess-1")
+
+        ids = [registry._prepare_event_data({})["event_id"] for _ in range(5)]
+
+        assert len(set(ids)) == 5
+
+    def test_missing_session_id_falls_back_to_unknown(self):
+        """Without session_id in defaults or data, fallback to 'unknown'."""
+        registry = HookRegistry()
+        # No set_default_fields called, no session_id in data
+
+        result = registry._prepare_event_data({})
+
+        assert result["event_id"].startswith("unknown:")
+
+    def test_infrastructure_keys_overwrite_caller_values(self):
+        """Callers cannot override event_id or sequence."""
+        registry = HookRegistry()
+        registry.set_default_fields(session_id="sess-1")
+
+        result = registry._prepare_event_data(
+            {
+                "event_id": "caller-fake-id",
+                "sequence": 999,
+            }
+        )
+
+        assert result["event_id"] != "caller-fake-id"
+        assert result["sequence"] == 1  # first call, must be 1
+
+    def test_handles_none_data(self):
+        """Passing None as data does not crash."""
+        registry = HookRegistry()
+        registry.set_default_fields(session_id="sess-1")
+
+        result = registry._prepare_event_data(None)
+
+        assert result["session_id"] == "sess-1"
+        assert result["sequence"] == 1
+        assert isinstance(result["event_id"], str)
