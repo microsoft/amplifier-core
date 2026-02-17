@@ -199,11 +199,11 @@ def test_rust_cancellation_token_interface():
 
     # Verify initial state
     assert token.state == "none"
-    assert token.is_cancelled() is False
+    assert token.is_cancelled is False
 
     # Verify cancellation changes state
     token.request_cancellation()
-    assert token.is_cancelled() is True
+    assert token.is_cancelled is True
     assert token.state == "graceful"
 
 

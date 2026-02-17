@@ -696,6 +696,7 @@ impl PyCancellationToken {
     }
 
     /// Whether any cancellation has been requested.
+    #[getter]
     fn is_cancelled(&self) -> bool {
         self.inner.is_cancelled()
     }
