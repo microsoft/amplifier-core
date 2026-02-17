@@ -488,13 +488,19 @@ impl PyHookRegistry {
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let result = inner.emit(&event, value).await;
-            // Convert HookResult to a simple JSON dict representation
-            let result_json = serde_json::json!({
-                "action": format!("{:?}", result.action).to_lowercase(),
-                "data": result.data,
-            });
-            let result_str = serde_json::to_string(&result_json).unwrap_or_default();
-            Ok(result_str)
+            // Convert HookResult to a JSON string, then parse it back as a
+            // Python HookResult object so callers can access .action, .data, etc.
+            let result_json = serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
+            Python::try_attach(|py| -> PyResult<Py<PyAny>> {
+                let json_mod = py.import("json")?;
+                let dict = json_mod.call_method1("loads", (&result_json,))?;
+                // Create a proper HookResult from the dict
+                let models = py.import("amplifier_core.models")?;
+                let hook_result_cls = models.getattr("HookResult")?;
+                let obj = hook_result_cls.call_method1("model_validate", (&dict,))?;
+                Ok(obj.unbind())
+            })
+            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Failed to attach to Python runtime"))?
         })
     }
 
