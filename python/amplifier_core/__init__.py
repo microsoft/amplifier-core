@@ -38,6 +38,14 @@ from .llm_errors import ContextLengthError
 from .llm_errors import InvalidRequestError
 from .llm_errors import LLMError
 from .llm_errors import LLMTimeoutError
+from .llm_errors import AccessDeniedError
+from .llm_errors import NetworkError
+from .llm_errors import QuotaExceededError
+from .llm_errors import NotFoundError
+from .llm_errors import StreamError
+from .llm_errors import AbortError
+from .llm_errors import InvalidToolCallError
+from .llm_errors import ConfigurationError
 from .llm_errors import ProviderUnavailableError
 from .llm_errors import RateLimitError
 from .loader import ModuleLoader
@@ -76,6 +84,9 @@ from .testing import ScriptedOrchestrator
 from .testing import TestCoordinator
 from .testing import create_test_coordinator
 from .testing import wait_for
+from .utils.retry import classify_error_message
+from .utils.retry import RetryConfig
+from .utils.retry import retry_with_backoff
 
 # --- Rust engine types re-exported under original names for direct access ---
 from ._engine import (
@@ -137,6 +148,14 @@ __all__ = [
     "InvalidRequestError",
     "ProviderUnavailableError",
     "LLMTimeoutError",
+    "AccessDeniedError",
+    "NetworkError",
+    "QuotaExceededError",
+    "NotFoundError",
+    "StreamError",
+    "AbortError",
+    "InvalidToolCallError",
+    "ConfigurationError",
     # Content models for provider streaming
     "ContentBlock",
     "ContentBlockType",
@@ -152,6 +171,10 @@ __all__ = [
     "ScriptedOrchestrator",
     "create_test_coordinator",
     "wait_for",
+    # Retry utilities
+    "RetryConfig",
+    "retry_with_backoff",
+    "classify_error_message",
     # Rust engine types
     "RUST_AVAILABLE",
     "RustSession",

@@ -69,6 +69,7 @@ pub const PLAN_END: &str = "plan:end";
 pub const PROVIDER_REQUEST: &str = "provider:request";
 /// A response has been received from a provider.
 pub const PROVIDER_RESPONSE: &str = "provider:response";
+pub const PROVIDER_RETRY: &str = "provider:retry";
 /// A provider call resulted in an error.
 pub const PROVIDER_ERROR: &str = "provider:error";
 
@@ -185,6 +186,7 @@ pub const ALL_EVENTS: &[&str] = &[
     PLAN_END,
     PROVIDER_REQUEST,
     PROVIDER_RESPONSE,
+    PROVIDER_RETRY,
     PROVIDER_ERROR,
     LLM_REQUEST,
     LLM_REQUEST_DEBUG,
@@ -254,6 +256,7 @@ mod tests {
     fn provider_constants() {
         assert_eq!(PROVIDER_REQUEST, "provider:request");
         assert_eq!(PROVIDER_RESPONSE, "provider:response");
+        assert_eq!(PROVIDER_RETRY, "provider:retry");
         assert_eq!(PROVIDER_ERROR, "provider:error");
     }
 
@@ -331,7 +334,7 @@ mod tests {
 
     #[test]
     fn all_events_count() {
-        assert_eq!(ALL_EVENTS.len(), 47, "Python source defines exactly 47 events");
+        assert_eq!(ALL_EVENTS.len(), 48, "Python source defines exactly 48 events");
     }
 
     #[test]
@@ -353,6 +356,7 @@ mod tests {
             PLAN_END,
             PROVIDER_REQUEST,
             PROVIDER_RESPONSE,
+            PROVIDER_RETRY,
             PROVIDER_ERROR,
             LLM_REQUEST,
             LLM_REQUEST_DEBUG,

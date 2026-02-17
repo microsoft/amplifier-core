@@ -207,21 +207,31 @@ impl PySession {
         kwargs.set_item("config", config)?;
         let fake_session = ns_cls.call((), Some(&kwargs))?;
 
-        // ---- Create the PyCoordinator ----
-        let coord = PyCoordinator::new(
-            py,
-            Some(fake_session.clone()),
-            approval_system,
-            display_system,
-        )?;
-        let coord_py = Py::new(py, coord)?;
-        let coord_any: Py<PyAny> = coord_py.clone_ref(py).into_any();
+        // ---- Create the coordinator ----
+        // Use the Python ModuleCoordinator wrapper (from _rust_wrappers.py)
+        // which adds process_hook_result on top of the Rust PyCoordinator.
+        // This is critical: orchestrators call coordinator.process_hook_result()
+        // which only exists on the Python wrapper, not on raw RustCoordinator.
+        let coord_any: Py<PyAny> = {
+            let wrappers = py.import("amplifier_core._rust_wrappers")?;
+            let coord_cls = wrappers.getattr("ModuleCoordinator")?;
+            let kwargs = PyDict::new(py);
+            kwargs.set_item("session", fake_session.clone())?;
+            if let Some(ref approval) = approval_system {
+                kwargs.set_item("approval_system", approval)?;
+            }
+            if let Some(ref display) = display_system {
+                kwargs.set_item("display_system", display)?;
+            }
+            let coord = coord_cls.call((), Some(&kwargs))?;
+            coord.unbind()
+        };
 
         // ---- Set default fields on the hook registry ----
         // Python: self.coordinator.hooks.set_default_fields(session_id=..., parent_id=...)
         {
-            let coord_ref = coord_py.borrow(py);
-            let hooks = coord_ref.py_hooks.bind(py);
+            let coord_bound = coord_any.bind(py);
+            let hooks = coord_bound.getattr("hooks")?;
             let defaults_dict = PyDict::new(py);
             defaults_dict.set_item("session_id", &actual_session_id)?;
             defaults_dict.set_item("parent_id", actual_parent_id.as_deref())?;
