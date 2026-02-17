@@ -473,3 +473,109 @@ class TestPrepareEventData:
         assert result["session_id"] == "sess-1"
         assert result["sequence"] == 1
         assert isinstance(result["event_id"], str)
+
+
+# --- Tests for emit_and_collect() with _prepare_event_data() ---
+
+
+@pytest.mark.asyncio
+async def test_emit_and_collect_injects_session_id():
+    """emit_and_collect() now merges defaults (bug fix)."""
+    registry = HookRegistry()
+    registry.set_default_fields(session_id="sess-1")
+
+    captured = []
+
+    async def handler(event, data):
+        captured.append(data.copy())
+        return HookResult(
+            action="continue", data={"saw_session": data.get("session_id")}
+        )
+
+    registry.register("test:event", handler)
+
+    responses = await registry.emit_and_collect("test:event", {"key": "val"})
+
+    assert captured[0]["session_id"] == "sess-1"
+    assert captured[0]["key"] == "val"
+    assert responses == [{"saw_session": "sess-1"}]
+
+
+@pytest.mark.asyncio
+async def test_emit_and_collect_injects_event_id_and_sequence():
+    """emit_and_collect() provides event_id and sequence to handlers."""
+    registry = HookRegistry()
+    registry.set_default_fields(session_id="sess-1")
+
+    captured = []
+
+    async def handler(event, data):
+        captured.append(data.copy())
+        return HookResult(action="continue", data="ok")
+
+    registry.register("test:event", handler)
+
+    await registry.emit_and_collect("test:event", {})
+    await registry.emit_and_collect("test:event", {})
+
+    assert "event_id" in captured[0]
+    assert "event_id" in captured[1]
+    assert captured[0]["sequence"] == 1
+    assert captured[1]["sequence"] == 2
+    assert captured[0]["event_id"] != captured[1]["event_id"]
+
+
+@pytest.mark.asyncio
+async def test_emit_and_emit_and_collect_share_sequence():
+    """emit() and emit_and_collect() share the same sequence counter."""
+    registry = HookRegistry()
+    registry.set_default_fields(session_id="sess-1")
+
+    captured = []
+
+    async def handler(event, data):
+        captured.append(data.copy())
+        return HookResult(action="continue", data="ok")
+
+    registry.register("test:event", handler)
+
+    await registry.emit("test:event", {})  # sequence 1
+    await registry.emit_and_collect("test:event", {})  # sequence 2
+    await registry.emit("test:event", {})  # sequence 3
+
+    assert captured[0]["sequence"] == 1
+    assert captured[1]["sequence"] == 2
+    assert captured[2]["sequence"] == 3
+
+
+@pytest.mark.asyncio
+async def test_emit_injects_event_id_and_sequence():
+    """emit() provides event_id and sequence to handlers."""
+    registry = HookRegistry()
+    registry.set_default_fields(session_id="sess-1")
+
+    captured = []
+
+    async def handler(event, data):
+        captured.append(data.copy())
+        return HookResult(action="continue")
+
+    registry.register("test:event", handler)
+
+    await registry.emit("test:event", {"key": "val1"})
+    await registry.emit("test:event", {"key": "val2"})
+
+    # Both events have event_id and sequence
+    assert "event_id" in captured[0]
+    assert "event_id" in captured[1]
+    assert captured[0]["sequence"] == 1
+    assert captured[1]["sequence"] == 2
+
+    # event_ids are distinct
+    assert captured[0]["event_id"] != captured[1]["event_id"]
+
+    # session_id is still present
+    assert captured[0]["session_id"] == "sess-1"
+
+    # caller data is preserved
+    assert captured[0]["key"] == "val1"

@@ -155,10 +155,8 @@ class HookRegistry:
 
         logger.debug(f"Emitting event '{event}' to {len(handlers)} handlers")
 
-        # Merge default fields (e.g., session_id) with explicit event data.
-        # Explicit event data takes precedence over defaults.
-        defaults = getattr(self, "_defaults", {})
-        current_data = {**(defaults or {}), **(data or {})}
+        # Merge defaults, assign event_id and sequence.
+        current_data = self._prepare_event_data(data)
 
         # Track special actions to return
         special_result = None
@@ -304,12 +302,15 @@ class HookRegistry:
             f"Collecting responses for event '{event}' from {len(handlers)} handlers"
         )
 
+        # Merge defaults, assign event_id and sequence.
+        current_data = self._prepare_event_data(data)
+
         responses = []
         for hook_handler in handlers:
             try:
                 # Call handler with timeout
                 result = await asyncio.wait_for(
-                    hook_handler.handler(event, data), timeout=timeout
+                    hook_handler.handler(event, current_data), timeout=timeout
                 )
 
                 if not isinstance(result, HookResult):
