@@ -443,26 +443,32 @@ impl PyHookRegistry {
     /// * `name` — Handler name (used for unregister).
     /// * `handler` — Python callable `(event: str, data: dict) -> dict | None`.
     /// * `priority` — Execution priority (lower = earlier). Default: 100.
-    #[pyo3(signature = (event, name, handler, priority = 100))]
+    /// Register a hook handler.
+    ///
+    /// Matches Python `HookRegistry.register(event, handler, priority=0, name=None)`.
+    /// The handler and name argument order matches the Python API so that
+    /// module code like `registry.register(event, handler, name="my-hook")` works.
+    #[pyo3(signature = (event, handler, priority = 0, name = None))]
     fn register(
         &self,
         event: &str,
-        name: &str,
         handler: Py<PyAny>,
         priority: i32,
+        name: Option<String>,
     ) -> PyResult<()> {
+        let handler_name = name.unwrap_or_else(|| format!("_auto_{event}_{}", uuid::Uuid::new_v4()));
         let bridge = Arc::new(PyHookHandlerBridge { callable: handler });
         let unregister_fn = self.inner.register(
             event,
             bridge,
             priority,
-            Some(name.to_string()),
+            Some(handler_name.clone()),
         );
 
         self.unregister_fns
             .lock()
             .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Lock poisoned: {e}")))?
-            .insert(name.to_string(), unregister_fn);
+            .insert(handler_name, unregister_fn);
 
         Ok(())
     }
@@ -540,15 +546,15 @@ impl PyHookRegistry {
     }
 
     /// Alias for `register()` -- backward compatibility with Python HookRegistry.
-    #[pyo3(signature = (event, name, handler, priority = 100))]
+    #[pyo3(signature = (event, handler, priority = 0, name = None))]
     fn on(
         &self,
         event: &str,
-        name: &str,
         handler: Py<PyAny>,
         priority: i32,
+        name: Option<String>,
     ) -> PyResult<()> {
-        self.register(event, name, handler, priority)
+        self.register(event, handler, priority, name)
     }
 
     /// List registered handlers, optionally filtered by event.
@@ -1038,7 +1044,20 @@ impl PyCoordinator {
     // -----------------------------------------------------------------------
 
     /// Register a cleanup function to be called on shutdown.
+    ///
+    /// Only stores callable objects. Non-callable values (including None)
+    /// are silently ignored to match Python's behavior where mount()
+    /// may return None for cleanup.
     fn register_cleanup(&self, py: Python<'_>, cleanup_fn: Bound<'_, PyAny>) -> PyResult<()> {
+        // Guard: only store callable objects, skip None and non-callables
+        if cleanup_fn.is_none() {
+            return Ok(());
+        }
+        let is_callable: bool = cleanup_fn.is_callable();
+        if !is_callable {
+            // Log but don't error — matches Python behavior
+            return Ok(());
+        }
         let list = self.cleanup_fns.bind(py);
         list.append(&cleanup_fn)?;
         Ok(())

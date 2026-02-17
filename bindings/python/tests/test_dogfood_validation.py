@@ -159,7 +159,7 @@ def test_hook_registration_does_not_crash():
         return None
 
     # register(event, name, handler, priority)
-    session.coordinator.hooks.register("test:event", "my-hook", my_hook, 0)
+    session.coordinator.hooks.register("test:event", my_hook, 0, name="my-hook")
     # No crash means it works
 
 
@@ -181,7 +181,7 @@ async def test_hook_emit_async():
         received.append(event)
         return None
 
-    session.coordinator.hooks.register("test:event", "test-hook", hook_handler, 0)
+    session.coordinator.hooks.register("test:event", hook_handler, 0, name="test-hook")
     await session.coordinator.hooks.emit("test:event", {"foo": "bar"})
 
     assert "test:event" in received
@@ -200,8 +200,8 @@ async def test_hook_emit_and_collect():
     def handler_b(event, data):
         return {"source": "b"}
 
-    session.coordinator.hooks.register("gather:event", "hook-a", handler_a, 0)
-    session.coordinator.hooks.register("gather:event", "hook-b", handler_b, 0)
+    session.coordinator.hooks.register("gather:event", handler_a, 0, name="hook-a")
+    session.coordinator.hooks.register("gather:event", handler_b, 0, name="hook-b")
 
     results = await session.coordinator.hooks.emit_and_collect(
         "gather:event", {"key": "value"}
