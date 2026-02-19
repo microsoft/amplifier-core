@@ -388,3 +388,99 @@ async def test_deny_takes_precedence_over_ask_user():
         f"Expected only deny_handler to run, but got {execution_log}. "
         "deny should short-circuit and prevent subsequent handlers from executing."
     )
+
+
+@pytest.mark.asyncio
+async def test_emit_stamps_timestamp():
+    """Test that emit() stamps an infrastructure-owned timestamp on event data.
+
+    The timestamp, together with session_id (from defaults), forms the compound
+    identity key (session_id, timestamp) for event uniqueness and ordering.
+    """
+    registry = HookRegistry()
+
+    captured_data = []
+
+    async def capture_handler(event, data):
+        captured_data.append(data.copy())
+        return HookResult(action="continue")
+
+    registry.register("test:event", capture_handler)
+
+    await registry.emit("test:event", {"tool_name": "bash"})
+
+    assert "timestamp" in captured_data[0], "emit() must stamp a timestamp"
+    # Verify it's a valid ISO 8601 string with UTC timezone
+    ts = captured_data[0]["timestamp"]
+    assert isinstance(ts, str)
+    assert ts.endswith("+00:00"), f"Timestamp must be UTC, got: {ts}"
+
+
+@pytest.mark.asyncio
+async def test_timestamp_is_infrastructure_owned():
+    """Test that callers cannot override the infrastructure timestamp.
+
+    The timestamp is infrastructure-owned: always present, callers cannot
+    omit or override. This matches the CloudEvents principle that identity
+    is stamped at creation by infrastructure.
+    """
+    registry = HookRegistry()
+
+    captured_data = []
+
+    async def capture_handler(event, data):
+        captured_data.append(data.copy())
+        return HookResult(action="continue")
+
+    registry.register("test:event", capture_handler)
+
+    # Attempt to override timestamp via caller data
+    await registry.emit("test:event", {"timestamp": "caller-supplied-value"})
+
+    ts = captured_data[0]["timestamp"]
+    assert ts != "caller-supplied-value", (
+        "Infrastructure timestamp must not be overridable by callers"
+    )
+    assert ts.endswith("+00:00"), f"Timestamp must be UTC, got: {ts}"
+
+
+@pytest.mark.asyncio
+async def test_timestamp_unique_across_emits():
+    """Test that successive emits get distinct timestamps (or at least not stale)."""
+    import asyncio
+
+    registry = HookRegistry()
+
+    captured_data = []
+
+    async def capture_handler(event, data):
+        captured_data.append(data.copy())
+        return HookResult(action="continue")
+
+    registry.register("test:event", capture_handler)
+
+    await registry.emit("test:event", {})
+    await asyncio.sleep(0.001)  # Ensure clock advances
+    await registry.emit("test:event", {})
+
+    ts1 = captured_data[0]["timestamp"]
+    ts2 = captured_data[1]["timestamp"]
+    # Timestamps should be fresh per emit, not cached
+    assert ts1 <= ts2, f"Timestamps should be ordered: {ts1} <= {ts2}"
+
+
+@pytest.mark.asyncio
+async def test_no_handlers_no_timestamp():
+    """Test that the no-handlers early return does NOT stamp a timestamp.
+
+    When no handlers are registered, nobody observes the event, so
+    infrastructure stamping is unnecessary. The raw data is returned as-is.
+    """
+    registry = HookRegistry()
+
+    result = await registry.emit("unregistered:event", {"data": "value"})
+    assert result.action == "continue"
+    assert result.data is not None
+    assert result.data["data"] == "value"
+    # No handlers → no processing → no timestamp
+    assert "timestamp" not in result.data
