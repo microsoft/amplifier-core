@@ -43,6 +43,21 @@ class ToolResult(BaseModel):
         default=None, description="Error details if failed"
     )
 
+    def model_post_init(self, __context: Any) -> None:
+        """Auto-populate output from error when tools forget to set it.
+
+        Many tools return ToolResult(success=False, error={"message": "..."})
+        without setting output. The output field is the primary channel the AI
+        reads — without it, error details may be invisible to the agent.
+
+        This is defense-in-depth: tools SHOULD set output explicitly, but if
+        they don't, this ensures the error message is still accessible.
+        """
+        if not self.success and self.output is None and self.error:
+            message = self.error.get("message")
+            if message:
+                self.output = message
+
     def __str__(self) -> str:
         if self.success:
             return str(self.output) if self.output else "Success"
