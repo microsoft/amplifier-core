@@ -363,36 +363,71 @@ impl PySession {
     }
 
     // -----------------------------------------------------------------------
-    // Task 3.3: initialize() — delegates to Python _session_init helper
+    // Task 3.3 / Task 8: initialize() — Rust owns the control flow
     // -----------------------------------------------------------------------
 
     /// Initialize the session by loading modules from config.
     ///
-    /// Delegates to `amplifier_core._session_init.initialize_session()` which
-    /// calls the Python loader to load and mount all configured modules.
-    /// If already initialized, returns immediately.
+    /// Rust controls the lifecycle:
+    /// 1. Idempotency guard (already initialized → no-op)
+    /// 2. Delegates module loading to `_session_init.initialize_session()`
+    ///    via `into_future` (Python handles loader, importlib, module resolution)
+    /// 3. Sets the Rust `initialized` flag on success
+    ///
+    /// Errors from module loading propagate; `initialized` stays `false`.
     fn initialize<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        // Import the helper and call the async function
+        // Step 1: Idempotency — if already initialized, return resolved future
+        {
+            let session = self.inner.blocking_lock();
+            if session.is_initialized() {
+                return pyo3_async_runtimes::tokio::future_into_py(py, async { Ok(()) });
+            }
+        }
+
+        // Step 2: Prepare the Python init coroutine (we have the GIL here)
         let helper = py.import("amplifier_core._session_init")?;
         let init_fn = helper.getattr("initialize_session")?;
-
-        // Call the async Python function — returns a coroutine
         let coro = init_fn.call1((
             self.config.bind(py),
             self.coordinator.bind(py),
             &self.cached_session_id,
             self.cached_parent_id.as_deref(),
         ))?;
+        // Convert to an owned Py<PyAny> so it's 'static + Send
+        let coro_py: Py<PyAny> = coro.unbind();
 
-        // Wrap: await the coroutine, then mark Rust session as initialized
-        let wrap_fn = helper.getattr("_wrap_initialize")?;
+        let inner = self.inner.clone();
 
-        // We need to return a coroutine that:
-        // 1. Awaits the init coroutine
-        // 2. Then marks the Rust session as initialized
-        // The simplest approach: create a Python wrapper coroutine
-        let wrapped = wrap_fn.call1((&coro,))?;
-        Ok(wrapped)
+        // Step 3: Return an awaitable that runs init then sets the flag
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            // Convert the Python coroutine to a Rust future (needs GIL + task locals)
+            let future = Python::try_attach(|py| {
+                pyo3_async_runtimes::tokio::into_future(coro_py.into_bound(py))
+            })
+            .ok_or_else(|| {
+                PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
+            })?
+            .map_err(|e| {
+                PyErr::new::<PyRuntimeError, _>(format!(
+                    "Failed to convert init coroutine: {e}"
+                ))
+            })?;
+
+            // Await the Python module loading (outside GIL)
+            future.await.map_err(|e| {
+                PyErr::new::<PyRuntimeError, _>(format!(
+                    "Session initialization failed: {e}"
+                ))
+            })?;
+
+            // Step 4: Mark session as initialized in Rust kernel
+            {
+                let mut session = inner.lock().await;
+                session.set_initialized();
+            }
+
+            Ok(())
+        })
     }
 
     // -----------------------------------------------------------------------
