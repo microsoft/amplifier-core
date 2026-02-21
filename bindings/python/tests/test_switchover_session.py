@@ -203,3 +203,28 @@ async def test_session_aexit_calls_cleanup():
     session.coordinator.register_cleanup(lambda: cleaned.append(True))
     await session.__aexit__(None, None, None)
     assert cleaned == [True]
+
+
+# ---- Task 13: Python helper file cleanup ----
+
+
+def test_hooks_bridge_removed():
+    """_hooks_bridge.py should be deleted — no longer needed since Rust HookRegistry handles dispatch."""
+    import importlib
+
+    with pytest.raises(ImportError):
+        importlib.import_module("amplifier_core._hooks_bridge")
+
+
+def test_session_init_is_thin_helper():
+    """_session_init.py must still exist as a thin boundary helper called by Rust."""
+    from amplifier_core._session_init import initialize_session
+
+    assert callable(initialize_session)
+
+
+def test_session_exec_is_thin_helper():
+    """_session_exec.py must still exist as a thin boundary helper called by Rust."""
+    from amplifier_core._session_exec import run_orchestrator
+
+    assert callable(run_orchestrator)
