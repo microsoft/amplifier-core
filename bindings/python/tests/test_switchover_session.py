@@ -139,14 +139,14 @@ def test_session_initialized_flag():
     assert session.initialized is False
 
 
-# ---- Task 3.4: _session_exec.py helper and execute() ----
+# ---- Task 3.4 / Task 9: _session_exec.py helper and execute() ----
 
 
 def test_session_exec_module_exists():
     """The _session_exec helper module exists and is importable."""
-    from amplifier_core._session_exec import execute_session
+    from amplifier_core._session_exec import run_orchestrator
 
-    assert callable(execute_session)
+    assert callable(run_orchestrator)
 
 
 # ---- Task 3.5: cleanup() wired to coordinator ----

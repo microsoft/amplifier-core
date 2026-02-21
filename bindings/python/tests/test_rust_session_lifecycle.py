@@ -1,10 +1,15 @@
-"""Tests for Rust-driven session lifecycle (Task 8: initialize() in Rust).
+"""Tests for Rust-driven session lifecycle.
 
-Verifies that PySession.initialize():
+Task 8 - initialize() in Rust:
 1. Sets the initialized flag to True after successful init
 2. Is idempotent (second call is a no-op)
 3. Delegates module loading to the Python helper
 4. Propagates errors from module loading (initialized stays False)
+
+Task 9 - execute() in Rust:
+5. execute() requires initialization (raises error if not initialized)
+6. execute() calls the orchestrator via the Python helper
+7. execute() returns the orchestrator's result string
 """
 
 import pytest
@@ -73,3 +78,68 @@ async def test_initialize_error_keeps_initialized_false():
             await session.initialize()
 
     assert session.initialized is False
+
+
+# ---------------------------------------------------------------------------
+# Task 9: execute() in Rust
+# ---------------------------------------------------------------------------
+
+
+async def _make_initialized_session(config=None, **kwargs):
+    """Helper: create a RustSession and initialize it with mocked loader."""
+    if config is None:
+        config = {
+            "session": {"orchestrator": "loop-basic", "context": "context-simple"}
+        }
+    session = RustSession(config=config, **kwargs)
+    mock_init = AsyncMock()
+    with patch("amplifier_core._session_init.initialize_session", mock_init):
+        await session.initialize()
+    return session
+
+
+@pytest.mark.asyncio
+async def test_execute_requires_initialization():
+    """Calling execute() on an un-initialized session must raise an error."""
+    config = {"session": {"orchestrator": "loop-basic", "context": "context-simple"}}
+    session = RustSession(config=config)
+    assert session.initialized is False
+
+    with pytest.raises(Exception, match="[Nn]ot initialized"):
+        await session.execute("hello")
+
+
+@pytest.mark.asyncio
+async def test_execute_calls_orchestrator():
+    """After initialize(), execute() should invoke the orchestrator's execute()."""
+    session = await _make_initialized_session()
+
+    # Plant a mock orchestrator that returns a string
+    mock_orchestrator = AsyncMock()
+    mock_orchestrator.execute = AsyncMock(return_value="ok")
+    session.coordinator.mount_points["orchestrator"] = mock_orchestrator
+
+    # Also need context and providers mounted (execute checks for them)
+    session.coordinator.mount_points["context"] = AsyncMock()
+    session.coordinator.mount_points["providers"] = {"mock": AsyncMock()}
+
+    await session.execute("hello")
+
+    # The orchestrator's execute() should have been called
+    mock_orchestrator.execute.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_execute_returns_result():
+    """execute() must return the string produced by the orchestrator."""
+    session = await _make_initialized_session()
+
+    mock_orchestrator = AsyncMock()
+    mock_orchestrator.execute = AsyncMock(return_value="Hello!")
+    session.coordinator.mount_points["orchestrator"] = mock_orchestrator
+    session.coordinator.mount_points["context"] = AsyncMock()
+    session.coordinator.mount_points["providers"] = {"mock": AsyncMock()}
+
+    result = await session.execute("hi")
+
+    assert result == "Hello!"
