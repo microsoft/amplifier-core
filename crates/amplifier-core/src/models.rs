@@ -259,6 +259,36 @@ impl Default for ToolResult {
     }
 }
 
+impl ToolResult {
+    /// Create a new ToolResult with auto-populate behavior.
+    /// When success=false and output is None, auto-populates output
+    /// from error["message"] (matches Python model_post_init behavior).
+    pub fn new(
+        success: bool,
+        output: Option<Value>,
+        error: Option<HashMap<String, Value>>,
+    ) -> Self {
+        let mut result = Self {
+            success,
+            output,
+            error,
+        };
+        result.auto_populate_output();
+        result
+    }
+
+    /// Auto-populate output from error message when tools forget to set it.
+    fn auto_populate_output(&mut self) {
+        if !self.success && self.output.is_none() {
+            if let Some(ref error) = self.error {
+                if let Some(message) = error.get("message") {
+                    self.output = Some(message.clone());
+                }
+            }
+        }
+    }
+}
+
 /// Model metadata for provider models.
 ///
 /// Describes capabilities and defaults for a specific model available from a provider.
@@ -657,6 +687,36 @@ mod tests {
             result.error.as_ref().unwrap().get("message"),
             Some(&json!("command failed"))
         );
+    }
+
+    // --- ToolResult auto-populate tests ---
+
+    #[test]
+    fn test_toolresult_autopopulates_output_from_error_message() {
+        let error = HashMap::from([("message".to_string(), json!("broke"))]);
+        let result = ToolResult::new(false, None, Some(error));
+        assert_eq!(result.output, Some(json!("broke")));
+    }
+
+    #[test]
+    fn test_toolresult_no_autopopulate_when_output_set() {
+        let error = HashMap::from([("message".to_string(), json!("broke"))]);
+        let result = ToolResult::new(false, Some(json!("explicit output")), Some(error));
+        assert_eq!(result.output, Some(json!("explicit output")));
+    }
+
+    #[test]
+    fn test_toolresult_no_autopopulate_on_success() {
+        let error = HashMap::from([("message".to_string(), json!("broke"))]);
+        let result = ToolResult::new(true, None, Some(error));
+        assert!(result.output.is_none());
+    }
+
+    #[test]
+    fn test_toolresult_no_autopopulate_without_message_key() {
+        let error = HashMap::from([("detail".to_string(), json!("x"))]);
+        let result = ToolResult::new(false, None, Some(error));
+        assert!(result.output.is_none());
     }
 
     // --- ModelInfo tests (from PLAN) ---
