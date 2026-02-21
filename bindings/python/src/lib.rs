@@ -431,34 +431,213 @@ impl PySession {
     }
 
     // -----------------------------------------------------------------------
-    // Task 3.4: execute(prompt) — delegates to Python _session_exec helper
+    // Task 9: execute(prompt) — Rust owns the control flow
     // -----------------------------------------------------------------------
 
     /// Execute a prompt through the mounted orchestrator.
     ///
-    /// Auto-initializes if needed. Delegates to
-    /// `amplifier_core._session_exec.execute_session()`.
+    /// Rust controls the lifecycle:
+    /// 1. Checks initialization flag (error if not initialized)
+    /// 2. Emits pre-execution events (session:start or session:resume)
+    /// 3. Delegates orchestrator call to `_session_exec.run_orchestrator()`
+    ///    via `into_future` (Python handles mount point access + kwargs)
+    /// 4. Checks cancellation after execution
+    /// 5. Emits cancel:completed event if cancelled
+    /// 6. Returns the result string
     fn execute<'py>(
         &self,
         py: Python<'py>,
         prompt: String,
     ) -> PyResult<Bound<'py, PyAny>> {
+        // Step 1: Check initialized — fail fast before any async work
+        {
+            let session = self.inner.blocking_lock();
+            if !session.is_initialized() {
+                return Err(PyErr::new::<PyRuntimeError, _>(
+                    "Session not initialized. Call initialize() first.",
+                ));
+            }
+        }
+
+        // Step 2: Prepare the Python orchestrator coroutine (we have the GIL here)
         let helper = py.import("amplifier_core._session_exec")?;
-        let exec_fn = helper.getattr("execute_session")?;
+        let run_fn = helper.getattr("run_orchestrator")?;
+        let debug_fn = helper.getattr("emit_debug_events")?;
 
-        // Build a session-like object the helper can access
-        let types_mod = py.import("types")?;
-        let ns_cls = types_mod.getattr("SimpleNamespace")?;
-        let kwargs = PyDict::new(py);
-        kwargs.set_item("coordinator", self.coordinator.bind(py))?;
-        kwargs.set_item("config", self.config.bind(py))?;
-        kwargs.set_item("session_id", &self.cached_session_id)?;
-        kwargs.set_item("parent_id", self.cached_parent_id.as_deref())?;
-        kwargs.set_item("is_resumed", self.is_resumed)?;
-        let session_proxy = ns_cls.call((), Some(&kwargs))?;
+        // Prepare the orchestrator call coroutine
+        let orch_coro = run_fn.call1((
+            self.coordinator.bind(py),
+            &prompt,
+        ))?;
+        let orch_coro_py: Py<PyAny> = orch_coro.unbind();
 
-        let coro = exec_fn.call1((&session_proxy, prompt))?;
-        Ok(coro)
+        // Determine event names based on is_resumed
+        let (event_base, event_debug, event_raw) = if self.is_resumed {
+            ("session:resume", "session:resume:debug", "session:resume:raw")
+        } else {
+            ("session:start", "session:start:debug", "session:start:raw")
+        };
+
+        // Prepare debug events coroutine
+        let debug_coro = debug_fn.call1((
+            self.coordinator.bind(py),
+            self.config.bind(py),
+            &self.cached_session_id,
+            event_debug,
+            event_raw,
+        ))?;
+        let debug_coro_py: Py<PyAny> = debug_coro.unbind();
+
+        // Prepare the pre-execution event emission coroutine
+        let coord = self.coordinator.bind(py);
+        let hooks = coord.getattr("hooks")?;
+        let emit_data = PyDict::new(py);
+        emit_data.set_item("session_id", &self.cached_session_id)?;
+        emit_data.set_item("parent_id", self.cached_parent_id.as_deref())?;
+        let pre_event_coro = hooks.call_method1("emit", (event_base, &emit_data))?;
+        let pre_event_coro_py: Py<PyAny> = pre_event_coro.unbind();
+
+        // Clone references for the async block
+        let coordinator = self.coordinator.clone_ref(py);
+
+        // Step 3: Return an awaitable that runs the full execute sequence
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            // 3a: Emit pre-execution event (session:start or session:resume)
+            let pre_event_future = Python::try_attach(|py| {
+                pyo3_async_runtimes::tokio::into_future(pre_event_coro_py.into_bound(py))
+            })
+            .ok_or_else(|| {
+                PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
+            })?
+            .map_err(|e| {
+                PyErr::new::<PyRuntimeError, _>(format!(
+                    "Failed to convert pre-event coroutine: {e}"
+                ))
+            })?;
+
+            // Await outside GIL
+            pre_event_future.await.map_err(|e| {
+                PyErr::new::<PyRuntimeError, _>(format!(
+                    "Pre-execution event emission failed: {e}"
+                ))
+            })?;
+
+            // 3b: Emit debug events (delegates to Python for redact_secrets/truncate_values)
+            let debug_future = Python::try_attach(|py| {
+                pyo3_async_runtimes::tokio::into_future(debug_coro_py.into_bound(py))
+            })
+            .ok_or_else(|| {
+                PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
+            })?
+            .map_err(|e| {
+                PyErr::new::<PyRuntimeError, _>(format!(
+                    "Failed to convert debug event coroutine: {e}"
+                ))
+            })?;
+
+            debug_future.await.map_err(|e| {
+                PyErr::new::<PyRuntimeError, _>(format!(
+                    "Debug event emission failed: {e}"
+                ))
+            })?;
+
+            // 3c: Call the Python orchestrator (mount point access + orchestrator.execute())
+            let orch_future = Python::try_attach(|py| {
+                pyo3_async_runtimes::tokio::into_future(orch_coro_py.into_bound(py))
+            })
+            .ok_or_else(|| {
+                PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
+            })?
+            .map_err(|e| {
+                PyErr::new::<PyRuntimeError, _>(format!(
+                    "Failed to convert orchestrator coroutine: {e}"
+                ))
+            })?;
+
+            // Await orchestrator execution outside GIL
+            let orch_result = orch_future.await;
+
+            // 3d: Check cancellation and emit cancel:completed if needed
+            let is_cancelled = Python::try_attach(|py| -> PyResult<bool> {
+                let coord = coordinator.bind(py);
+                let cancellation = coord.getattr("cancellation")?;
+                cancellation.getattr("is_cancelled")?.extract()
+            })
+            .ok_or_else(|| {
+                PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
+            })?
+            .map_err(|e| {
+                PyErr::new::<PyRuntimeError, _>(format!(
+                    "Failed to check cancellation: {e}"
+                ))
+            })?;
+
+            match orch_result {
+                Ok(py_result) => {
+                    // Success path — check cancellation and emit event if needed
+                    if is_cancelled {
+                        let cancel_future = Python::try_attach(|py| -> PyResult<_> {
+                            let coord = coordinator.bind(py);
+                            let hooks = coord.getattr("hooks")?;
+                            let cancellation = coord.getattr("cancellation")?;
+                            let state: String = cancellation.getattr("state")?.extract()?;
+                            let data = PyDict::new(py);
+                            data.set_item("was_immediate", state == "immediate")?;
+                            let coro = hooks.call_method1("emit", ("cancel:completed", data))?;
+                            pyo3_async_runtimes::tokio::into_future(coro)
+                        })
+                        .ok_or_else(|| {
+                            PyErr::new::<PyRuntimeError, _>(
+                                "Failed to attach to Python runtime",
+                            )
+                        })??;
+
+                        let _ = cancel_future.await; // Best-effort cancel event
+                    }
+
+                    // Extract the result string
+                    let result_str: String = Python::try_attach(|py| -> PyResult<String> {
+                        let bound = py_result.bind(py);
+                        bound.extract()
+                    })
+                    .ok_or_else(|| {
+                        PyErr::new::<PyRuntimeError, _>(
+                            "Failed to attach to Python runtime",
+                        )
+                    })??;
+
+                    Ok(result_str)
+                }
+                Err(e) => {
+                    // Error path — check cancellation and emit event if needed
+                    if is_cancelled {
+                        let err_str = format!("{e}");
+                        let cancel_future = Python::try_attach(|py| -> PyResult<_> {
+                            let coord = coordinator.bind(py);
+                            let hooks = coord.getattr("hooks")?;
+                            let cancellation = coord.getattr("cancellation")?;
+                            let state: String = cancellation.getattr("state")?.extract()?;
+                            let data = PyDict::new(py);
+                            data.set_item("was_immediate", state == "immediate")?;
+                            data.set_item("error", &err_str)?;
+                            let coro = hooks.call_method1("emit", ("cancel:completed", data))?;
+                            pyo3_async_runtimes::tokio::into_future(coro)
+                        })
+                        .ok_or_else(|| {
+                            PyErr::new::<PyRuntimeError, _>(
+                                "Failed to attach to Python runtime",
+                            )
+                        })??;
+
+                        let _ = cancel_future.await; // Best-effort cancel event
+                    }
+
+                    Err(PyErr::new::<PyRuntimeError, _>(format!(
+                        "Execution failed: {e}"
+                    )))
+                }
+            }
+        })
     }
 
     // -----------------------------------------------------------------------
