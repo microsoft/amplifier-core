@@ -6,6 +6,7 @@ Provides deterministic execution with priority ordering.
 import asyncio
 import logging
 from collections import defaultdict
+from datetime import datetime, timezone
 from collections.abc import Awaitable
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -134,6 +135,12 @@ class HookRegistry:
         # Explicit event data takes precedence over defaults.
         defaults = getattr(self, "_defaults", {})
         current_data = {**(defaults or {}), **(data or {})}
+
+        # Stamp timestamp as infrastructure-owned field.
+        # Together with session_id (from defaults), forms the compound identity
+        # key (session_id, timestamp) for event uniqueness and ordering.
+        # Infrastructure-owned: always present, callers cannot omit or override.
+        current_data["timestamp"] = datetime.now(timezone.utc).isoformat()
 
         # Track special actions to return
         special_result = None
