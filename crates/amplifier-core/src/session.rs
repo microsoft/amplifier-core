@@ -226,6 +226,13 @@ impl Session {
         self.initialized = true;
     }
 
+    /// Clear the initialized flag (used during cleanup).
+    ///
+    /// After cleanup, the session is no longer ready for execution.
+    pub fn clear_initialized(&mut self) {
+        self.initialized = false;
+    }
+
     /// Execute a prompt using the mounted orchestrator.
     ///
     /// Auto-emits `session:start` (or `session:resume`) event, then delegates

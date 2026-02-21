@@ -641,18 +641,139 @@ impl PySession {
     }
 
     // -----------------------------------------------------------------------
-    // Task 3.5: cleanup() — delegates to coordinator cleanup
+    // Task 10: cleanup() — Rust owns the full cleanup lifecycle
     // -----------------------------------------------------------------------
 
     /// Clean up session resources.
     ///
-    /// Calls the coordinator's cleanup functions in reverse order,
-    /// matching Python `AmplifierSession.cleanup()`.
+    /// Rust controls the full cleanup lifecycle:
+    /// 1. Call all registered cleanup functions (reverse order, error-tolerant)
+    /// 2. Emit `session:end` event via hooks
+    /// 3. Reset the initialized flag
+    ///
+    /// Errors in cleanup functions and event emission are logged but never
+    /// propagate — cleanup must always complete.
     fn cleanup<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let coordinator = self.coordinator.bind(py);
-        // Call coordinator.cleanup() which returns a coroutine
-        let coro = coordinator.call_method0("cleanup")?;
-        Ok(coro)
+        let inner = self.inner.clone();
+
+        // Grab references we need inside the async block
+        let coordinator = self.coordinator.clone_ref(py);
+        let session_id = self.cached_session_id.clone();
+
+        // Step 1: Collect cleanup functions and prepare the session:end event
+        // coroutine while we still hold the GIL.
+        let coord = self.coordinator.bind(py);
+        let cleanup_fns_list = coord.getattr("_cleanup_fns")?;
+        let cleanup_len: usize = cleanup_fns_list.len()?;
+        // Snapshot the callable references so we can call them later
+        let mut cleanup_callables: Vec<Py<PyAny>> = Vec::with_capacity(cleanup_len);
+        for i in 0..cleanup_len {
+            let item = cleanup_fns_list.get_item(i)?;
+            cleanup_callables.push(item.unbind());
+        }
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            // ----------------------------------------------------------
+            // Step 1: Call all cleanup functions in reverse order
+            // ----------------------------------------------------------
+            for callable in cleanup_callables.iter().rev() {
+                // 1a: Call the function inside the GIL
+                let call_outcome: Option<PyResult<(bool, Py<PyAny>)>> =
+                    Python::try_attach(|py| -> PyResult<(bool, Py<PyAny>)> {
+                        let result = callable.call0(py)?;
+                        let bound = result.bind(py);
+                        let inspect = py.import("inspect")?;
+                        let is_coro: bool =
+                            inspect.call_method1("iscoroutine", (bound,))?.extract()?;
+                        Ok((is_coro, result))
+                    });
+
+                match call_outcome {
+                    Some(Ok((true, coro_py))) => {
+                        // 1b: Async cleanup — convert coroutine to future and await
+                        let future_result = Python::try_attach(|py| {
+                            pyo3_async_runtimes::tokio::into_future(coro_py.into_bound(py))
+                        });
+                        if let Some(Ok(future)) = future_result {
+                            if let Err(e) = future.await {
+                                // Log but continue
+                                let _ = Python::try_attach(|py| -> PyResult<()> {
+                                    let logging = py.import("logging")?;
+                                    let logger = logging.call_method1(
+                                        "getLogger",
+                                        ("amplifier_core.session",),
+                                    )?;
+                                    let _ = logger.call_method1(
+                                        "error",
+                                        (format!("Error during async cleanup: {e}"),),
+                                    );
+                                    Ok(())
+                                });
+                            }
+                        }
+                    }
+                    Some(Ok((false, _))) => {
+                        // Sync call completed successfully — nothing more to do
+                    }
+                    Some(Err(e)) => {
+                        // Error calling the function — log and continue
+                        let _ = Python::try_attach(|py| -> PyResult<()> {
+                            let logging = py.import("logging")?;
+                            let logger = logging.call_method1(
+                                "getLogger",
+                                ("amplifier_core.session",),
+                            )?;
+                            let _ = logger.call_method1(
+                                "error",
+                                (format!("Error during cleanup: {e}"),),
+                            );
+                            Ok(())
+                        });
+                    }
+                    None => {
+                        // Failed to attach to Python runtime — skip
+                    }
+                }
+            }
+
+            // ----------------------------------------------------------
+            // Step 2: Emit session:end event (best-effort)
+            // ----------------------------------------------------------
+            let end_event_result: Option<PyResult<_>> = Python::try_attach(|py| {
+                let coord = coordinator.bind(py);
+                let hooks = coord.getattr("hooks")?;
+                let data = PyDict::new(py);
+                data.set_item("session_id", &session_id)?;
+                let coro = hooks.call_method1("emit", ("session:end", data))?;
+                pyo3_async_runtimes::tokio::into_future(coro)
+            });
+
+            if let Some(Ok(future)) = end_event_result {
+                if let Err(e) = future.await {
+                    // Log but don't propagate
+                    let _ = Python::try_attach(|py| -> PyResult<()> {
+                        let logging = py.import("logging")?;
+                        let logger = logging
+                            .call_method1("getLogger", ("amplifier_core.session",))?;
+                        let _ = logger.call_method1(
+                            "error",
+                            (format!("Error emitting session:end: {e}"),),
+                        );
+                        Ok(())
+                    });
+                }
+            }
+
+            // ----------------------------------------------------------
+            // Step 3: Reset the initialized flag
+            // ----------------------------------------------------------
+            {
+                let mut session = inner.lock().await;
+                session.clear_initialized();
+            }
+
+            Ok(())
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -1323,6 +1444,14 @@ impl PyCoordinator {
     // -----------------------------------------------------------------------
     // Task 2.6: register_cleanup / cleanup
     // -----------------------------------------------------------------------
+
+    /// Read-only access to the cleanup functions list.
+    ///
+    /// Used by PySession::cleanup() to iterate cleanup callables directly.
+    #[getter]
+    fn _cleanup_fns<'py>(&self, py: Python<'py>) -> Bound<'py, PyList> {
+        self.cleanup_fns.bind(py).clone()
+    }
 
     /// Register a cleanup function to be called on shutdown.
     ///
