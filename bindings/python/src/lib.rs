@@ -677,6 +677,17 @@ impl PySession {
             // Step 1: Call all cleanup functions in reverse order
             // ----------------------------------------------------------
             for callable in cleanup_callables.iter().rev() {
+                // Guard: skip None and non-callable items (defense-in-depth)
+                let should_skip = Python::try_attach(|py| -> bool {
+                    let bound = callable.bind(py);
+                    bound.is_none() || !bound.is_callable()
+                })
+                .unwrap_or(true);
+
+                if should_skip {
+                    continue;
+                }
+
                 // 1a: Call the function inside the GIL
                 let call_outcome: Option<PyResult<(bool, Py<PyAny>)>> =
                     Python::try_attach(|py| -> PyResult<(bool, Py<PyAny>)> {
@@ -1486,6 +1497,10 @@ impl PyCoordinator {
                 // Execute in reverse order
                 for i in (0..len).rev() {
                     let cleanup_fn = list.get_item(i)?;
+                    // Guard: skip None and non-callable items (defense-in-depth)
+                    if cleanup_fn.is_none() || !cleanup_fn.is_callable() {
+                        continue;
+                    }
                     // Try calling; catch and log errors
                     match cleanup_fn.call0() {
                         Ok(result) => {
