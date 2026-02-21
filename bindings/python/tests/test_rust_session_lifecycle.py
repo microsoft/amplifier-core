@@ -10,6 +10,9 @@ Task 9 - execute() in Rust:
 5. execute() requires initialization (raises error if not initialized)
 6. execute() calls the orchestrator via the Python helper
 7. execute() returns the orchestrator's result string
+
+Task 11 - Full session lifecycle integration:
+8. Full lifecycle: create → initialize → execute → cleanup through Rust
 """
 
 import pytest
@@ -221,3 +224,145 @@ async def test_cleanup_resets_initialized_flag():
     await session.cleanup()
 
     assert session.initialized is False
+
+
+# ---------------------------------------------------------------------------
+# Task 11: Full session lifecycle integration test
+# ---------------------------------------------------------------------------
+
+
+class MockOrchestrator:
+    """Mock orchestrator that records calls and returns a predictable response."""
+
+    def __init__(self):
+        self.called_with = None
+        self.call_count = 0
+
+    async def execute(
+        self,
+        prompt,
+        context=None,
+        providers=None,
+        tools=None,
+        hooks=None,
+        coordinator=None,
+    ):
+        self.called_with = prompt
+        self.call_count += 1
+        return f"Response to: {prompt}"
+
+
+@pytest.mark.asyncio
+async def test_full_lifecycle_through_rust():
+    """Full lifecycle: create → initialize → execute → cleanup, all driven by Rust.
+
+    Proves:
+    - RustSession drives the lifecycle (not Python AmplifierSession)
+    - initialize() sets the initialized flag
+    - execute() calls the Python orchestrator via PyO3 and returns its result
+    - Events are emitted with timestamp fields (session:start, session:end)
+    - cleanup() calls cleanup functions, emits session:end, resets initialized
+    """
+    # --- Setup ---
+    config = {"session": {"orchestrator": "mock", "context": "mock"}}
+    session = RustSession(config=config, session_id="lifecycle-test-001")
+
+    # Track ALL emitted events and their data
+    captured_events = []
+
+    async def capture_event(event, data):
+        captured_events.append({"event": event, "data": dict(data)})
+        return None  # Python HookRegistry tolerates None returns
+
+    # Track cleanup function calls
+    cleanup_called = []
+
+    def on_cleanup():
+        cleanup_called.append("cleaned")
+
+    # --- Phase 1: Create & verify initial state ---
+    assert session.initialized is False
+
+    # --- Phase 2: Initialize ---
+    mock_init = AsyncMock()
+    with patch("amplifier_core._session_init.initialize_session", mock_init):
+        await session.initialize()
+
+    assert session.initialized is True
+
+    # --- Phase 3: Mount mock modules & register hooks ---
+    mock_orch = MockOrchestrator()
+    session.coordinator.mount_points["orchestrator"] = mock_orch
+    session.coordinator.mount_points["context"] = AsyncMock()
+    session.coordinator.mount_points["providers"] = {"mock-provider": AsyncMock()}
+
+    # Register hook handlers AFTER initialize so hooks object exists
+    session.coordinator.hooks.register(
+        "session:start", capture_event, name="test-start-tracker"
+    )
+    session.coordinator.hooks.register(
+        "session:end", capture_event, name="test-end-tracker"
+    )
+
+    # Register a cleanup function
+    session.coordinator.register_cleanup(on_cleanup)
+
+    # --- Phase 4: Execute ---
+    was_initialized_before_execute = session.initialized
+    result = await session.execute("Hello!")
+
+    # --- Phase 5: Cleanup ---
+    was_initialized_before_cleanup = session.initialized
+    await session.cleanup()
+
+    # --- Assertions ---
+
+    # 1. The result matches what the mock orchestrator returns
+    assert result == "Response to: Hello!"
+
+    # 2. The mock orchestrator's execute() was called with the right prompt
+    assert mock_orch.called_with == "Hello!"
+    assert mock_orch.call_count == 1
+
+    # 3. Session was initialized before execute and cleanup
+    assert was_initialized_before_execute is True
+    assert was_initialized_before_cleanup is True
+
+    # 4. After cleanup, initialized is False
+    assert session.initialized is False
+
+    # 5. Cleanup function was called
+    assert cleanup_called == ["cleaned"]
+
+    # 6. Events were emitted — check for session:start and session:end
+    event_names = [e["event"] for e in captured_events]
+    assert "session:start" in event_names, (
+        f"Expected session:start event, got: {event_names}"
+    )
+    assert "session:end" in event_names, (
+        f"Expected session:end event, got: {event_names}"
+    )
+
+    # 7. All emitted events have timestamp fields with valid ISO format strings
+    #    (timestamps are stamped by HookRegistry.emit as infrastructure-owned fields)
+    from datetime import datetime
+
+    for entry in captured_events:
+        assert "timestamp" in entry["data"], (
+            f"Event '{entry['event']}' missing timestamp field. "
+            f"Data keys: {list(entry['data'].keys())}"
+        )
+        # Verify the timestamp is a parseable ISO format string
+        ts = entry["data"]["timestamp"]
+        assert isinstance(ts, str), f"Timestamp should be a string, got {type(ts)}"
+        datetime.fromisoformat(ts)  # Raises ValueError if not valid ISO format
+
+    # 8. The session:start event contains our session_id
+    start_events = [e for e in captured_events if e["event"] == "session:start"]
+    assert len(start_events) == 1
+    assert start_events[0]["data"]["session_id"] == "lifecycle-test-001"
+
+    # 9. The session:end event contains our session_id
+    end_events = [e for e in captured_events if e["event"] == "session:end"]
+    assert len(end_events) == 1
+    assert end_events[0]["data"]["session_id"] == "lifecycle-test-001"
