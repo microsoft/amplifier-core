@@ -49,81 +49,98 @@ impl HookHandler for PyHookHandlerBridge {
         &self,
         event: &str,
         data: Value,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<HookResult, HookError>> + Send + '_>,
-    > {
+    ) -> Pin<Box<dyn Future<Output = Result<HookResult, HookError>> + Send + '_>> {
         let event = event.to_string();
         // Clone the Py<PyAny> reference inside the GIL to safely move into async block
         let callable = Python::try_attach(|py| {
             Ok::<_, PyErr>(self.callable.clone_ref(py))
-        }).unwrap().unwrap();
+        })
+        .unwrap()
+        .unwrap();
+
         Box::pin(async move {
-            // Call the Python handler and handle both sync and async returns
+            // Step 1: Call the Python handler (inside GIL) — returns either a
+            // sync result or a coroutine object, plus whether it's a coroutine.
+            let (is_coro, py_result_or_coro) = Python::try_attach(
+                |py| -> PyResult<(bool, Py<PyAny>)> {
+                    let json_mod = py.import("json")?;
+                    let data_str =
+                        serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
+                    let py_data = json_mod.call_method1("loads", (&data_str,))?;
+
+                    let call_result = callable.call(py, (&event, py_data), None)?;
+                    let bound = call_result.bind(py);
+
+                    // Check if the result is a coroutine (async handler)
+                    let inspect = py.import("inspect")?;
+                    let is_coro: bool =
+                        inspect.call_method1("iscoroutine", (bound,))?.extract()?;
+
+                    Ok((is_coro, call_result))
+                },
+            )
+            .ok_or_else(|| HookError::HandlerFailed {
+                message: "Failed to attach to Python runtime".to_string(),
+                handler_name: None,
+            })?
+            .map_err(|e| HookError::HandlerFailed {
+                message: format!("Python handler call error: {e}"),
+                handler_name: None,
+            })?;
+
+            // Step 2: If it's a coroutine, convert to a Rust Future via
+            // pyo3_async_runtimes::tokio::into_future() and await OUTSIDE the GIL.
+            // This is the key fix: the old code used run_coroutine_threadsafe /
+            // asyncio.run() which either deadlocked or created a throwaway event loop.
+            // into_future() properly drives the coroutine on the caller's event loop.
+            let py_result = if is_coro {
+                let future = Python::try_attach(|py| {
+                    pyo3_async_runtimes::tokio::into_future(py_result_or_coro.into_bound(py))
+                })
+                .ok_or_else(|| HookError::HandlerFailed {
+                    message: "Failed to attach to Python runtime for coroutine conversion"
+                        .to_string(),
+                    handler_name: None,
+                })?
+                .map_err(|e| HookError::HandlerFailed {
+                    message: format!("Failed to convert coroutine: {e}"),
+                    handler_name: None,
+                })?;
+
+                // Await OUTSIDE the GIL — drives the Python coroutine on the
+                // caller's asyncio event loop via pyo3-async-runtimes task locals.
+                future.await.map_err(|e| HookError::HandlerFailed {
+                    message: format!("Python async handler error: {e}"),
+                    handler_name: None,
+                })?
+            } else {
+                py_result_or_coro
+            };
+
+            // Step 3: Parse the Python result into a HookResult (reacquire GIL)
             let result_json: String = Python::try_attach(|py| -> PyResult<String> {
-                let json_mod = py.import("json")?;
-                let data_str = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
-                let py_data = json_mod.call_method1("loads", (&data_str,))?;
-
-                let call_result = callable.call(py, (&event, py_data), None)?;
-                let bound = call_result.bind(py);
-
-                // Check if the result is a coroutine (async handler)
-                let inspect = py.import("inspect")?;
-                let is_coro: bool = inspect.call_method1("iscoroutine", (bound,))?.extract()?;
-
-                if is_coro {
-                    // Await the coroutine using asyncio
-                    let asyncio = py.import("asyncio")?;
-                    // Try to get the running loop and create a task
-                    // If we're in an async context, use ensure_future + loop.run_until_complete
-                    match asyncio.call_method1("get_running_loop", ()) {
-                        Ok(loop_) => {
-                            // We're inside a running loop — we can't run_until_complete.
-                            // Instead, use a thread to run the coroutine.
-                            // But for simplicity, let's try the concurrent.futures approach
-                            let concurrent = py.import("concurrent.futures")?;
-                            let thread_pool = concurrent.getattr("ThreadPoolExecutor")?.call1((1,))?;
-                            let future = asyncio.call_method1("run_coroutine_threadsafe", (bound, &loop_))?;
-                            let awaited = future.call_method1("result", (5.0,))?; // 5s timeout
-                            drop(thread_pool);
-
-                            if awaited.is_none() {
-                                return Ok("{}".to_string());
-                            }
-                            let json_str: String = json_mod.call_method1("dumps", (&awaited,))?
-                                .extract()
-                                .unwrap_or_else(|_| "{}".to_string());
-                            Ok(json_str)
-                        }
-                        Err(_) => {
-                            // No running loop — use asyncio.run() in a new loop
-                            let awaited = asyncio.call_method1("run", (bound,))?;
-                            if awaited.is_none() {
-                                return Ok("{}".to_string());
-                            }
-                            let json_str: String = json_mod.call_method1("dumps", (&awaited,))?
-                                .extract()
-                                .unwrap_or_else(|_| "{}".to_string());
-                            Ok(json_str)
-                        }
-                    }
-                } else {
-                    // Sync handler — process the result directly
-                    if bound.is_none() {
-                        return Ok("{}".to_string());
-                    }
-                    let json_str: String = json_mod.call_method1("dumps", (bound,))?
-                        .extract()
-                        .unwrap_or_else(|_| "{}".to_string());
-                    Ok(json_str)
+                let bound = py_result.bind(py);
+                if bound.is_none() {
+                    return Ok("{}".to_string());
                 }
+                let json_mod = py.import("json")?;
+                let json_str: String = json_mod
+                    .call_method1("dumps", (bound,))?
+                    .extract()
+                    .unwrap_or_else(|_| "{}".to_string());
+                Ok(json_str)
             })
-            .ok_or_else(|| HookError::HandlerFailed { message: "Failed to attach to Python runtime".to_string(), handler_name: None })?
-            .map_err(|e| HookError::HandlerFailed { message: format!("Python handler error: {e}"), handler_name: None })?;
+            .ok_or_else(|| HookError::HandlerFailed {
+                message: "Failed to attach to Python runtime for result parsing".to_string(),
+                handler_name: None,
+            })?
+            .map_err(|e| HookError::HandlerFailed {
+                message: format!("Failed to serialize handler result: {e}"),
+                handler_name: None,
+            })?;
 
-            // Parse the JSON result into a HookResult
-            let hook_result: HookResult = serde_json::from_str(&result_json)
-                .unwrap_or_default();
+            let hook_result: HookResult =
+                serde_json::from_str(&result_json).unwrap_or_default();
             Ok(hook_result)
         })
     }
