@@ -384,3 +384,98 @@ def test_coordinator_hooks_returns_rust_registry():
     assert isinstance(hooks, RustHookRegistry), (
         f"Expected RustHookRegistry, got {type(hooks)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Cleanup defense-in-depth: skip None and non-callable items in _cleanup_fns
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_session_cleanup_skips_non_callable_items():
+    """PySession.cleanup() must silently skip non-callable items in
+    _cleanup_fns — no 'Error during cleanup' log messages."""
+    import logging
+    import io
+
+    session = await _make_initialized_session()
+
+    # Register a legitimate cleanup via the proper API
+    called = []
+
+    def good_cleanup():
+        called.append("good")
+
+    session.coordinator.register_cleanup(good_cleanup)
+
+    # Directly append non-callable items to the list — simulates what
+    # happens when external code bypasses register_cleanup()
+    fns = session.coordinator._cleanup_fns
+    fns.append(None)
+    fns.append({"name": "not-callable"})
+    fns.append(42)
+
+    # Capture log output from the session logger
+    log_stream = io.StringIO()
+    handler = logging.StreamHandler(log_stream)
+    handler.setLevel(logging.DEBUG)
+    logger = logging.getLogger("amplifier_core.session")
+    logger.addHandler(handler)
+    try:
+        await session.cleanup()
+    finally:
+        logger.removeHandler(handler)
+
+    # The good cleanup function must still have been called
+    assert "good" in called, "Good cleanup function should have been called"
+
+    # No "Error during cleanup" messages should appear for non-callable items
+    log_output = log_stream.getvalue()
+    assert "Error during cleanup" not in log_output, (
+        f"Non-callable items should be silently skipped, but got: {log_output}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_coordinator_cleanup_skips_non_callable_items():
+    """PyCoordinator.cleanup() must silently skip non-callable items in
+    _cleanup_fns — no 'Error during cleanup' log messages."""
+    import logging
+    import io
+
+    session = await _make_initialized_session()
+    coordinator = session.coordinator
+
+    # Register a legitimate cleanup via the proper API
+    called = []
+
+    def good_cleanup():
+        called.append("good")
+
+    coordinator.register_cleanup(good_cleanup)
+
+    # Directly append non-callable items to the list
+    fns = coordinator._cleanup_fns
+    fns.append(None)
+    fns.append({"name": "not-callable"})
+    fns.append(42)
+
+    # Capture log output from the coordinator logger
+    log_stream = io.StringIO()
+    handler = logging.StreamHandler(log_stream)
+    handler.setLevel(logging.DEBUG)
+    logger = logging.getLogger("amplifier_core.coordinator")
+    logger.addHandler(handler)
+    try:
+        await coordinator.cleanup()
+    finally:
+        logger.removeHandler(handler)
+
+    # The good cleanup function must still have been called
+    assert "good" in called, "Good cleanup function should have been called"
+
+    # No "Error during cleanup" messages should appear for non-callable items
+    log_output = log_stream.getvalue()
+    assert "Error during cleanup" not in log_output, (
+        f"Non-callable items should be silently skipped, but got: {log_output}"
+    )
