@@ -143,3 +143,81 @@ async def test_execute_returns_result():
     result = await session.execute("hi")
 
     assert result == "Hello!"
+
+
+# ---------------------------------------------------------------------------
+# Task 10: cleanup() in Rust
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cleanup_calls_cleanup_functions():
+    """cleanup() should call all registered cleanup functions."""
+    session = await _make_initialized_session()
+
+    # Register a cleanup function on the coordinator
+    called = []
+
+    def cleanup_fn():
+        called.append("cleaned")
+
+    session.coordinator.register_cleanup(cleanup_fn)
+
+    await session.cleanup()
+
+    assert called == ["cleaned"]
+
+
+@pytest.mark.asyncio
+async def test_cleanup_handles_errors_gracefully():
+    """cleanup() should not crash when a cleanup function raises."""
+    session = await _make_initialized_session()
+
+    # Register a good cleanup function first, then a bad one.
+    # Cleanup runs in reverse order: bad runs first, then good should still run.
+    called = []
+
+    def good_cleanup():
+        called.append("good")
+
+    def bad_cleanup():
+        raise RuntimeError("cleanup failed!")
+
+    session.coordinator.register_cleanup(good_cleanup)
+    session.coordinator.register_cleanup(bad_cleanup)
+
+    # Should not raise — errors are logged but don't crash
+    await session.cleanup()
+
+    # The good cleanup should still have been called despite bad_cleanup raising
+    assert "good" in called
+
+
+@pytest.mark.asyncio
+async def test_cleanup_emits_session_end_event():
+    """cleanup() should emit a session:end event."""
+    session = await _make_initialized_session()
+
+    # Track emitted events via the hooks
+    emitted_events = []
+
+    async def track_event(event, data):
+        emitted_events.append(event)
+        return None
+
+    session.coordinator.hooks.register("session:end", track_event, name="test-tracker")
+
+    await session.cleanup()
+
+    assert "session:end" in emitted_events
+
+
+@pytest.mark.asyncio
+async def test_cleanup_resets_initialized_flag():
+    """After cleanup(), session.initialized should be False."""
+    session = await _make_initialized_session()
+    assert session.initialized is True
+
+    await session.cleanup()
+
+    assert session.initialized is False
