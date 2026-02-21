@@ -71,3 +71,99 @@ def test_event_constants_on_class():
     assert RustHookRegistry.CONTEXT_PRE_COMPACT == "context:pre_compact"
     assert RustHookRegistry.ORCHESTRATOR_COMPLETE == "orchestrator:complete"
     assert RustHookRegistry.USER_NOTIFICATION == "user:notification"
+
+
+# ---------------------------------------------------------------------------
+# Task 3: PyHookHandlerBridge async handler tests (into_future fix)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_emit_with_sync_handler():
+    """Sync Python handler returns a dict that becomes a HookResult."""
+    registry = RustHookRegistry()
+
+    def sync_handler(event, data):
+        return {"action": "continue", "data": {"handled": True}}
+
+    registry.register("test:event", sync_handler, 0, name="sync-hook")
+    result = await registry.emit("test:event", {"key": "value"})
+    # Should get a valid HookResult back
+    assert result is not None
+    assert result.action == "continue"
+
+
+@pytest.mark.asyncio
+async def test_emit_with_async_handler():
+    """Async Python handler (coroutine) is properly awaited via into_future.
+
+    This is the KEY test for Task 3. The old run_coroutine_threadsafe
+    implementation DEADLOCKS here because we're already inside an asyncio
+    event loop (pytest-asyncio). The new into_future implementation correctly
+    converts the Python coroutine to a Rust Future and awaits it outside the GIL.
+    """
+    import asyncio
+
+    registry = RustHookRegistry()
+
+    async def async_handler(event, data):
+        # Simulate async work — this would deadlock with run_coroutine_threadsafe
+        await asyncio.sleep(0.01)
+        return {"action": "continue", "data": {"async_handled": True, "event": event}}
+
+    registry.register("test:event", async_handler, 0, name="async-hook")
+    result = await registry.emit("test:event", {"key": "value"})
+    assert result is not None
+    assert result.action == "continue"
+
+
+@pytest.mark.asyncio
+async def test_emit_with_async_handler_returning_none():
+    """Async handler returning None produces a default continue HookResult."""
+    registry = RustHookRegistry()
+
+    async def noop_handler(event, data):
+        return None
+
+    registry.register("test:event", noop_handler, 0, name="noop-hook")
+    result = await registry.emit("test:event", {})
+    assert result is not None
+    # Default HookResult should have action "continue"
+    assert result.action == "continue"
+
+
+@pytest.mark.asyncio
+async def test_async_handler_uses_callers_event_loop():
+    """Async handler coroutine runs on the caller's event loop via into_future.
+
+    This is the DISCRIMINATING test for the into_future fix (Task 3).
+
+    With the OLD run_coroutine_threadsafe / asyncio.run() fallback:
+      - The coroutine runs on a NEW event loop created on the tokio thread
+      - asyncio.get_running_loop() inside the handler returns a DIFFERENT loop
+
+    With the NEW into_future() approach:
+      - The coroutine is driven by the original event loop (from task locals)
+      - asyncio.get_running_loop() inside the handler returns the SAME loop
+    """
+    import asyncio
+
+    caller_loop = asyncio.get_running_loop()
+    handler_loop_holder = {}
+
+    async def loop_detecting_handler(event, data):
+        handler_loop_holder["loop"] = asyncio.get_running_loop()
+        return {"action": "continue"}
+
+    registry = RustHookRegistry()
+    registry.register("test:event", loop_detecting_handler, 0, name="loop-detect")
+    await registry.emit("test:event", {"key": "value"})
+
+    # With into_future, the handler coroutine runs on the SAME event loop
+    # as the caller (the one that pytest-asyncio set up).
+    # With the old asyncio.run() fallback, it would be a different loop.
+    assert "loop" in handler_loop_holder, "Handler coroutine was never awaited"
+    assert handler_loop_holder["loop"] is caller_loop, (
+        "Handler ran on a different event loop — "
+        "this means asyncio.run() was used instead of into_future()"
+    )
