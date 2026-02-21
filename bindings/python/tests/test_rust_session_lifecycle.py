@@ -366,3 +366,21 @@ async def test_full_lifecycle_through_rust():
     end_events = [e for e in captured_events if e["event"] == "session:end"]
     assert len(end_events) == 1
     assert end_events[0]["data"]["session_id"] == "lifecycle-test-001"
+
+
+# ---------------------------------------------------------------------------
+# Task 12: Remove hooks property override — coordinator.hooks is RustHookRegistry
+# ---------------------------------------------------------------------------
+
+
+def test_coordinator_hooks_returns_rust_registry():
+    """After removing the override, coordinator.hooks should be the Rust RustHookRegistry,
+    not the Python HookRegistry."""
+    from amplifier_core import AmplifierSession
+    from amplifier_core._engine import RustHookRegistry
+
+    session = AmplifierSession({"session": {"orchestrator": "test", "context": "test"}})
+    hooks = session.coordinator.hooks
+    assert isinstance(hooks, RustHookRegistry), (
+        f"Expected RustHookRegistry, got {type(hooks)}"
+    )

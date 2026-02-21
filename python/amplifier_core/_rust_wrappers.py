@@ -20,48 +20,15 @@ logger = logging.getLogger(__name__)
 
 
 class ModuleCoordinator(RustCoordinator):
-    """Rust-backed coordinator with Python hook dispatch and process_hook_result.
+    """Rust-backed coordinator with process_hook_result.
 
     Extends RustCoordinator with:
-    - A Python HookRegistry for hook dispatch (handles async handlers natively)
     - process_hook_result (calls approval_system, display_system)
 
-    The Python HookRegistry is used instead of the Rust RustHookRegistry because
-    all hook handlers in the current ecosystem are Python async functions. The Rust
-    HookRegistry requires PyO3 async bridging (run_coroutine_threadsafe) which is
-    fragile inside a running asyncio event loop. The Python HookRegistry uses
-    native async/await and works reliably.
+    Hook dispatch is handled by the Rust RustHookRegistry (inherited from
+    RustCoordinator). The PyO3 async bridge correctly awaits Python async
+    handlers from Rust.
     """
-
-    _py_hooks = None
-    _current_turn_injections = 0
-
-    @property
-    def hooks(self):
-        """Return the Python HookRegistry for this coordinator.
-        
-        Overrides the Rust hooks property to use Python's native async dispatch.
-        The Python HookRegistry is created lazily on first access and stored
-        in mount_points["hooks"] for ecosystem compatibility.
-        """
-        if self._py_hooks is None:
-            from .hooks import HookRegistry as PyHookRegistry
-            self._py_hooks = PyHookRegistry()
-            # Copy default fields from the Rust hook registry if set
-            # The Rust session constructor sets session_id and parent_id as defaults
-            try:
-                rust_hooks = super().hooks
-                # Transfer any defaults that were set on the Rust registry
-                # by reading the session_id from the coordinator
-                self._py_hooks.set_default_fields(
-                    session_id=self.session_id,
-                    parent_id=self.parent_id,
-                )
-            except Exception:
-                pass
-            # Also store in mount_points for ecosystem access
-            self.mount_points["hooks"] = self._py_hooks
-        return self._py_hooks
 
     async def process_hook_result(
         self, result: HookResult, event: str, hook_name: str = "unknown"
