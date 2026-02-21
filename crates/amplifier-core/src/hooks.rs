@@ -193,6 +193,17 @@ impl HookRegistry {
             }
         };
 
+        // Stamp infrastructure-owned timestamp (UTC ISO-8601).
+        // Together with session_id (from defaults), forms the compound identity
+        // key (session_id, timestamp) for event uniqueness and ordering.
+        // Infrastructure-owned: always present, callers cannot omit or override.
+        if let Value::Object(ref mut map) = current_data {
+            map.insert(
+                "timestamp".to_string(),
+                Value::String(chrono::Utc::now().to_rfc3339()),
+            );
+        }
+
         // Track special actions
         let mut special_result: Option<HookResult> = None;
         let mut inject_context_results: Vec<HookResult> = Vec::new();
@@ -899,6 +910,77 @@ mod tests {
         let handlers = registry.list_handlers(Some("tool:pre"));
         assert!(handlers.contains_key("tool:pre"));
         assert!(!handlers.contains_key("tool:post"));
+    }
+
+    // ---------------------------------------------------------------
+    // Event timestamp stamping
+    // ---------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_emit_stamps_timestamp() {
+        let registry = HookRegistry::new();
+        let capture = Arc::new(CaptureHandler::new());
+        registry.register("test:event", capture.clone(), 0, None);
+
+        registry
+            .emit("test:event", serde_json::json!({"key": "value"}))
+            .await;
+
+        let captured = capture.last_data().await;
+        // Must have a "timestamp" key
+        let ts = captured["timestamp"]
+            .as_str()
+            .expect("timestamp must be a string");
+        // Must parse as a valid RFC 3339 / ISO-8601 timestamp
+        chrono::DateTime::parse_from_rfc3339(ts)
+            .expect("timestamp must be valid ISO-8601 / RFC 3339");
+    }
+
+    #[tokio::test]
+    async fn test_emit_timestamp_is_infrastructure_owned() {
+        let registry = HookRegistry::new();
+        let capture = Arc::new(CaptureHandler::new());
+        registry.register("test:event", capture.clone(), 0, None);
+
+        // Caller tries to supply their own timestamp — infrastructure must overwrite it
+        registry
+            .emit(
+                "test:event",
+                serde_json::json!({"timestamp": "user-provided"}),
+            )
+            .await;
+
+        let captured = capture.last_data().await;
+        let ts = captured["timestamp"]
+            .as_str()
+            .expect("timestamp must be a string");
+        assert_ne!(ts, "user-provided", "infrastructure must overwrite caller timestamp");
+        // Must still be valid ISO-8601
+        chrono::DateTime::parse_from_rfc3339(ts)
+            .expect("overwritten timestamp must be valid ISO-8601");
+    }
+
+    #[tokio::test]
+    async fn test_emit_and_collect_does_not_stamp_timestamp() {
+        let registry = HookRegistry::new();
+        let capture = Arc::new(CaptureHandler::new());
+        registry.register("test:event", capture.clone(), 0, None);
+
+        registry
+            .emit_and_collect(
+                "test:event",
+                serde_json::json!({"key": "value"}),
+                std::time::Duration::from_secs(1),
+            )
+            .await;
+
+        let captured = capture.last_data().await;
+        // emit_and_collect must NOT stamp a timestamp
+        assert!(
+            captured.get("timestamp").is_none()
+                || captured["timestamp"].is_null(),
+            "emit_and_collect must not add a timestamp"
+        );
     }
 
     // ---------------------------------------------------------------
