@@ -660,54 +660,49 @@ impl PySession {
         let coordinator = self.coordinator.clone_ref(py);
         let session_id = self.cached_session_id.clone();
 
-        // Step 1: Collect cleanup functions and prepare the session:end event
-        // coroutine while we still hold the GIL.
+        // Step 1: Collect cleanup functions while we still hold the GIL.
+        // Also pre-check iscoroutinefunction so we know how to call each one.
         let coord = self.coordinator.bind(py);
         let cleanup_fns_list = coord.getattr("_cleanup_fns")?;
         let cleanup_len: usize = cleanup_fns_list.len()?;
-        // Snapshot the callable references so we can call them later
-        let mut cleanup_callables: Vec<Py<PyAny>> = Vec::with_capacity(cleanup_len);
+        let inspect = py.import("inspect")?;
+
+        // Snapshot callable references with their async-ness pre-determined.
+        // This matches Python main's pattern of checking iscoroutinefunction
+        // BEFORE calling, rather than calling first and checking the result.
+        let mut cleanup_callables: Vec<(Py<PyAny>, bool)> = Vec::with_capacity(cleanup_len);
         for i in 0..cleanup_len {
             let item = cleanup_fns_list.get_item(i)?;
-            cleanup_callables.push(item.unbind());
+            // Guard: skip None and non-callable items (defense-in-depth)
+            if item.is_none() || !item.is_callable() {
+                continue;
+            }
+            let is_async: bool = inspect
+                .call_method1("iscoroutinefunction", (&item,))?
+                .extract()?;
+            cleanup_callables.push((item.unbind(), is_async));
         }
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             // ----------------------------------------------------------
             // Step 1: Call all cleanup functions in reverse order
+            // Matches Python main's coordinator.cleanup() pattern:
+            //   if callable(fn):
+            //     if iscoroutinefunction(fn): await fn()
+            //     else: result = fn(); if iscoroutine(result): await result
             // ----------------------------------------------------------
-            for callable in cleanup_callables.iter().rev() {
-                // Guard: skip None and non-callable items (defense-in-depth)
-                let should_skip = Python::try_attach(|py| -> bool {
-                    let bound = callable.bind(py);
-                    bound.is_none() || !bound.is_callable()
-                })
-                .unwrap_or(true);
+            for (callable, is_async) in cleanup_callables.iter().rev() {
+                if *is_async {
+                    // Async cleanup: call to get coroutine, then await via into_future
+                    let coro_result: Option<PyResult<Py<PyAny>>> =
+                        Python::try_attach(|py| callable.call0(py));
 
-                if should_skip {
-                    continue;
-                }
-
-                // 1a: Call the function inside the GIL
-                let call_outcome: Option<PyResult<(bool, Py<PyAny>)>> =
-                    Python::try_attach(|py| -> PyResult<(bool, Py<PyAny>)> {
-                        let result = callable.call0(py)?;
-                        let bound = result.bind(py);
-                        let inspect = py.import("inspect")?;
-                        let is_coro: bool =
-                            inspect.call_method1("iscoroutine", (bound,))?.extract()?;
-                        Ok((is_coro, result))
-                    });
-
-                match call_outcome {
-                    Some(Ok((true, coro_py))) => {
-                        // 1b: Async cleanup — convert coroutine to future and await
+                    if let Some(Ok(coro_py)) = coro_result {
                         let future_result = Python::try_attach(|py| {
                             pyo3_async_runtimes::tokio::into_future(coro_py.into_bound(py))
                         });
                         if let Some(Ok(future)) = future_result {
                             if let Err(e) = future.await {
-                                // Log but continue
                                 let _ = Python::try_attach(|py| -> PyResult<()> {
                                     let logging = py.import("logging")?;
                                     let logger = logging.call_method1(
@@ -716,18 +711,13 @@ impl PySession {
                                     )?;
                                     let _ = logger.call_method1(
                                         "error",
-                                        (format!("Error during async cleanup: {e}"),),
+                                        (format!("Error during cleanup: {e}"),),
                                     );
                                     Ok(())
                                 });
                             }
                         }
-                    }
-                    Some(Ok((false, _))) => {
-                        // Sync call completed successfully — nothing more to do
-                    }
-                    Some(Err(e)) => {
-                        // Error calling the function — log and continue
+                    } else if let Some(Err(e)) = coro_result {
                         let _ = Python::try_attach(|py| -> PyResult<()> {
                             let logging = py.import("logging")?;
                             let logger = logging.call_method1(
@@ -741,8 +731,68 @@ impl PySession {
                             Ok(())
                         });
                     }
-                    None => {
-                        // Failed to attach to Python runtime — skip
+                } else {
+                    // Sync cleanup: call and check if result is a coroutine
+                    let call_outcome: Option<PyResult<Option<Py<PyAny>>>> =
+                        Python::try_attach(|py| -> PyResult<Option<Py<PyAny>>> {
+                            let result = callable.call0(py)?;
+                            let bound = result.bind(py);
+                            let inspect = py.import("inspect")?;
+                            let is_coro: bool = inspect
+                                .call_method1("iscoroutine", (bound,))?
+                                .extract()?;
+                            if is_coro {
+                                Ok(Some(result))
+                            } else {
+                                Ok(None) // Sync completed
+                            }
+                        });
+
+                    match call_outcome {
+                        Some(Ok(Some(coro_py))) => {
+                            // Sync function returned a coroutine — await it
+                            let future_result = Python::try_attach(|py| {
+                                pyo3_async_runtimes::tokio::into_future(
+                                    coro_py.into_bound(py),
+                                )
+                            });
+                            if let Some(Ok(future)) = future_result {
+                                if let Err(e) = future.await {
+                                    let _ = Python::try_attach(|py| -> PyResult<()> {
+                                        let logging = py.import("logging")?;
+                                        let logger = logging.call_method1(
+                                            "getLogger",
+                                            ("amplifier_core.session",),
+                                        )?;
+                                        let _ = logger.call_method1(
+                                            "error",
+                                            (format!("Error during cleanup: {e}"),),
+                                        );
+                                        Ok(())
+                                    });
+                                }
+                            }
+                        }
+                        Some(Ok(None)) => {
+                            // Sync call completed successfully
+                        }
+                        Some(Err(e)) => {
+                            let _ = Python::try_attach(|py| -> PyResult<()> {
+                                let logging = py.import("logging")?;
+                                let logger = logging.call_method1(
+                                    "getLogger",
+                                    ("amplifier_core.session",),
+                                )?;
+                                let _ = logger.call_method1(
+                                    "error",
+                                    (format!("Error during cleanup: {e}"),),
+                                );
+                                Ok(())
+                            });
+                        }
+                        None => {
+                            // Failed to attach to Python runtime — skip
+                        }
                     }
                 }
             }
@@ -1488,58 +1538,131 @@ impl PyCoordinator {
     ///
     /// Matches Python `ModuleCoordinator.cleanup()`.
     /// Errors in individual cleanup functions are logged but don't stop execution.
+    /// Uses `into_future` for async cleanup functions (same pattern as PySession::cleanup).
     fn cleanup<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let fns = self.cleanup_fns.clone_ref(py);
+        let inspect = py.import("inspect")?;
+
+        // Pre-check iscoroutinefunction while holding the GIL, matching
+        // Python main's pattern of checking BEFORE calling.
+        let list = fns.bind(py);
+        let len = list.len();
+        let mut callables: Vec<(Py<PyAny>, bool)> = Vec::with_capacity(len);
+        for i in 0..len {
+            let item = list.get_item(i)?;
+            if item.is_none() || !item.is_callable() {
+                continue;
+            }
+            let is_async: bool = inspect
+                .call_method1("iscoroutinefunction", (&item,))?
+                .extract()?;
+            callables.push((item.unbind(), is_async));
+        }
+
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            let result: PyResult<()> = Python::try_attach(|py| -> PyResult<()> {
-                let list = fns.bind(py);
-                let len = list.len();
-                // Execute in reverse order
-                for i in (0..len).rev() {
-                    let cleanup_fn = list.get_item(i)?;
-                    // Guard: skip None and non-callable items (defense-in-depth)
-                    if cleanup_fn.is_none() || !cleanup_fn.is_callable() {
-                        continue;
-                    }
-                    // Try calling; catch and log errors
-                    match cleanup_fn.call0() {
-                        Ok(result) => {
-                            // If it returned a coroutine, await it properly
-                            let inspect = py.import("inspect")?;
-                            let is_coro: bool =
-                                inspect.call_method1("iscoroutine", (&result,))?.extract()?;
-                            if is_coro {
-                                let asyncio = py.import("asyncio")?;
-                                // Try to schedule in the running loop
-                                match asyncio.call_method1("get_running_loop", ()) {
-                                    Ok(loop_) => {
-                                        let future = asyncio.call_method1(
-                                            "run_coroutine_threadsafe", (&result, &loop_)
-                                        )?;
-                                        let _ = future.call_method1("result", (5.0,));
-                                    }
-                                    Err(_) => {
-                                        // No running loop, use asyncio.run
-                                        let _ = asyncio.call_method1("run", (&result,));
-                                    }
-                                }
+            // Execute in reverse order
+            for (callable, is_async) in callables.iter().rev() {
+                if *is_async {
+                    // Async cleanup: call to get coroutine, then await via into_future
+                    let coro_result: Option<PyResult<Py<PyAny>>> =
+                        Python::try_attach(|py| callable.call0(py));
+
+                    if let Some(Ok(coro_py)) = coro_result {
+                        let future_result = Python::try_attach(|py| {
+                            pyo3_async_runtimes::tokio::into_future(coro_py.into_bound(py))
+                        });
+                        if let Some(Ok(future)) = future_result {
+                            if let Err(e) = future.await {
+                                let _ = Python::try_attach(|py| -> PyResult<()> {
+                                    let logging = py.import("logging")?;
+                                    let logger = logging.call_method1(
+                                        "getLogger",
+                                        ("amplifier_core.coordinator",),
+                                    )?;
+                                    let _ = logger.call_method1(
+                                        "error",
+                                        (format!("Error during cleanup: {e}"),),
+                                    );
+                                    Ok(())
+                                });
                             }
                         }
-                        Err(e) => {
-                            // Log but continue — matches Python behavior
+                    } else if let Some(Err(e)) = coro_result {
+                        let _ = Python::try_attach(|py| -> PyResult<()> {
                             let logging = py.import("logging")?;
-                            let logger = logging.call_method1("getLogger", ("amplifier_core.coordinator",))?;
+                            let logger = logging.call_method1(
+                                "getLogger",
+                                ("amplifier_core.coordinator",),
+                            )?;
                             let _ = logger.call_method1(
                                 "error",
                                 (format!("Error during cleanup: {e}"),),
                             );
+                            Ok(())
+                        });
+                    }
+                } else {
+                    // Sync cleanup: call and check if result is a coroutine
+                    let call_outcome: Option<PyResult<Option<Py<PyAny>>>> =
+                        Python::try_attach(|py| -> PyResult<Option<Py<PyAny>>> {
+                            let result = callable.call0(py)?;
+                            let bound = result.bind(py);
+                            let inspect = py.import("inspect")?;
+                            let is_coro: bool = inspect
+                                .call_method1("iscoroutine", (bound,))?
+                                .extract()?;
+                            if is_coro {
+                                Ok(Some(result))
+                            } else {
+                                Ok(None)
+                            }
+                        });
+
+                    match call_outcome {
+                        Some(Ok(Some(coro_py))) => {
+                            let future_result = Python::try_attach(|py| {
+                                pyo3_async_runtimes::tokio::into_future(
+                                    coro_py.into_bound(py),
+                                )
+                            });
+                            if let Some(Ok(future)) = future_result {
+                                if let Err(e) = future.await {
+                                    let _ = Python::try_attach(|py| -> PyResult<()> {
+                                        let logging = py.import("logging")?;
+                                        let logger = logging.call_method1(
+                                            "getLogger",
+                                            ("amplifier_core.coordinator",),
+                                        )?;
+                                        let _ = logger.call_method1(
+                                            "error",
+                                            (format!("Error during cleanup: {e}"),),
+                                        );
+                                        Ok(())
+                                    });
+                                }
+                            }
                         }
+                        Some(Ok(None)) => {
+                            // Sync call completed successfully
+                        }
+                        Some(Err(e)) => {
+                            let _ = Python::try_attach(|py| -> PyResult<()> {
+                                let logging = py.import("logging")?;
+                                let logger = logging.call_method1(
+                                    "getLogger",
+                                    ("amplifier_core.coordinator",),
+                                )?;
+                                let _ = logger.call_method1(
+                                    "error",
+                                    (format!("Error during cleanup: {e}"),),
+                                );
+                                Ok(())
+                            });
+                        }
+                        None => {}
                     }
                 }
-                Ok(())
-            })
-            .unwrap_or(Ok(()));
-            result?;
+            }
             Ok(())
         })
     }
