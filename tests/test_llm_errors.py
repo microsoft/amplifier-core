@@ -269,7 +269,9 @@ class TestNotFoundError:
     """Tests for NotFoundError."""
 
     def test_instantiation(self) -> None:
-        err = NotFoundError("Model gpt-99 not found", provider="openai", status_code=404)
+        err = NotFoundError(
+            "Model gpt-99 not found", provider="openai", status_code=404
+        )
         assert str(err) == "Model gpt-99 not found"
         assert err.provider == "openai"
         assert err.status_code == 404
@@ -518,3 +520,102 @@ class TestNewErrorsImportFromCore:
             cls = getattr(amplifier_core, name)
             assert issubclass(cls, Exception), f"{name} is not an Exception subclass"
             assert issubclass(cls, LLMError), f"{name} is not an LLMError subclass"
+
+
+class TestModelField:
+    """Tests for the model field on LLMError and all subclasses."""
+
+    def test_model_defaults_to_none(self) -> None:
+        err = LLMError("msg")
+        assert err.model is None
+
+    def test_model_set_on_base_class(self) -> None:
+        err = LLMError(
+            "msg",
+            provider="anthropic",
+            model="claude-opus-4-6",
+            status_code=500,
+            retryable=True,
+        )
+        assert err.model == "claude-opus-4-6"
+
+    def test_model_on_rate_limit_error(self) -> None:
+        err = RateLimitError(
+            "msg",
+            provider="anthropic",
+            model="claude-sonnet-4-20250514",
+            status_code=429,
+            retry_after=5.0,
+        )
+        assert err.model == "claude-sonnet-4-20250514"
+        assert err.retry_after == 5.0
+
+    def test_model_on_provider_unavailable_error(self) -> None:
+        err = ProviderUnavailableError(
+            "msg",
+            provider="anthropic",
+            model="claude-opus-4-6",
+            status_code=529,
+        )
+        assert err.model == "claude-opus-4-6"
+
+    def test_model_on_timeout_error(self) -> None:
+        err = LLMTimeoutError(
+            "msg",
+            provider="anthropic",
+            model="claude-opus-4-6",
+        )
+        assert err.model == "claude-opus-4-6"
+
+    def test_model_on_stream_error(self) -> None:
+        err = StreamError(
+            "msg",
+            provider="anthropic",
+            model="claude-opus-4-6",
+        )
+        assert err.model == "claude-opus-4-6"
+
+    def test_model_on_invalid_tool_call_error(self) -> None:
+        err = InvalidToolCallError(
+            "msg",
+            tool_name="read_file",
+            raw_arguments="{}",
+            provider="anthropic",
+            model="claude-opus-4-6",
+        )
+        assert err.model == "claude-opus-4-6"
+
+    def test_model_on_quota_exceeded_error(self) -> None:
+        err = QuotaExceededError(
+            "msg",
+            provider="anthropic",
+            model="claude-opus-4-6",
+            retry_after=3600.0,
+        )
+        assert err.model == "claude-opus-4-6"
+
+    def test_model_on_passthrough_subclasses(self) -> None:
+        passthrough_classes = [
+            AuthenticationError,
+            ContextLengthError,
+            ContentFilterError,
+            InvalidRequestError,
+            NotFoundError,
+            AbortError,
+            ConfigurationError,
+            AccessDeniedError,
+            NetworkError,
+        ]
+        for cls in passthrough_classes:
+            err = cls("msg", model="claude-opus-4-6")
+            assert err.model == "claude-opus-4-6", (
+                f"{cls.__name__}.model is {err.model!r}, expected 'claude-opus-4-6'"
+            )
+
+    def test_repr_includes_model(self) -> None:
+        err = LLMError("fail", provider="anthropic", model="claude-opus-4-6")
+        assert "model='claude-opus-4-6'" in repr(err)
+
+    def test_repr_omits_model_when_none(self) -> None:
+        err = LLMError("fail", provider="anthropic")
+        assert "model=" not in repr(err)
