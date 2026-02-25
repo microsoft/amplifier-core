@@ -25,6 +25,7 @@ class LLMError(Exception):
 
     Attributes:
         provider: Name of the provider that raised the error (e.g. "anthropic").
+        model: Model identifier that caused the error (e.g. "claude-opus-4-6").
         status_code: HTTP status code from the provider, if available.
         retryable: Whether the caller should consider retrying the request.
     """
@@ -34,11 +35,13 @@ class LLMError(Exception):
         message: str,
         *,
         provider: str | None = None,
+        model: str | None = None,
         status_code: int | None = None,
         retryable: bool = False,
     ) -> None:
         super().__init__(message)
         self.provider = provider
+        self.model = model
         self.status_code = status_code
         self.retryable = retryable
 
@@ -46,6 +49,8 @@ class LLMError(Exception):
         parts = [repr(str(self))]
         if self.provider is not None:
             parts.append(f"provider={self.provider!r}")
+        if self.model is not None:
+            parts.append(f"model={self.model!r}")
         if self.status_code is not None:
             parts.append(f"status_code={self.status_code!r}")
         if self.retryable:
@@ -67,12 +72,14 @@ class RateLimitError(LLMError):
         *,
         retry_after: float | None = None,
         provider: str | None = None,
+        model: str | None = None,
         status_code: int | None = None,
         retryable: bool = True,
     ) -> None:
         super().__init__(
             message,
             provider=provider,
+            model=model,
             status_code=status_code,
             retryable=retryable,
         )
@@ -114,12 +121,14 @@ class ProviderUnavailableError(LLMError):
         message: str,
         *,
         provider: str | None = None,
+        model: str | None = None,
         status_code: int | None = None,
         retryable: bool = True,
     ) -> None:
         super().__init__(
             message,
             provider=provider,
+            model=model,
             status_code=status_code,
             retryable=retryable,
         )
@@ -136,12 +145,14 @@ class LLMTimeoutError(LLMError):
         message: str,
         *,
         provider: str | None = None,
+        model: str | None = None,
         status_code: int | None = None,
         retryable: bool = True,
     ) -> None:
         super().__init__(
             message,
             provider=provider,
+            model=model,
             status_code=status_code,
             retryable=retryable,
         )
@@ -179,12 +190,14 @@ class StreamError(LLMError):
         message: str,
         *,
         provider: str | None = None,
+        model: str | None = None,
         status_code: int | None = None,
         retryable: bool = True,
     ) -> None:
         super().__init__(
             message,
             provider=provider,
+            model=model,
             status_code=status_code,
             retryable=retryable,
         )
@@ -220,12 +233,14 @@ class InvalidToolCallError(LLMError):
         tool_name: str | None = None,
         raw_arguments: str | None = None,
         provider: str | None = None,
+        model: str | None = None,
         status_code: int | None = None,
         retryable: bool = False,
     ) -> None:
         super().__init__(
             message,
             provider=provider,
+            model=model,
             status_code=status_code,
             retryable=retryable,
         )
@@ -296,6 +311,7 @@ class QuotaExceededError(RateLimitError):
         *,
         retry_after: float | None = None,
         provider: str | None = None,
+        model: str | None = None,
         status_code: int | None = None,
         retryable: bool = False,
     ) -> None:
@@ -303,6 +319,7 @@ class QuotaExceededError(RateLimitError):
             message,
             retry_after=retry_after,
             provider=provider,
+            model=model,
             status_code=status_code,
             retryable=retryable,
         )
