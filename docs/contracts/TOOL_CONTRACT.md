@@ -52,6 +52,11 @@ class Tool(Protocol):
         """Human-readable tool description."""
         ...
 
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        """JSON Schema describing the tool's input parameters."""
+        ...
+
     async def execute(self, input: dict[str, Any]) -> ToolResult:
         """
         Execute tool with given input.
@@ -136,11 +141,22 @@ class MyTool:
     @property
     def description(self) -> str:
         return "Performs specific action with given parameters."
+
+    @property
+    def input_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "param": {"type": "string", "description": "A required parameter"},
+            },
+            "required": ["param"],
+        }
 ```
 
 **Best practices**:
 - `name`: Short, snake_case, unique across mounted tools
 - `description`: Clear explanation of what the tool does and expects
+- `input_schema`: Valid JSON Schema dict describing the tool's parameters
 
 ### execute() Method
 
@@ -172,13 +188,16 @@ async def execute(self, input: dict[str, Any]) -> ToolResult:
         )
 ```
 
-### Tool Schema (Optional but Recommended)
+### input_schema Property
 
-Provide JSON schema for input validation:
+Provide a JSON Schema describing the tool's input parameters. Orchestrators use this
+to build `ToolSpec` objects for the LLM, so the model knows what parameters to pass
+when calling the tool.
 
 ```python
-def get_schema(self) -> dict:
-    """Return JSON schema for tool input."""
+@property
+def input_schema(self) -> dict:
+    """Return JSON schema for tool parameters."""
     return {
         "type": "object",
         "properties": {
@@ -254,14 +273,14 @@ Additional examples:
 
 ### Required
 
-- [ ] Implements Tool protocol (name, description, execute)
+- [ ] Implements Tool protocol (name, description, input_schema, execute)
 - [ ] `mount()` function with entry point in pyproject.toml
 - [ ] Returns `ToolResult` from execute()
 - [ ] Handles errors gracefully (returns success=False, doesn't crash)
 
 ### Recommended
 
-- [ ] Provides JSON schema via `get_schema()`
+- [ ] Provides meaningful `input_schema` with property descriptions
 - [ ] Validates input before processing
 - [ ] Logs operations at appropriate levels
 - [ ] Registers observability events
