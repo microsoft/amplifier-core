@@ -2,7 +2,7 @@
 
 ## What is the Kernel?
 
-The Amplifier kernel (`amplifier-core`) is an ultra-thin layer (~2,600 lines) that provides MECHANISMS only. It follows the Linux kernel philosophy:
+The Amplifier kernel (`amplifier-core`) is an ultra-thin layer that provides MECHANISMS only. The kernel is implemented in Rust (~6,600 lines) with Python bindings via PyO3. It follows the Linux kernel philosophy:
 
 > "The center stays still so the edges can move fast."
 
@@ -21,6 +21,16 @@ Backward compatibility in kernel interfaces is sacred. Breaking changes to core 
 
 ### 4. Policy Lives at the Edges
 Scheduling strategies, orchestration styles, provider choices, safety policies - all belong in modules. The kernel provides only hook points and contracts.
+
+## Implementation
+
+The kernel is implemented in Rust for performance and type safety, with Python bindings via PyO3:
+
+- **Rust crate**: `crates/amplifier-core/` -- core types, traits, session, coordinator, hook registry, cancellation
+- **PyO3 bridge**: `bindings/python/` -- thin wrappers exposing Rust types to Python
+- **Python source**: `python/amplifier_core/` -- Pydantic models, module loader, backward-compatible imports
+
+Rust types are the default exports for top-level imports. Python implementations remain accessible via submodule imports for backward compatibility. The module loader stays in Python by design.
 
 ## What the Kernel Provides
 

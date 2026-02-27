@@ -2,15 +2,9 @@
 
 ## Current State
 
-The Rust core is at the "parallel availability" stage. Rust implementations exist alongside Python implementations. The Python implementations remain the active default.
+The Rust core switchover is **complete**. Rust implementations are the default exports for top-level imports. The Rust `HookRegistry` handles all hook dispatch, and `CancellationToken` uses the Rust implementation. Python implementations remain accessible via submodule imports for backward compatibility.
 
 ## Known Limitations
-
-### Not Yet Switched Over
-- `AmplifierSession` still uses the Python implementation
-- `ModuleCoordinator` still uses the Python implementation
-- `HookRegistry` still uses the Python implementation
-- The switchover from Python → Rust implementations is planned for a future milestone
 
 ### Async Bridge
 - The `pyo3-async-runtimes` bridge between tokio and asyncio is functional but has not been stress-tested under high concurrency
@@ -25,9 +19,10 @@ The Rust core is at the "parallel availability" stage. Rust implementations exis
 - Expected to work: macOS x86_64/arm64, Windows x86_64
 - Pre-built wheels: not yet available (build from source required during testing)
 
-### Performance
-- No performance improvements expected yet (Python implementations are still active)
-- Performance gains will come when the switchover to Rust implementations occurs
+### Submodule Import Compatibility
+- Submodule imports (`from amplifier_core.session import AmplifierSession`) return Python types for backward compatibility
+- Top-level imports (`from amplifier_core import AmplifierSession`) return Rust-backed types
+- This dual-path behavior is intentional but may cause confusion if both import styles are mixed in the same codebase
 
 ## How to Report Issues
 

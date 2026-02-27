@@ -110,16 +110,18 @@ bridge exposes.
 
 | Rust Type | PyO3 Wrapper | Python Name | Python Original | Notes |
 |----------|-------------|-------------|----------------|-------|
-| `Session` | `RustSession` | `AmplifierSession` (M7) | `session.py:AmplifierSession` | Rust is leaner: no `ModuleLoader`, no auto-load in `initialize()`. |
-| `Coordinator` | `RustCoordinator` | `ModuleCoordinator` (M7) | `coordinator.py:ModuleCoordinator` | Rust has core mount/get/hooks/cancel. Python adds `process_hook_result`, session back-refs, budget limits. |
-| `HookRegistry` | `RustHookRegistry` | `HookRegistry` (M7) | `hooks.py:HookRegistry` | 1:1 core API: `register`, `emit`, `unregister`, `list_handlers`. |
-| `CancellationToken` | `RustCancellationToken` | `CancellationToken` (M7) | `cancellation.py:CancellationToken` | 1:1: `state`, `is_cancelled`, `request_graceful`, `request_immediate`, `reset`. |
+| `Session` | `RustSession` | `AmplifierSession` | `session.py:AmplifierSession` | Rust is the default export. Rust is leaner: no `ModuleLoader`, no auto-load in `initialize()`. |
+| `Coordinator` | `RustCoordinator` | `ModuleCoordinator` | `coordinator.py:ModuleCoordinator` | Rust is the default export. Rust has core mount/get/hooks/cancel. Python adds `process_hook_result`, session back-refs, budget limits. |
+| `HookRegistry` | `RustHookRegistry` | `HookRegistry` | `hooks.py:HookRegistry` | Rust is the default export. 1:1 core API: `register`, `emit`, `unregister`, `list_handlers`. |
+| `CancellationToken` | `RustCancellationToken` | `CancellationToken` | `cancellation.py:CancellationToken` | Rust is the default export. 1:1: `state`, `is_cancelled`, `request_graceful`, `request_immediate`, `reset`. |
 | `CancellationState` | *(stays Python)* | `CancellationState` | `cancellation.py:CancellationState` | Simple enum — no Rust bridge needed. |
 | `SessionConfig` | *(internal)* | *(dict)* | *(inline in `__init__`)* | Rust-specific typed config. Python uses raw dict. |
 
-> **(M7)** = switchover from Python to Rust implementation planned for Milestone 7.
-> Currently both implementations coexist: Python types are the default exports,
-> Rust types are available as `RustSession`, `RustHookRegistry`, etc.
+> The switchover from Python to Rust implementations is **complete**. Rust types
+> are now the default exports for top-level imports (`from amplifier_core import ...`).
+> Python implementations remain accessible via submodule imports for backward
+> compatibility. The `Rust*` prefixed names (`RustSession`, `RustHookRegistry`, etc.)
+> are still available as explicit aliases.
 
 ---
 
