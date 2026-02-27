@@ -205,6 +205,15 @@ class AmplifierSession:
                 if not module_id:
                     continue
 
+                # Inject _instance_name from the provider's name field if present
+                # This enables named provider instances (e.g., "openrouter" for provider-openai)
+                provider_name = provider_config.get("name")
+                provider_config = provider_config.copy()
+                if provider_name:
+                    provider_config["_instance_name"] = provider_name
+                else:
+                    provider_config["_instance_name"] = module_id
+
                 try:
                     logger.info(f"Loading provider: {module_id}")
                     provider_mount = await self.loader.load(
