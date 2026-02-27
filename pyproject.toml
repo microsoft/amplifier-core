@@ -1,14 +1,14 @@
 [project]
 name = "amplifier-core"
 version = "1.0.0"
-description = "Ultra-thin core for Amplifier modular AI agent system"
+description = "Rust kernel with Python bindings for the Amplifier modular AI agent framework"
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
     { name = "Microsoft MADE:Explorations Team" },
 ]
-keywords = ["ai", "agents", "llm", "modular", "kernel", "orchestration"]
+keywords = ["ai", "agent", "llm", "rust", "pyo3", "maturin"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -16,6 +16,8 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]

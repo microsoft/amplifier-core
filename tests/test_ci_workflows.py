@@ -79,6 +79,28 @@ class TestRustCoreCIWorkflow:
         run_cmds = [s.get("run", "") for s in steps]
         assert any("cargo check" in r and "--workspace" in r for r in run_cmds)
 
+    def test_rust_tests_runs_cargo_fmt_check(self):
+        wf = self._load()
+        steps = wf["jobs"]["rust-tests"]["steps"]
+        run_cmds = [s.get("run", "") for s in steps]
+        assert any("cargo fmt" in r and "--check" in r for r in run_cmds)
+
+    def test_rust_tests_fmt_before_clippy(self):
+        wf = self._load()
+        steps = wf["jobs"]["rust-tests"]["steps"]
+        run_cmds = [s.get("run", "") for s in steps]
+        fmt_idx = next(i for i, r in enumerate(run_cmds) if "cargo fmt" in r)
+        clippy_idx = next(i for i, r in enumerate(run_cmds) if "cargo clippy" in r)
+        assert fmt_idx < clippy_idx, "cargo fmt --check must run before clippy"
+
+    def test_rust_toolchain_includes_rustfmt(self):
+        wf = self._load()
+        steps = wf["jobs"]["rust-tests"]["steps"]
+        toolchain_steps = [s for s in steps if "rust-toolchain" in s.get("uses", "")]
+        assert len(toolchain_steps) == 1
+        components = toolchain_steps[0]["with"]["components"]
+        assert "rustfmt" in components
+
     def test_rust_tests_runs_clippy_deny_warnings(self):
         wf = self._load()
         steps = wf["jobs"]["rust-tests"]["steps"]
@@ -143,10 +165,15 @@ class TestBuildWheelsWorkflow:
         push_branches = wf["on"]["push"]["branches"]
         assert "rust-core" in push_branches
 
+    def test_triggers_on_push_to_main(self):
+        wf = self._load()
+        push_branches = wf["on"]["push"]["branches"]
+        assert "main" in push_branches
+
     def test_triggers_on_tag(self):
         wf = self._load()
         push_tags = wf["on"]["push"]["tags"]
-        assert any("rust-core-v" in str(t) for t in push_tags)
+        assert any("v" in str(t) for t in push_tags)
 
     def test_has_workflow_dispatch(self):
         wf = self._load()
@@ -194,3 +221,26 @@ class TestBuildWheelsWorkflow:
         steps = wf["jobs"]["build-linux-aarch64"]["steps"]
         uses_list = [s.get("uses", "") for s in steps]
         assert any("upload-artifact" in u for u in uses_list)
+
+    # -- publish job --
+
+    def test_has_publish_job(self):
+        wf = self._load()
+        assert "publish" in wf["jobs"]
+
+    def test_publish_needs_build_jobs(self):
+        wf = self._load()
+        needs = wf["jobs"]["publish"]["needs"]
+        assert "build-wheels" in needs
+        assert "build-linux-aarch64" in needs
+
+    def test_publish_only_on_tag(self):
+        wf = self._load()
+        condition = wf["jobs"]["publish"]["if"]
+        assert "refs/tags/v" in condition
+
+    def test_publish_uses_pypi_action(self):
+        wf = self._load()
+        steps = wf["jobs"]["publish"]["steps"]
+        uses_list = [s.get("uses", "") for s in steps]
+        assert any("pypi-publish" in u for u in uses_list)
