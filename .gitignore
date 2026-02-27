@@ -1,6 +1,6 @@
 # Rust
 target/
-Cargo.lock
+# Note: Cargo.lock IS committed intentionally (binary/binding crate)
 
 # Python
 __pycache__/
@@ -11,6 +11,9 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+
+# Pytest cache
+.pytest_cache/
 
 # IDE
 .idea/
