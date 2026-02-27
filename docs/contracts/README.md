@@ -53,10 +53,12 @@ async def mount(coordinator, config):
 
 **Protocols are in code**, not docs:
 
-- **Protocol definitions**: `amplifier_core/interfaces.py`
-- **Data models**: `amplifier_core/models.py`
-- **Message models**: `amplifier_core/message_models.py` (Pydantic models for request/response envelopes)
-- **Content models**: `amplifier_core/content_models.py` (dataclass types for events and streaming)
+- **Protocol definitions**: `python/amplifier_core/interfaces.py`
+- **Data models**: `python/amplifier_core/models.py`
+- **Message models**: `python/amplifier_core/message_models.py` (Pydantic models for request/response envelopes)
+- **Content models**: `python/amplifier_core/content_models.py` (dataclass types for events and streaming)
+- **Rust traits**: `crates/amplifier-core/src/traits.rs` (Rust-side trait definitions)
+- **Rust/Python type mapping**: [CONTRACTS.md](../../CONTRACTS.md) (authoritative cross-boundary reference)
 
 These contract documents provide **guidance** that code cannot express. Always read the code docstrings first.
 
