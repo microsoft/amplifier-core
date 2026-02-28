@@ -16,16 +16,16 @@
 //! - `coordinator` — ModuleCoordinator mount points and capabilities
 //! - `session` — AmplifierSession lifecycle management
 
-pub mod events;
-pub mod errors;
-pub mod models;
-pub mod messages;
-pub mod traits;
-pub mod testing;
 pub mod cancellation;
-pub mod hooks;
 pub mod coordinator;
+pub mod errors;
+pub mod events;
+pub mod hooks;
+pub mod messages;
+pub mod models;
 pub mod session;
+pub mod testing;
+pub mod traits;
 
 // ---------------------------------------------------------------------------
 // Re-exports — consumers write `use amplifier_core::Tool`, not
@@ -85,9 +85,8 @@ mod tests {
         fn _approval(_: std::sync::Arc<dyn crate::ApprovalProvider>) {}
 
         // Error types
-        let _: fn() -> crate::AmplifierError = || {
-            crate::AmplifierError::Session(crate::SessionError::NotInitialized)
-        };
+        let _: fn() -> crate::AmplifierError =
+            || crate::AmplifierError::Session(crate::SessionError::NotInitialized);
         let _: fn() -> crate::ProviderError = || crate::ProviderError::Timeout {
             message: "t".into(),
             provider: None,

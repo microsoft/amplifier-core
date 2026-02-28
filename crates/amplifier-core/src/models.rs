@@ -32,7 +32,6 @@ pub enum HookAction {
     AskUser,
 }
 
-
 /// Role for context injection messages.
 ///
 /// - `System` (default) — environmental feedback
@@ -47,7 +46,6 @@ pub enum ContextInjectionRole {
     Assistant,
 }
 
-
 /// Default decision on approval timeout or error.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -56,7 +54,6 @@ pub enum ApprovalDefault {
     #[default]
     Deny,
 }
-
 
 /// Severity level for user messages from hooks.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,7 +65,6 @@ pub enum UserMessageLevel {
     Error,
 }
 
-
 /// Configuration field type.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -79,7 +75,6 @@ pub enum ConfigFieldType {
     Choice,
     Boolean,
 }
-
 
 /// Module type classification.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,7 +100,6 @@ pub enum SessionState {
     Failed,
     Cancelled,
 }
-
 
 // ---------------------------------------------------------------------------
 // Structs
@@ -139,7 +133,6 @@ pub struct HookResult {
     pub reason: Option<String>,
 
     // -- Context injection fields --
-
     /// Text to inject into agent's conversation context (for action='inject_context').
     /// Agent sees this content and can respond to it. Enables automated feedback loops.
     #[serde(default)]
@@ -154,7 +147,6 @@ pub struct HookResult {
     pub ephemeral: bool,
 
     // -- Approval gate fields --
-
     /// Question to ask user (for action='ask_user').
     #[serde(default)]
     pub approval_prompt: Option<String>,
@@ -172,7 +164,6 @@ pub struct HookResult {
     pub approval_default: ApprovalDefault,
 
     // -- Output control fields --
-
     /// Hide hook's stdout/stderr from user transcript.
     #[serde(default)]
     pub suppress_output: bool,
@@ -190,7 +181,6 @@ pub struct HookResult {
     pub user_message_source: Option<String>,
 
     // -- Injection placement control --
-
     /// If true and ephemeral=true, append context_injection to the last tool result
     /// message instead of creating a new message.
     #[serde(default)]
@@ -434,7 +424,6 @@ pub struct SessionStatus {
     pub status: SessionState,
 
     // Counters
-
     /// Total number of messages.
     #[serde(default)]
     pub total_messages: i64,
@@ -452,7 +441,6 @@ pub struct SessionStatus {
     pub tool_failures: i64,
 
     // Token usage
-
     /// Total input tokens consumed.
     #[serde(default)]
     pub total_input_tokens: i64,
@@ -462,13 +450,11 @@ pub struct SessionStatus {
     pub total_output_tokens: i64,
 
     // Cost tracking
-
     /// Estimated cost (if available).
     #[serde(default)]
     pub estimated_cost: Option<f64>,
 
     // Last activity
-
     /// Last activity timestamp (ISO 8601 string).
     #[serde(default)]
     pub last_activity: Option<String>,

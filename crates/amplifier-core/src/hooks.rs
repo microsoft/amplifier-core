@@ -610,8 +610,7 @@ mod tests {
     async fn register_and_emit() {
         let registry = HookRegistry::new();
         let handler = Arc::new(SimpleHandler(HookResult::default()));
-        let _unregister =
-            registry.register("test:event", handler, 0, Some("test-handler".into()));
+        let _unregister = registry.register("test:event", handler, 0, Some("test-handler".into()));
         let result = registry.emit("test:event", serde_json::json!({})).await;
         assert_eq!(result.action, HookAction::Continue);
     }
@@ -954,7 +953,10 @@ mod tests {
         let ts = captured["timestamp"]
             .as_str()
             .expect("timestamp must be a string");
-        assert_ne!(ts, "user-provided", "infrastructure must overwrite caller timestamp");
+        assert_ne!(
+            ts, "user-provided",
+            "infrastructure must overwrite caller timestamp"
+        );
         // Must still be valid ISO-8601
         chrono::DateTime::parse_from_rfc3339(ts)
             .expect("overwritten timestamp must be valid ISO-8601");
@@ -977,8 +979,7 @@ mod tests {
         let captured = capture.last_data().await;
         // emit_and_collect must NOT stamp a timestamp
         assert!(
-            captured.get("timestamp").is_none()
-                || captured["timestamp"].is_null(),
+            captured.get("timestamp").is_none() || captured["timestamp"].is_null(),
             "emit_and_collect must not add a timestamp"
         );
     }

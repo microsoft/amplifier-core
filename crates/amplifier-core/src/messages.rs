@@ -384,9 +384,15 @@ mod tests {
             extensions: HashMap::new(),
         };
         let json = serde_json::to_value(&block).unwrap();
-        assert_eq!(json["type"], "text", "ContentBlock must use internally-tagged 'type' field");
+        assert_eq!(
+            json["type"], "text",
+            "ContentBlock must use internally-tagged 'type' field"
+        );
         assert_eq!(json["text"], "hello");
-        assert!(json.get("visibility").is_none(), "None fields must be omitted");
+        assert!(
+            json.get("visibility").is_none(),
+            "None fields must be omitted"
+        );
     }
 
     #[test]
@@ -539,7 +545,11 @@ mod tests {
     fn message_content_string_serialization() {
         let content = MessageContent::Text("hello".into());
         let json = serde_json::to_value(&content).unwrap();
-        assert_eq!(json, json!("hello"), "String content must serialize as plain string (untagged)");
+        assert_eq!(
+            json,
+            json!("hello"),
+            "String content must serialize as plain string (untagged)"
+        );
     }
 
     #[test]
@@ -550,7 +560,10 @@ mod tests {
             extensions: HashMap::new(),
         }]);
         let json = serde_json::to_value(&content).unwrap();
-        assert!(json.is_array(), "Block content must serialize as array (untagged)");
+        assert!(
+            json.is_array(),
+            "Block content must serialize as array (untagged)"
+        );
         assert_eq!(json[0]["type"], "text");
         assert_eq!(json[0]["text"], "hello");
     }
@@ -583,10 +596,19 @@ mod tests {
     #[test]
     fn role_serialization() {
         assert_eq!(serde_json::to_value(Role::System).unwrap(), json!("system"));
-        assert_eq!(serde_json::to_value(Role::Developer).unwrap(), json!("developer"));
+        assert_eq!(
+            serde_json::to_value(Role::Developer).unwrap(),
+            json!("developer")
+        );
         assert_eq!(serde_json::to_value(Role::User).unwrap(), json!("user"));
-        assert_eq!(serde_json::to_value(Role::Assistant).unwrap(), json!("assistant"));
-        assert_eq!(serde_json::to_value(Role::Function).unwrap(), json!("function"));
+        assert_eq!(
+            serde_json::to_value(Role::Assistant).unwrap(),
+            json!("assistant")
+        );
+        assert_eq!(
+            serde_json::to_value(Role::Function).unwrap(),
+            json!("function")
+        );
         assert_eq!(serde_json::to_value(Role::Tool).unwrap(), json!("tool"));
     }
 
@@ -669,10 +691,7 @@ mod tests {
             parameters: {
                 let mut m = HashMap::new();
                 m.insert("type".into(), json!("object"));
-                m.insert(
-                    "properties".into(),
-                    json!({"path": {"type": "string"}}),
-                );
+                m.insert("properties".into(), json!({"path": {"type": "string"}}));
                 m
             },
             description: Some("Read a file".into()),
@@ -751,7 +770,11 @@ mod tests {
     fn tool_choice_string_serialization() {
         let tc = ToolChoice::String("auto".into());
         let json = serde_json::to_value(&tc).unwrap();
-        assert_eq!(json, json!("auto"), "String tool_choice must serialize as plain string");
+        assert_eq!(
+            json,
+            json!("auto"),
+            "String tool_choice must serialize as plain string"
+        );
     }
 
     #[test]

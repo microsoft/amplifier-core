@@ -334,7 +334,11 @@ mod tests {
 
     #[test]
     fn all_events_count() {
-        assert_eq!(ALL_EVENTS.len(), 48, "Python source defines exactly 48 events");
+        assert_eq!(
+            ALL_EVENTS.len(),
+            48,
+            "Python source defines exactly 48 events"
+        );
     }
 
     #[test]
@@ -390,10 +394,7 @@ mod tests {
             CANCEL_COMPLETED,
         ];
         for event in expected {
-            assert!(
-                ALL_EVENTS.contains(event),
-                "ALL_EVENTS missing: {event}"
-            );
+            assert!(ALL_EVENTS.contains(event), "ALL_EVENTS missing: {event}");
         }
     }
 

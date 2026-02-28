@@ -53,13 +53,9 @@ impl SessionConfig {
             }
         };
 
-        let session = obj
-            .get("session")
-            .and_then(|v| v.as_object());
+        let session = obj.get("session").and_then(|v| v.as_object());
 
-        let has_orchestrator = session
-            .and_then(|s| s.get("orchestrator"))
-            .is_some();
+        let has_orchestrator = session.and_then(|s| s.get("orchestrator")).is_some();
 
         if !has_orchestrator {
             return Err(SessionError::ConfigMissing {
@@ -67,9 +63,7 @@ impl SessionConfig {
             });
         }
 
-        let has_context = session
-            .and_then(|s| s.get("context"))
-            .is_some();
+        let has_context = session.and_then(|s| s.get("context")).is_some();
 
         if !has_context {
             return Err(SessionError::ConfigMissing {
@@ -77,10 +71,8 @@ impl SessionConfig {
             });
         }
 
-        let config: HashMap<String, Value> = obj
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
+        let config: HashMap<String, Value> =
+            obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
 
         Ok(Self { config })
     }
@@ -357,10 +349,10 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use crate::testing::{
         FakeContextManager, FakeHookHandler, FakeOrchestrator, FakeProvider, FakeTool,
     };
+    use std::sync::Arc;
 
     // ---------------------------------------------------------------
     // SessionConfig validation
