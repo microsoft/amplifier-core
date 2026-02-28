@@ -57,7 +57,7 @@ class RetryConfig:
     """Exponential backoff factor. Delay = min_delay * (multiplier ^ attempt)."""
 
     honor_retry_after: bool = True
-    """If True, use max(calculated_delay, retry_after) for RateLimitError."""
+    """If True, use max(calculated_delay, retry_after) when the error provides a retry_after hint."""
 
 
 async def retry_with_backoff(
@@ -106,12 +106,12 @@ async def retry_with_backoff(
             delay = config.min_delay * (config.backoff_multiplier**attempt)
             delay = min(delay, config.max_delay)
 
-            # Respect retry_after from RateLimitError
-            if (
-                config.honor_retry_after
-                and isinstance(e, RateLimitError)
-                and e.retry_after is not None
-            ):
+            # Apply error-specific delay multiplier (after cap, can exceed max_delay)
+            if e.delay_multiplier != 1.0:
+                delay *= e.delay_multiplier
+
+            # Respect retry_after hint from any error (floor)
+            if config.honor_retry_after and e.retry_after is not None:
                 delay = max(delay, e.retry_after)
 
             # Apply jitter: delay * (1 +/- jitter)
