@@ -75,3 +75,10 @@ MODEL_CLASS_CAPABILITIES = {
     "vision": ["vision"],
     "research": ["deep_research"],
 }
+
+# Model classes that resolve by cost tier instead of capability tag.
+# "standard" = the balanced middle tier (sonnet-class, gpt-5.x, gemini-pro).
+# These are models that are neither budget/fast nor premium/reasoning.
+MODEL_CLASS_COST_TIERS: dict[str, str] = {
+    "standard": COST_TIER_MEDIUM,
+}
