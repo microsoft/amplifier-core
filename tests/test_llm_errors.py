@@ -619,3 +619,87 @@ class TestModelField:
     def test_repr_omits_model_when_none(self) -> None:
         err = LLMError("fail", provider="anthropic")
         assert "model=" not in repr(err)
+
+
+class TestRetryAfterOnBaseClass:
+    """Tests for retry_after and delay_multiplier on LLMError base class."""
+
+    def test_llm_error_accepts_retry_after(self) -> None:
+        """LLMError accepts retry_after kwarg."""
+        err = LLMError("error", retry_after=30.0)
+        assert err.retry_after == 30.0
+
+    def test_llm_error_retry_after_defaults_to_none(self) -> None:
+        """LLMError.retry_after defaults to None."""
+        err = LLMError("error")
+        assert err.retry_after is None
+
+    def test_llm_error_accepts_delay_multiplier(self) -> None:
+        """LLMError accepts delay_multiplier kwarg."""
+        err = LLMError("error", delay_multiplier=10.0)
+        assert err.delay_multiplier == 10.0
+
+    def test_llm_error_delay_multiplier_defaults_to_1(self) -> None:
+        """LLMError.delay_multiplier defaults to 1.0."""
+        err = LLMError("error")
+        assert err.delay_multiplier == 1.0
+
+    def test_rate_limit_error_retry_after_still_works(self) -> None:
+        """RateLimitError.retry_after is inherited from base class."""
+        err = RateLimitError("msg", retry_after=5.0)
+        assert err.retry_after == 5.0
+
+    def test_provider_unavailable_accepts_new_fields(self) -> None:
+        """ProviderUnavailableError accepts retry_after and delay_multiplier."""
+        err = ProviderUnavailableError(
+            "overloaded", retry_after=60.0, delay_multiplier=10.0
+        )
+        assert err.retry_after == 60.0
+        assert err.delay_multiplier == 10.0
+
+    def test_provider_unavailable_defaults_unchanged(self) -> None:
+        """ProviderUnavailableError defaults are unchanged."""
+        err = ProviderUnavailableError("down")
+        assert err.retry_after is None
+        assert err.delay_multiplier == 1.0
+
+
+class TestReprWithNewFields:
+    """Tests for repr including retry_after and delay_multiplier."""
+
+    def test_repr_includes_retry_after_when_set(self) -> None:
+        """repr includes retry_after when not None."""
+        err = LLMError("error", retry_after=30.0)
+        assert "retry_after=30.0" in repr(err)
+
+    def test_repr_includes_delay_multiplier_when_non_default(self) -> None:
+        """repr includes delay_multiplier when != 1.0."""
+        err = LLMError("error", delay_multiplier=10.0)
+        assert "delay_multiplier=10.0" in repr(err)
+
+    def test_repr_omits_retry_after_when_none(self) -> None:
+        """repr omits retry_after when None."""
+        err = LLMError("error")
+        assert "retry_after" not in repr(err)
+
+    def test_repr_omits_delay_multiplier_when_default(self) -> None:
+        """repr omits delay_multiplier when 1.0."""
+        err = LLMError("error")
+        assert "delay_multiplier" not in repr(err)
+
+    def test_repr_with_all_new_fields_on_provider_unavailable(self) -> None:
+        """repr with all new fields on ProviderUnavailableError."""
+        err = ProviderUnavailableError(
+            "overloaded",
+            provider="anthropic",
+            status_code=529,
+            retry_after=60.0,
+            delay_multiplier=10.0,
+        )
+        r = repr(err)
+        assert "ProviderUnavailableError(" in r
+        assert "retry_after=60.0" in r
+        assert "delay_multiplier=10.0" in r
+        assert "provider='anthropic'" in r
+        assert "status_code=529" in r
+        assert "retryable=True" in r
