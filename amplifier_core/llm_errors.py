@@ -28,6 +28,10 @@ class LLMError(Exception):
         model: Model identifier that caused the error (e.g. "claude-opus-4-6").
         status_code: HTTP status code from the provider, if available.
         retryable: Whether the caller should consider retrying the request.
+        retry_after: Seconds to wait before retrying, parsed from the
+            provider's ``Retry-After`` header when available.
+        delay_multiplier: Multiplier applied to backoff delay (e.g. 10.0 for
+            overloaded errors). Default 1.0.
     """
 
     def __init__(
@@ -38,12 +42,16 @@ class LLMError(Exception):
         model: str | None = None,
         status_code: int | None = None,
         retryable: bool = False,
+        retry_after: float | None = None,
+        delay_multiplier: float = 1.0,
     ) -> None:
         super().__init__(message)
         self.provider = provider
         self.model = model
         self.status_code = status_code
         self.retryable = retryable
+        self.retry_after = retry_after
+        self.delay_multiplier = delay_multiplier
 
     def __repr__(self) -> str:
         parts = [repr(str(self))]
@@ -55,6 +63,10 @@ class LLMError(Exception):
             parts.append(f"status_code={self.status_code!r}")
         if self.retryable:
             parts.append("retryable=True")
+        if self.retry_after is not None:
+            parts.append(f"retry_after={self.retry_after!r}")
+        if self.delay_multiplier != 1.0:
+            parts.append(f"delay_multiplier={self.delay_multiplier!r}")
         return f"{type(self).__name__}({', '.join(parts)})"
 
 
@@ -82,8 +94,8 @@ class RateLimitError(LLMError):
             model=model,
             status_code=status_code,
             retryable=retryable,
+            retry_after=retry_after,
         )
-        self.retry_after = retry_after
 
 
 class AuthenticationError(LLMError):
@@ -124,6 +136,8 @@ class ProviderUnavailableError(LLMError):
         model: str | None = None,
         status_code: int | None = None,
         retryable: bool = True,
+        retry_after: float | None = None,
+        delay_multiplier: float = 1.0,
     ) -> None:
         super().__init__(
             message,
@@ -131,6 +145,8 @@ class ProviderUnavailableError(LLMError):
             model=model,
             status_code=status_code,
             retryable=retryable,
+            retry_after=retry_after,
+            delay_multiplier=delay_multiplier,
         )
 
 
