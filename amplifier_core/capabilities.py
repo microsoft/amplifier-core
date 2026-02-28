@@ -64,22 +64,3 @@ ALL_COST_TIERS: frozenset[str] = frozenset(
         COST_TIER_EXTREME,
     }
 )
-
-# Model class capabilities normalization map.
-# Maps common model class names to their canonical capability strings.
-# Note: values may include strings outside ALL_WELL_KNOWN_CAPABILITIES (e.g. "reasoning")
-# because this map describes provider-reported model classes, not the well-known taxonomy.
-MODEL_CLASS_CAPABILITIES = {
-    "vision": ["vision"],
-    "research": ["deep_research"],
-}
-
-# All three primary model classes resolve by cost tier (exact match).
-# "fast"      = budget tier (haiku, mini, flash). Excludes free/medium/high/extreme.
-# "standard"  = balanced tier (sonnet, gpt-5.x, gemini-pro).
-# "reasoning" = premium tier (opus, gpt-5-pro). Excludes extreme (30x).
-MODEL_CLASS_COST_TIERS: dict[str, str] = {
-    "fast": COST_TIER_LOW,
-    "standard": COST_TIER_MEDIUM,
-    "reasoning": COST_TIER_HIGH,
-}
