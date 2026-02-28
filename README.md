@@ -131,6 +131,15 @@ class MyTool:
     def description(self) -> str:
         return "Does something useful"
 
+    @property
+    def input_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "param": {"type": "string", "description": "Tool-specific parameter"},
+            },
+        }
+
     async def execute(self, input: dict) -> ToolResult:
         """Execute tool with input dict."""
         return ToolResult(

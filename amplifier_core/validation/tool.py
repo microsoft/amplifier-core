@@ -384,6 +384,37 @@ class ToolValidator:
                 )
             )
 
+        # Check input_schema property
+        try:
+            schema = tool.input_schema
+            if isinstance(schema, dict):
+                result.add(
+                    ValidationCheck(
+                        name="tool_input_schema",
+                        passed=True,
+                        message="Tool has input_schema",
+                        severity="info",
+                    )
+                )
+            else:
+                result.add(
+                    ValidationCheck(
+                        name="tool_input_schema",
+                        passed=False,
+                        message="Tool.input_schema should return a dict",
+                        severity="error",
+                    )
+                )
+        except Exception as e:
+            result.add(
+                ValidationCheck(
+                    name="tool_input_schema",
+                    passed=False,
+                    message=f"Error accessing Tool.input_schema: {e}",
+                    severity="warning",
+                )
+            )
+
         # Check execute method
         execute = getattr(tool, "execute", None)
         if execute is None:

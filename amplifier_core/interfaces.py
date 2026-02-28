@@ -139,6 +139,18 @@ class Tool(Protocol):
         """Human-readable tool description."""
         ...
 
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        """JSON Schema describing the tool's input parameters.
+
+        Orchestrators use this to build ToolSpec objects for the LLM,
+        so the model knows what parameters to pass when calling the tool.
+
+        Returns:
+            JSON Schema dict (e.g. {"type": "object", "properties": {...}, "required": [...]})
+        """
+        ...
+
     async def execute(self, input: dict[str, Any]) -> ToolResult:
         """
         Execute tool with given input.
@@ -225,9 +237,15 @@ class ApprovalRequest(BaseModel):
 
     tool_name: str = Field(..., description="Name of the tool requesting approval")
     action: str = Field(..., description="Human-readable description of the action")
-    details: dict[str, Any] = Field(default_factory=dict, description="Tool-specific context and parameters")
-    risk_level: str = Field(..., description="Risk level: low, medium, high, or critical")
-    timeout: float | None = Field(default=None, description="Timeout in seconds (None = wait indefinitely)")
+    details: dict[str, Any] = Field(
+        default_factory=dict, description="Tool-specific context and parameters"
+    )
+    risk_level: str = Field(
+        ..., description="Risk level: low, medium, high, or critical"
+    )
+    timeout: float | None = Field(
+        default=None, description="Timeout in seconds (None = wait indefinitely)"
+    )
 
     def model_post_init(self, __context: Any) -> None:
         """Validate timeout if provided."""
@@ -239,8 +257,12 @@ class ApprovalResponse(BaseModel):
     """Response to an approval request."""
 
     approved: bool = Field(..., description="Whether the action was approved")
-    reason: str | None = Field(default=None, description="Explanation for approval/denial")
-    remember: bool = Field(default=False, description="Cache this decision for future requests")
+    reason: str | None = Field(
+        default=None, description="Explanation for approval/denial"
+    )
+    remember: bool = Field(
+        default=False, description="Cache this decision for future requests"
+    )
 
 
 @runtime_checkable

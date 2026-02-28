@@ -22,6 +22,15 @@ class ToolStructuralTests:
     """
 
     @pytest.mark.asyncio
+    async def test_tool_has_input_schema(self, tool_module):
+        """Tool must have an input_schema property returning a dict."""
+        assert hasattr(tool_module, "input_schema"), (
+            "Tool must have input_schema attribute"
+        )
+        schema = tool_module.input_schema
+        assert isinstance(schema, dict), "input_schema must return a dict"
+
+    @pytest.mark.asyncio
     async def test_structural_validation(self, module_path):
         """Module must pass all structural validation checks."""
         if module_path is None:

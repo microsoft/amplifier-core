@@ -38,9 +38,25 @@ class ToolBehaviorTests:
     @pytest.mark.asyncio
     async def test_tool_has_description(self, tool_module):
         """Tool must have a description property."""
-        assert hasattr(tool_module, "description"), "Tool must have description attribute"
+        assert hasattr(tool_module, "description"), (
+            "Tool must have description attribute"
+        )
         assert tool_module.description, "Tool description must not be empty"
-        assert isinstance(tool_module.description, str), "Tool description must be string"
+        assert isinstance(tool_module.description, str), (
+            "Tool description must be string"
+        )
+
+    @pytest.mark.asyncio
+    async def test_tool_has_input_schema(self, tool_module):
+        """Tool must have an input_schema property returning a dict with a 'type' key."""
+        assert hasattr(tool_module, "input_schema"), (
+            "Tool must have input_schema attribute"
+        )
+        schema = tool_module.input_schema
+        assert isinstance(schema, dict), "input_schema must return a dict"
+        assert "type" in schema, (
+            "input_schema must have a 'type' key (JSON Schema structure)"
+        )
 
     @pytest.mark.asyncio
     async def test_tool_has_execute_method(self, tool_module):
@@ -69,7 +85,11 @@ class ToolBehaviorTests:
         try:
             result = await tool_module.execute({})
             # Should return error result, not raise
-            assert isinstance(result, ToolResult), "Must return ToolResult even on error"
+            assert isinstance(result, ToolResult), (
+                "Must return ToolResult even on error"
+            )
         except Exception as e:
             # Only allow expected validation errors, not code bugs
-            assert not isinstance(e, AttributeError | TypeError | KeyError), f"Tool crashed with code error: {e}"
+            assert not isinstance(e, AttributeError | TypeError | KeyError), (
+                f"Tool crashed with code error: {e}"
+            )
