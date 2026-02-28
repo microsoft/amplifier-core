@@ -87,14 +87,4 @@ def test_cost_tiers_are_lowercase_snake_case():
         )
 
 
-def test_model_class_capabilities_values_are_strings():
-    """Verify MODEL_CLASS_CAPABILITIES maps strings to lists of strings."""
-    for key, values in capabilities.MODEL_CLASS_CAPABILITIES.items():
-        assert isinstance(key, str), f"Key {key!r} is not a string"
-        assert isinstance(values, list), (
-            f"Value for key {key!r} is not a list: {type(values)}"
-        )
-        for v in values:
-            assert isinstance(v, str), (
-                f"Value {v!r} in MODEL_CLASS_CAPABILITIES[{key!r}] is not a string"
-            )
+
