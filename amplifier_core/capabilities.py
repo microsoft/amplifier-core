@@ -23,27 +23,29 @@ EMBEDDINGS = "embeddings"
 LONG_CONTEXT = "long_context"
 BATCH = "batch"
 
-# All well-known capabilities (for iteration and validation)
-ALL_WELL_KNOWN_CAPABILITIES = [
-    # Tier 1
-    TOOLS,
-    STREAMING,
-    THINKING,
-    VISION,
-    JSON_MODE,
-    # Tier 2
-    FAST,
-    CODE_EXECUTION,
-    WEB_SEARCH,
-    DEEP_RESEARCH,
-    LOCAL,
-    AUDIO,
-    IMAGE_GENERATION,
-    COMPUTER_USE,
-    EMBEDDINGS,
-    LONG_CONTEXT,
-    BATCH,
-]
+# All well-known capabilities (frozenset for O(1) membership checks; duplicates structurally impossible)
+ALL_WELL_KNOWN_CAPABILITIES: frozenset[str] = frozenset(
+    {
+        # Tier 1
+        TOOLS,
+        STREAMING,
+        THINKING,
+        VISION,
+        JSON_MODE,
+        # Tier 2
+        FAST,
+        CODE_EXECUTION,
+        WEB_SEARCH,
+        DEEP_RESEARCH,
+        LOCAL,
+        AUDIO,
+        IMAGE_GENERATION,
+        COMPUTER_USE,
+        EMBEDDINGS,
+        LONG_CONTEXT,
+        BATCH,
+    }
+)
 
 # Cost tiers
 COST_TIER_FREE = "free"
@@ -52,17 +54,21 @@ COST_TIER_MEDIUM = "medium"
 COST_TIER_HIGH = "high"
 COST_TIER_EXTREME = "extreme"
 
-# All cost tiers (for iteration and validation)
-ALL_COST_TIERS = [
-    COST_TIER_FREE,
-    COST_TIER_LOW,
-    COST_TIER_MEDIUM,
-    COST_TIER_HIGH,
-    COST_TIER_EXTREME,
-]
+# All cost tiers (frozenset for O(1) membership checks; duplicates structurally impossible)
+ALL_COST_TIERS: frozenset[str] = frozenset(
+    {
+        COST_TIER_FREE,
+        COST_TIER_LOW,
+        COST_TIER_MEDIUM,
+        COST_TIER_HIGH,
+        COST_TIER_EXTREME,
+    }
+)
 
-# Model class capabilities normalization map
-# Maps common model class names to their canonical capability strings
+# Model class capabilities normalization map.
+# Maps common model class names to their canonical capability strings.
+# Note: values may include strings outside ALL_WELL_KNOWN_CAPABILITIES (e.g. "reasoning")
+# because this map describes provider-reported model classes, not the well-known taxonomy.
 MODEL_CLASS_CAPABILITIES = {
     "reasoning": ["reasoning", "thinking"],
     "fast": ["fast"],

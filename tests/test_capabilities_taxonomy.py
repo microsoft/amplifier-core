@@ -8,15 +8,10 @@ import re
 from amplifier_core import capabilities
 
 
-def test_no_duplicate_capabilities():
-    """Verify ALL_WELL_KNOWN_CAPABILITIES contains no duplicates (catches copy-paste errors)."""
-    dupes = [
-        c
-        for c in capabilities.ALL_WELL_KNOWN_CAPABILITIES
-        if capabilities.ALL_WELL_KNOWN_CAPABILITIES.count(c) > 1
-    ]
-    assert len(dupes) == 0, (
-        f"ALL_WELL_KNOWN_CAPABILITIES contains duplicates: {set(dupes)}"
+def test_well_known_capabilities_is_frozenset():
+    """ALL_WELL_KNOWN_CAPABILITIES is a frozenset — duplicates are structurally impossible."""
+    assert isinstance(capabilities.ALL_WELL_KNOWN_CAPABILITIES, frozenset), (
+        f"ALL_WELL_KNOWN_CAPABILITIES should be frozenset, got {type(capabilities.ALL_WELL_KNOWN_CAPABILITIES).__name__}"
     )
 
 
@@ -58,14 +53,11 @@ def test_capabilities_are_lowercase_snake_case():
         )
 
 
-def test_no_duplicate_cost_tiers():
-    """Verify ALL_COST_TIERS contains no duplicates."""
-    dupes = [
-        t
-        for t in capabilities.ALL_COST_TIERS
-        if capabilities.ALL_COST_TIERS.count(t) > 1
-    ]
-    assert len(dupes) == 0, f"ALL_COST_TIERS contains duplicates: {set(dupes)}"
+def test_cost_tiers_is_frozenset():
+    """ALL_COST_TIERS is a frozenset — duplicates are structurally impossible."""
+    assert isinstance(capabilities.ALL_COST_TIERS, frozenset), (
+        f"ALL_COST_TIERS should be frozenset, got {type(capabilities.ALL_COST_TIERS).__name__}"
+    )
 
 
 def test_all_cost_tier_constants_in_list():
