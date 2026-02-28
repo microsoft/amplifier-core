@@ -67,7 +67,8 @@ def test_rust_cancellation_token_has_stub_members():
     assert hasattr(token, "is_cancelled")
     assert hasattr(token, "state")
     assert callable(token.request_cancellation)
-    assert callable(token.is_cancelled)
+    # is_cancelled is a property, not a method — verify it returns a bool
+    assert isinstance(token.is_cancelled, bool)
 
 
 def test_rust_coordinator_has_stub_members():
