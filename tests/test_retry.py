@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+import asyncio
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -242,8 +243,6 @@ class TestRetryWithBackoff:
             honor_retry_after=False,
         )
 
-        import asyncio
-
         start = asyncio.get_event_loop().time()
         result = await retry_with_backoff(operation, config)
         elapsed = asyncio.get_event_loop().time() - start
@@ -256,13 +255,11 @@ class TestRetryWithBackoff:
         """retry_after from server takes precedence over max_delay cap."""
         delays: list[float] = []
 
-        async def operation() -> str:
-            if len(delays) < 1:
-                raise RateLimitError("rate limited", retry_after=5.0)
-            return "ok"
-
         async def on_retry(attempt: int, delay: float, error: LLMError) -> None:
             delays.append(delay)
+
+        error = RateLimitError("rate limited", retry_after=5.0)
+        operation = AsyncMock(side_effect=[error, "ok"])
 
         config = RetryConfig(
             max_retries=3,
@@ -272,7 +269,8 @@ class TestRetryWithBackoff:
             honor_retry_after=True,
         )
 
-        result = await retry_with_backoff(operation, config, on_retry=on_retry)
+        with patch("amplifier_core.utils.retry.asyncio.sleep", new_callable=AsyncMock):
+            result = await retry_with_backoff(operation, config, on_retry=on_retry)
         assert result == "ok"
         assert len(delays) == 1
         assert delays[0] >= 5.0  # retry_after (5s) wins over max_delay (0.1s)
@@ -344,3 +342,155 @@ class TestClassifyErrorMessage:
             classify_error_message("unknown error", status_code=400)
             is InvalidRequestError
         )
+
+
+class TestDelayMultiplier:
+    """Tests for delay_multiplier scaling in retry_with_backoff."""
+
+    @pytest.mark.asyncio
+    async def test_multiplier_scales_delay(self) -> None:
+        """delay_multiplier=5 scales base delay: 0.01 * 5 = 0.05."""
+        delays: list[float] = []
+
+        async def on_retry(attempt: int, delay: float, error: LLMError) -> None:
+            delays.append(delay)
+
+        error = ProviderUnavailableError(
+            "overloaded", retryable=True, delay_multiplier=5.0
+        )
+        operation = AsyncMock(side_effect=[error, "ok"])
+        config = RetryConfig(max_retries=3, min_delay=0.01, max_delay=1.0, jitter=0.0)
+        result = await retry_with_backoff(operation, config, on_retry=on_retry)
+        assert result == "ok"
+        assert len(delays) == 1
+        assert delays[0] == pytest.approx(0.05)  # 0.01 * 5.0
+
+    @pytest.mark.asyncio
+    async def test_multiplier_applied_after_max_delay_cap(self) -> None:
+        """delay_multiplier applied AFTER max_delay cap, so it CAN exceed max_delay.
+
+        base = 0.04 (0.01 * 2^2), capped to 0.025, then * 10 = 0.25.
+        """
+        delays: list[float] = []
+
+        async def on_retry(attempt: int, delay: float, error: LLMError) -> None:
+            delays.append(delay)
+
+        error = ProviderUnavailableError(
+            "overloaded", retryable=True, delay_multiplier=10.0
+        )
+        operation = AsyncMock(side_effect=[error, error, error, "ok"])
+        config = RetryConfig(
+            max_retries=3,
+            min_delay=0.01,
+            max_delay=0.025,
+            jitter=0.0,
+            backoff_multiplier=2.0,
+        )
+        result = await retry_with_backoff(operation, config, on_retry=on_retry)
+        assert result == "ok"
+        assert len(delays) == 3
+        # attempt 0: base=0.01, cap=0.01, *10 = 0.1
+        assert delays[0] == pytest.approx(0.1)
+        # attempt 1: base=0.02, cap=0.02, *10 = 0.2
+        assert delays[1] == pytest.approx(0.2)
+        # attempt 2: base=0.04, cap=0.025, *10 = 0.25
+        assert delays[2] == pytest.approx(0.25)
+
+    @pytest.mark.asyncio
+    async def test_default_multiplier_identical_to_previous(self) -> None:
+        """Default delay_multiplier=1.0 produces identical behavior to old code."""
+        delays: list[float] = []
+
+        async def on_retry(attempt: int, delay: float, error: LLMError) -> None:
+            delays.append(delay)
+
+        error = ProviderUnavailableError("down", retryable=True)
+        operation = AsyncMock(side_effect=[error, error, error, "ok"])
+        config = RetryConfig(max_retries=3, min_delay=0.01, max_delay=10.0, jitter=0.0)
+        result = await retry_with_backoff(operation, config, on_retry=on_retry)
+        assert result == "ok"
+        assert len(delays) == 3
+        # Standard exponential backoff: 0.01, 0.02, 0.04
+        assert delays[0] == pytest.approx(0.01)
+        assert delays[1] == pytest.approx(0.02)
+        assert delays[2] == pytest.approx(0.04)
+
+
+class TestRetryAfterOnAnyError:
+    """Tests for generalized retry_after on any LLMError, not just RateLimitError."""
+
+    @pytest.mark.asyncio
+    async def test_retry_after_honored_on_provider_unavailable(self) -> None:
+        """retry_after works on ProviderUnavailableError, not just RateLimitError."""
+        delays: list[float] = []
+
+        async def on_retry(attempt: int, delay: float, error: LLMError) -> None:
+            delays.append(delay)
+
+        error = ProviderUnavailableError(
+            "service overloaded", retryable=True, retry_after=0.5
+        )
+        operation = AsyncMock(side_effect=[error, "ok"])
+        config = RetryConfig(
+            max_retries=3,
+            min_delay=0.01,
+            max_delay=1.0,
+            jitter=0.0,
+            honor_retry_after=True,
+        )
+        result = await retry_with_backoff(operation, config, on_retry=on_retry)
+        assert result == "ok"
+        assert len(delays) == 1
+        assert delays[0] == pytest.approx(0.5)  # retry_after wins over base 0.01
+
+    @pytest.mark.asyncio
+    async def test_retry_after_wins_over_multiplied_delay(self) -> None:
+        """retry_after=200 is floor: max(scaled_delay=0.1, retry_after=200) = 200."""
+        delays: list[float] = []
+
+        async def on_retry(attempt: int, delay: float, error: LLMError) -> None:
+            delays.append(delay)
+
+        error = ProviderUnavailableError(
+            "overloaded", retryable=True, delay_multiplier=10.0, retry_after=200.0
+        )
+        operation = AsyncMock(side_effect=[error, "ok"])
+        config = RetryConfig(
+            max_retries=3,
+            min_delay=0.01,
+            max_delay=1.0,
+            jitter=0.0,
+            honor_retry_after=True,
+        )
+        with patch("amplifier_core.utils.retry.asyncio.sleep", new_callable=AsyncMock):
+            result = await retry_with_backoff(operation, config, on_retry=on_retry)
+        assert result == "ok"
+        assert len(delays) == 1
+        # scaled = min(0.01, 1.0) * 10.0 = 0.1; final = max(0.1, 200.0) = 200.0
+        assert delays[0] == pytest.approx(200.0)
+
+    @pytest.mark.asyncio
+    async def test_multiplied_delay_wins_over_tiny_retry_after(self) -> None:
+        """When multiplied delay > retry_after, multiplied delay wins: max(0.1, 0.001)."""
+        delays: list[float] = []
+
+        async def on_retry(attempt: int, delay: float, error: LLMError) -> None:
+            delays.append(delay)
+
+        error = ProviderUnavailableError(
+            "overloaded", retryable=True, delay_multiplier=10.0, retry_after=0.001
+        )
+        operation = AsyncMock(side_effect=[error, "ok"])
+        config = RetryConfig(
+            max_retries=3,
+            min_delay=0.01,
+            max_delay=1.0,
+            jitter=0.0,
+            honor_retry_after=True,
+        )
+        result = await retry_with_backoff(operation, config, on_retry=on_retry)
+        assert result == "ok"
+        assert len(delays) == 1
+        # scaled = min(0.01, 1.0) * 10.0 = 0.1; final = max(0.1, 0.001) = 0.1
+        assert delays[0] == pytest.approx(0.1)
