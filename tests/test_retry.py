@@ -255,13 +255,11 @@ class TestRetryWithBackoff:
         """retry_after from server takes precedence over max_delay cap."""
         delays: list[float] = []
 
-        async def operation() -> str:
-            if len(delays) < 1:
-                raise RateLimitError("rate limited", retry_after=5.0)
-            return "ok"
-
         async def on_retry(attempt: int, delay: float, error: LLMError) -> None:
             delays.append(delay)
+
+        error = RateLimitError("rate limited", retry_after=5.0)
+        operation = AsyncMock(side_effect=[error, "ok"])
 
         config = RetryConfig(
             max_retries=3,
@@ -271,7 +269,8 @@ class TestRetryWithBackoff:
             honor_retry_after=True,
         )
 
-        result = await retry_with_backoff(operation, config, on_retry=on_retry)
+        with patch("amplifier_core.utils.retry.asyncio.sleep", new_callable=AsyncMock):
+            result = await retry_with_backoff(operation, config, on_retry=on_retry)
         assert result == "ok"
         assert len(delays) == 1
         assert delays[0] >= 5.0  # retry_after (5s) wins over max_delay (0.1s)
