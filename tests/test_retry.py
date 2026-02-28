@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -241,8 +242,6 @@ class TestRetryWithBackoff:
             jitter=0.0,
             honor_retry_after=False,
         )
-
-        import asyncio
 
         start = asyncio.get_event_loop().time()
         result = await retry_with_backoff(operation, config)
