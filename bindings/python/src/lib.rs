@@ -52,17 +52,15 @@ impl HookHandler for PyHookHandlerBridge {
     ) -> Pin<Box<dyn Future<Output = Result<HookResult, HookError>> + Send + '_>> {
         let event = event.to_string();
         // Clone the Py<PyAny> reference inside the GIL to safely move into async block
-        let callable = Python::try_attach(|py| {
-            Ok::<_, PyErr>(self.callable.clone_ref(py))
-        })
-        .unwrap()
-        .unwrap();
+        let callable = Python::try_attach(|py| Ok::<_, PyErr>(self.callable.clone_ref(py)))
+            .unwrap()
+            .unwrap();
 
         Box::pin(async move {
             // Step 1: Call the Python handler (inside GIL) — returns either a
             // sync result or a coroutine object, plus whether it's a coroutine.
-            let (is_coro, py_result_or_coro) = Python::try_attach(
-                |py| -> PyResult<(bool, Py<PyAny>)> {
+            let (is_coro, py_result_or_coro) =
+                Python::try_attach(|py| -> PyResult<(bool, Py<PyAny>)> {
                     let json_mod = py.import("json")?;
                     let data_str =
                         serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
@@ -73,20 +71,18 @@ impl HookHandler for PyHookHandlerBridge {
 
                     // Check if the result is a coroutine (async handler)
                     let inspect = py.import("inspect")?;
-                    let is_coro: bool =
-                        inspect.call_method1("iscoroutine", (bound,))?.extract()?;
+                    let is_coro: bool = inspect.call_method1("iscoroutine", (bound,))?.extract()?;
 
                     Ok((is_coro, call_result))
-                },
-            )
-            .ok_or_else(|| HookError::HandlerFailed {
-                message: "Failed to attach to Python runtime".to_string(),
-                handler_name: None,
-            })?
-            .map_err(|e| HookError::HandlerFailed {
-                message: format!("Python handler call error: {e}"),
-                handler_name: None,
-            })?;
+                })
+                .ok_or_else(|| HookError::HandlerFailed {
+                    message: "Failed to attach to Python runtime".to_string(),
+                    handler_name: None,
+                })?
+                .map_err(|e| HookError::HandlerFailed {
+                    message: format!("Python handler call error: {e}"),
+                    handler_name: None,
+                })?;
 
             // Step 2: If it's a coroutine, convert to a Rust Future via
             // pyo3_async_runtimes::tokio::into_future() and await OUTSIDE the GIL.
@@ -139,8 +135,7 @@ impl HookHandler for PyHookHandlerBridge {
                 handler_name: None,
             })?;
 
-            let hook_result: HookResult =
-                serde_json::from_str(&result_json).unwrap_or_default();
+            let hook_result: HookResult = serde_json::from_str(&result_json).unwrap_or_default();
             Ok(hook_result)
         })
     }
@@ -191,8 +186,7 @@ impl PySession {
     fn new(
         py: Python<'_>,
         config: &Bound<'_, PyDict>,
-        #[allow(unused_variables)]
-        loader: Option<Bound<'_, PyAny>>,
+        #[allow(unused_variables)] loader: Option<Bound<'_, PyAny>>,
         session_id: Option<String>,
         parent_id: Option<String>,
         approval_system: Option<Bound<'_, PyAny>>,
@@ -233,16 +227,11 @@ impl PySession {
 
         // ---- Build Rust kernel Session ----
         let json_mod = py.import("json")?;
-        let json_str: String = json_mod
-            .call_method1("dumps", (config,))?
-            .extract()?;
-        let value: Value = serde_json::from_str(&json_str).map_err(|e| {
-            PyErr::new::<PyRuntimeError, _>(format!("Invalid config JSON: {e}"))
-        })?;
-        let session_config =
-            amplifier_core::SessionConfig::from_value(value).map_err(|e| {
-                PyErr::new::<PyValueError, _>(format!("Invalid session config: {e}"))
-            })?;
+        let json_str: String = json_mod.call_method1("dumps", (config,))?.extract()?;
+        let value: Value = serde_json::from_str(&json_str)
+            .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Invalid config JSON: {e}")))?;
+        let session_config = amplifier_core::SessionConfig::from_value(value)
+            .map_err(|e| PyErr::new::<PyValueError, _>(format!("Invalid session config: {e}")))?;
 
         let session = if is_resumed {
             let sid = session_id
@@ -404,20 +393,14 @@ impl PySession {
             let future = Python::try_attach(|py| {
                 pyo3_async_runtimes::tokio::into_future(coro_py.into_bound(py))
             })
-            .ok_or_else(|| {
-                PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
-            })?
+            .ok_or_else(|| PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime"))?
             .map_err(|e| {
-                PyErr::new::<PyRuntimeError, _>(format!(
-                    "Failed to convert init coroutine: {e}"
-                ))
+                PyErr::new::<PyRuntimeError, _>(format!("Failed to convert init coroutine: {e}"))
             })?;
 
             // Await the Python module loading (outside GIL)
             future.await.map_err(|e| {
-                PyErr::new::<PyRuntimeError, _>(format!(
-                    "Session initialization failed: {e}"
-                ))
+                PyErr::new::<PyRuntimeError, _>(format!("Session initialization failed: {e}"))
             })?;
 
             // Step 4: Mark session as initialized in Rust kernel
@@ -444,11 +427,7 @@ impl PySession {
     /// 4. Checks cancellation after execution
     /// 5. Emits cancel:completed event if cancelled
     /// 6. Returns the result string
-    fn execute<'py>(
-        &self,
-        py: Python<'py>,
-        prompt: String,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    fn execute<'py>(&self, py: Python<'py>, prompt: String) -> PyResult<Bound<'py, PyAny>> {
         // Step 1: Check initialized — fail fast before any async work
         {
             let session = self.inner.blocking_lock();
@@ -465,15 +444,16 @@ impl PySession {
         let debug_fn = helper.getattr("emit_debug_events")?;
 
         // Prepare the orchestrator call coroutine
-        let orch_coro = run_fn.call1((
-            self.coordinator.bind(py),
-            &prompt,
-        ))?;
+        let orch_coro = run_fn.call1((self.coordinator.bind(py), &prompt))?;
         let orch_coro_py: Py<PyAny> = orch_coro.unbind();
 
         // Determine event names based on is_resumed
         let (event_base, event_debug, event_raw) = if self.is_resumed {
-            ("session:resume", "session:resume:debug", "session:resume:raw")
+            (
+                "session:resume",
+                "session:resume:debug",
+                "session:resume:raw",
+            )
         } else {
             ("session:start", "session:start:debug", "session:start:raw")
         };
@@ -506,9 +486,7 @@ impl PySession {
             let pre_event_future = Python::try_attach(|py| {
                 pyo3_async_runtimes::tokio::into_future(pre_event_coro_py.into_bound(py))
             })
-            .ok_or_else(|| {
-                PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
-            })?
+            .ok_or_else(|| PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime"))?
             .map_err(|e| {
                 PyErr::new::<PyRuntimeError, _>(format!(
                     "Failed to convert pre-event coroutine: {e}"
@@ -517,18 +495,14 @@ impl PySession {
 
             // Await outside GIL
             pre_event_future.await.map_err(|e| {
-                PyErr::new::<PyRuntimeError, _>(format!(
-                    "Pre-execution event emission failed: {e}"
-                ))
+                PyErr::new::<PyRuntimeError, _>(format!("Pre-execution event emission failed: {e}"))
             })?;
 
             // 3b: Emit debug events (delegates to Python for redact_secrets/truncate_values)
             let debug_future = Python::try_attach(|py| {
                 pyo3_async_runtimes::tokio::into_future(debug_coro_py.into_bound(py))
             })
-            .ok_or_else(|| {
-                PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
-            })?
+            .ok_or_else(|| PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime"))?
             .map_err(|e| {
                 PyErr::new::<PyRuntimeError, _>(format!(
                     "Failed to convert debug event coroutine: {e}"
@@ -536,18 +510,14 @@ impl PySession {
             })?;
 
             debug_future.await.map_err(|e| {
-                PyErr::new::<PyRuntimeError, _>(format!(
-                    "Debug event emission failed: {e}"
-                ))
+                PyErr::new::<PyRuntimeError, _>(format!("Debug event emission failed: {e}"))
             })?;
 
             // 3c: Call the Python orchestrator (mount point access + orchestrator.execute())
             let orch_future = Python::try_attach(|py| {
                 pyo3_async_runtimes::tokio::into_future(orch_coro_py.into_bound(py))
             })
-            .ok_or_else(|| {
-                PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
-            })?
+            .ok_or_else(|| PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime"))?
             .map_err(|e| {
                 PyErr::new::<PyRuntimeError, _>(format!(
                     "Failed to convert orchestrator coroutine: {e}"
@@ -563,13 +533,9 @@ impl PySession {
                 let cancellation = coord.getattr("cancellation")?;
                 cancellation.getattr("is_cancelled")?.extract()
             })
-            .ok_or_else(|| {
-                PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
-            })?
+            .ok_or_else(|| PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime"))?
             .map_err(|e| {
-                PyErr::new::<PyRuntimeError, _>(format!(
-                    "Failed to check cancellation: {e}"
-                ))
+                PyErr::new::<PyRuntimeError, _>(format!("Failed to check cancellation: {e}"))
             })?;
 
             match orch_result {
@@ -587,9 +553,7 @@ impl PySession {
                             pyo3_async_runtimes::tokio::into_future(coro)
                         })
                         .ok_or_else(|| {
-                            PyErr::new::<PyRuntimeError, _>(
-                                "Failed to attach to Python runtime",
-                            )
+                            PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
                         })??;
 
                         let _ = cancel_future.await; // Best-effort cancel event
@@ -601,9 +565,7 @@ impl PySession {
                         bound.extract()
                     })
                     .ok_or_else(|| {
-                        PyErr::new::<PyRuntimeError, _>(
-                            "Failed to attach to Python runtime",
-                        )
+                        PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
                     })??;
 
                     Ok(result_str)
@@ -624,9 +586,7 @@ impl PySession {
                             pyo3_async_runtimes::tokio::into_future(coro)
                         })
                         .ok_or_else(|| {
-                            PyErr::new::<PyRuntimeError, _>(
-                                "Failed to attach to Python runtime",
-                            )
+                            PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
                         })??;
 
                         let _ = cancel_future.await; // Best-effort cancel event
@@ -705,10 +665,8 @@ impl PySession {
                             if let Err(e) = future.await {
                                 let _ = Python::try_attach(|py| -> PyResult<()> {
                                     let logging = py.import("logging")?;
-                                    let logger = logging.call_method1(
-                                        "getLogger",
-                                        ("amplifier_core.session",),
-                                    )?;
+                                    let logger = logging
+                                        .call_method1("getLogger", ("amplifier_core.session",))?;
                                     let _ = logger.call_method1(
                                         "error",
                                         (format!("Error during cleanup: {e}"),),
@@ -720,14 +678,10 @@ impl PySession {
                     } else if let Some(Err(e)) = coro_result {
                         let _ = Python::try_attach(|py| -> PyResult<()> {
                             let logging = py.import("logging")?;
-                            let logger = logging.call_method1(
-                                "getLogger",
-                                ("amplifier_core.session",),
-                            )?;
-                            let _ = logger.call_method1(
-                                "error",
-                                (format!("Error during cleanup: {e}"),),
-                            );
+                            let logger =
+                                logging.call_method1("getLogger", ("amplifier_core.session",))?;
+                            let _ = logger
+                                .call_method1("error", (format!("Error during cleanup: {e}"),));
                             Ok(())
                         });
                     }
@@ -738,9 +692,8 @@ impl PySession {
                             let result = callable.call0(py)?;
                             let bound = result.bind(py);
                             let inspect = py.import("inspect")?;
-                            let is_coro: bool = inspect
-                                .call_method1("iscoroutine", (bound,))?
-                                .extract()?;
+                            let is_coro: bool =
+                                inspect.call_method1("iscoroutine", (bound,))?.extract()?;
                             if is_coro {
                                 Ok(Some(result))
                             } else {
@@ -752,9 +705,7 @@ impl PySession {
                         Some(Ok(Some(coro_py))) => {
                             // Sync function returned a coroutine — await it
                             let future_result = Python::try_attach(|py| {
-                                pyo3_async_runtimes::tokio::into_future(
-                                    coro_py.into_bound(py),
-                                )
+                                pyo3_async_runtimes::tokio::into_future(coro_py.into_bound(py))
                             });
                             if let Some(Ok(future)) = future_result {
                                 if let Err(e) = future.await {
@@ -779,14 +730,10 @@ impl PySession {
                         Some(Err(e)) => {
                             let _ = Python::try_attach(|py| -> PyResult<()> {
                                 let logging = py.import("logging")?;
-                                let logger = logging.call_method1(
-                                    "getLogger",
-                                    ("amplifier_core.session",),
-                                )?;
-                                let _ = logger.call_method1(
-                                    "error",
-                                    (format!("Error during cleanup: {e}"),),
-                                );
+                                let logger = logging
+                                    .call_method1("getLogger", ("amplifier_core.session",))?;
+                                let _ = logger
+                                    .call_method1("error", (format!("Error during cleanup: {e}"),));
                                 Ok(())
                             });
                         }
@@ -814,12 +761,10 @@ impl PySession {
                     // Log but don't propagate
                     let _ = Python::try_attach(|py| -> PyResult<()> {
                         let logging = py.import("logging")?;
-                        let logger = logging
-                            .call_method1("getLogger", ("amplifier_core.session",))?;
-                        let _ = logger.call_method1(
-                            "error",
-                            (format!("Error emitting session:end: {e}"),),
-                        );
+                        let logger =
+                            logging.call_method1("getLogger", ("amplifier_core.session",))?;
+                        let _ = logger
+                            .call_method1("error", (format!("Error emitting session:end: {e}"),));
                         Ok(())
                     });
                 }
@@ -912,14 +857,12 @@ impl PyHookRegistry {
         priority: i32,
         name: Option<String>,
     ) -> PyResult<()> {
-        let handler_name = name.unwrap_or_else(|| format!("_auto_{event}_{}", uuid::Uuid::new_v4()));
+        let handler_name =
+            name.unwrap_or_else(|| format!("_auto_{event}_{}", uuid::Uuid::new_v4()));
         let bridge = Arc::new(PyHookHandlerBridge { callable: handler });
-        let unregister_fn = self.inner.register(
-            event,
-            bridge,
-            priority,
-            Some(handler_name.clone()),
-        );
+        let unregister_fn =
+            self.inner
+                .register(event, bridge, priority, Some(handler_name.clone()));
 
         self.unregister_fns
             .lock()
@@ -941,12 +884,9 @@ impl PyHookRegistry {
         let inner = self.inner.clone();
         // Convert Python data to serde_json::Value
         let json_mod = py.import("json")?;
-        let json_str: String = json_mod
-            .call_method1("dumps", (&data,))?
-            .extract()?;
-        let value: Value = serde_json::from_str(&json_str).map_err(|e| {
-            PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}"))
-        })?;
+        let json_str: String = json_mod.call_method1("dumps", (&data,))?.extract()?;
+        let value: Value = serde_json::from_str(&json_str)
+            .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}")))?;
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let result = inner.emit(&event, value).await;
@@ -962,7 +902,11 @@ impl PyHookRegistry {
                 let obj = hook_result_cls.call_method1("model_validate", (&dict,))?;
                 Ok(obj.unbind())
             })
-            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>("Failed to attach to Python runtime"))?
+            .ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                    "Failed to attach to Python runtime",
+                )
+            })?
         })
     }
 
@@ -988,12 +932,9 @@ impl PyHookRegistry {
         let value = match kwargs {
             Some(dict) => {
                 let json_mod = dict.py().import("json")?;
-                let json_str: String = json_mod
-                    .call_method1("dumps", (dict,))?
-                    .extract()?;
-                serde_json::from_str(&json_str).map_err(|e| {
-                    PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}"))
-                })?
+                let json_str: String = json_mod.call_method1("dumps", (dict,))?.extract()?;
+                serde_json::from_str(&json_str)
+                    .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}")))?
             }
             None => serde_json::json!({}),
         };
@@ -1041,12 +982,9 @@ impl PyHookRegistry {
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner.clone();
         let json_mod = py.import("json")?;
-        let json_str: String = json_mod
-            .call_method1("dumps", (&data,))?
-            .extract()?;
-        let value: Value = serde_json::from_str(&json_str).map_err(|e| {
-            PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}"))
-        })?;
+        let json_str: String = json_mod.call_method1("dumps", (&data,))?.extract()?;
+        let value: Value = serde_json::from_str(&json_str)
+            .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}")))?;
         let timeout_dur = std::time::Duration::from_secs_f64(timeout);
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -1202,14 +1140,16 @@ impl PyCoordinator {
                 let sid: String = sess.getattr("session_id")?.extract()?;
                 let pid: Option<String> = {
                     let p = sess.getattr("parent_id")?;
-                    if p.is_none() { None } else { Some(p.extract()?) }
+                    if p.is_none() {
+                        None
+                    } else {
+                        Some(p.extract()?)
+                    }
                 };
                 let cfg = sess.getattr("config")?;
                 let rc: HashMap<String, Value> = {
                     let json_mod = py.import("json")?;
-                    let json_str: String = json_mod
-                        .call_method1("dumps", (&cfg,))?
-                        .extract()?;
+                    let json_str: String = json_mod.call_method1("dumps", (&cfg,))?.extract()?;
                     serde_json::from_str(&json_str).unwrap_or_default()
                 };
                 (sid, pid, cfg.unbind(), sess.clone().unbind(), rc)
@@ -1334,13 +1274,11 @@ impl PyCoordinator {
                         }
                     },
                 };
-                let sub_dict = mp
-                    .get_item(mount_point)?
-                    .ok_or_else(|| {
-                        PyErr::new::<PyRuntimeError, _>(format!(
-                            "Mount point sub-dict missing: {mount_point}"
-                        ))
-                    })?;
+                let sub_dict = mp.get_item(mount_point)?.ok_or_else(|| {
+                    PyErr::new::<PyRuntimeError, _>(format!(
+                        "Mount point sub-dict missing: {mount_point}"
+                    ))
+                })?;
                 sub_dict.set_item(&resolved_name, &module)?;
             }
             _ => {}
@@ -1373,23 +1311,15 @@ impl PyCoordinator {
 
         match mount_point {
             "orchestrator" | "context" | "hooks" | "module-source-resolver" => {
-                let item = mp
-                    .get_item(mount_point)?
-                    .ok_or_else(|| {
-                        PyErr::new::<PyRuntimeError, _>(format!(
-                            "Mount point missing: {mount_point}"
-                        ))
-                    })?;
+                let item = mp.get_item(mount_point)?.ok_or_else(|| {
+                    PyErr::new::<PyRuntimeError, _>(format!("Mount point missing: {mount_point}"))
+                })?;
                 Ok(item.unbind())
             }
             "providers" | "tools" | "agents" => {
-                let sub_dict_any = mp
-                    .get_item(mount_point)?
-                    .ok_or_else(|| {
-                        PyErr::new::<PyRuntimeError, _>(format!(
-                            "Mount point missing: {mount_point}"
-                        ))
-                    })?;
+                let sub_dict_any = mp.get_item(mount_point)?.ok_or_else(|| {
+                    PyErr::new::<PyRuntimeError, _>(format!("Mount point missing: {mount_point}"))
+                })?;
                 match name {
                     None => Ok(sub_dict_any.unbind()),
                     Some(n) => {
@@ -1590,14 +1520,10 @@ impl PyCoordinator {
                     } else if let Some(Err(e)) = coro_result {
                         let _ = Python::try_attach(|py| -> PyResult<()> {
                             let logging = py.import("logging")?;
-                            let logger = logging.call_method1(
-                                "getLogger",
-                                ("amplifier_core.coordinator",),
-                            )?;
-                            let _ = logger.call_method1(
-                                "error",
-                                (format!("Error during cleanup: {e}"),),
-                            );
+                            let logger = logging
+                                .call_method1("getLogger", ("amplifier_core.coordinator",))?;
+                            let _ = logger
+                                .call_method1("error", (format!("Error during cleanup: {e}"),));
                             Ok(())
                         });
                     }
@@ -1608,9 +1534,8 @@ impl PyCoordinator {
                             let result = callable.call0(py)?;
                             let bound = result.bind(py);
                             let inspect = py.import("inspect")?;
-                            let is_coro: bool = inspect
-                                .call_method1("iscoroutine", (bound,))?
-                                .extract()?;
+                            let is_coro: bool =
+                                inspect.call_method1("iscoroutine", (bound,))?.extract()?;
                             if is_coro {
                                 Ok(Some(result))
                             } else {
@@ -1621,9 +1546,7 @@ impl PyCoordinator {
                     match call_outcome {
                         Some(Ok(Some(coro_py))) => {
                             let future_result = Python::try_attach(|py| {
-                                pyo3_async_runtimes::tokio::into_future(
-                                    coro_py.into_bound(py),
-                                )
+                                pyo3_async_runtimes::tokio::into_future(coro_py.into_bound(py))
                             });
                             if let Some(Ok(future)) = future_result {
                                 if let Err(e) = future.await {
@@ -1648,14 +1571,10 @@ impl PyCoordinator {
                         Some(Err(e)) => {
                             let _ = Python::try_attach(|py| -> PyResult<()> {
                                 let logging = py.import("logging")?;
-                                let logger = logging.call_method1(
-                                    "getLogger",
-                                    ("amplifier_core.coordinator",),
-                                )?;
-                                let _ = logger.call_method1(
-                                    "error",
-                                    (format!("Error during cleanup: {e}"),),
-                                );
+                                let logger = logging
+                                    .call_method1("getLogger", ("amplifier_core.coordinator",))?;
+                                let _ = logger
+                                    .call_method1("error", (format!("Error during cleanup: {e}"),));
                                 Ok(())
                             });
                         }
@@ -1720,8 +1639,8 @@ impl PyCoordinator {
             // Fallback: sync-only collection via Rust
             let channels_ref = channels;
             pyo3_async_runtimes::tokio::future_into_py(py, async move {
-                let results: Vec<Py<PyAny>> = Python::try_attach(
-                    |py| -> PyResult<Vec<Py<PyAny>>> {
+                let results: Vec<Py<PyAny>> =
+                    Python::try_attach(|py| -> PyResult<Vec<Py<PyAny>>> {
                         let channels_dict = channels_ref.bind(py);
                         let contributors = match channels_dict.get_item(&channel)? {
                             Some(list) => list,
@@ -1743,9 +1662,8 @@ impl PyCoordinator {
                             }
                         }
                         Ok(results)
-                    },
-                )
-                .unwrap_or(Ok(Vec::new()))?;
+                    })
+                    .unwrap_or(Ok(Vec::new()))?;
                 Ok(results)
             })
         }
@@ -1759,11 +1677,7 @@ impl PyCoordinator {
     ///
     /// Matches Python `ModuleCoordinator.request_cancel(immediate=False)`.
     #[pyo3(signature = (immediate=false))]
-    fn request_cancel<'py>(
-        &self,
-        py: Python<'py>,
-        immediate: bool,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    fn request_cancel<'py>(&self, py: Python<'py>, immediate: bool) -> PyResult<Bound<'py, PyAny>> {
         // Delegate to the PyCancellationToken
         let cancel = self.py_cancellation.clone_ref(py);
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -1961,25 +1875,19 @@ mod tests {
     /// Verify PySession type exists and is constructable.
     #[test]
     fn py_session_type_exists() {
-        let _: fn() -> PySession = || {
-            panic!("just checking type exists")
-        };
+        let _: fn() -> PySession = || panic!("just checking type exists");
     }
 
     /// Verify PyHookRegistry type exists and is constructable.
     #[test]
     fn py_hook_registry_type_exists() {
-        let _: fn() -> PyHookRegistry = || {
-            panic!("just checking type exists")
-        };
+        let _: fn() -> PyHookRegistry = || panic!("just checking type exists");
     }
 
     /// Verify PyCancellationToken type exists and is constructable.
     #[test]
     fn py_cancellation_token_type_exists() {
-        let _: fn() -> PyCancellationToken = || {
-            panic!("just checking type exists")
-        };
+        let _: fn() -> PyCancellationToken = || panic!("just checking type exists");
     }
 
     /// Verify PyCoordinator type name exists (no longer constructable without Python GIL).

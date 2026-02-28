@@ -38,8 +38,11 @@ pub type CleanupFn = Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + 
 
 /// An async contributor callback: `() -> Future<Output = Result<Value, ...>>`.
 pub type ContributorCallback = Box<
-    dyn Fn() -> Pin<Box<dyn Future<Output = Result<Value, Box<dyn std::error::Error + Send + Sync>>> + Send>>
-        + Send
+    dyn Fn() -> Pin<
+            Box<
+                dyn Future<Output = Result<Value, Box<dyn std::error::Error + Send + Sync>>> + Send,
+            >,
+        > + Send
         + Sync,
 >;
 
@@ -167,10 +170,7 @@ impl Coordinator {
 
     /// Mount a tool by name.
     pub fn mount_tool(&self, name: &str, tool: Arc<dyn Tool>) {
-        self.tools
-            .lock()
-            .unwrap()
-            .insert(name.to_string(), tool);
+        self.tools.lock().unwrap().insert(name.to_string(), tool);
     }
 
     /// Get a single tool by name.
@@ -231,12 +231,7 @@ impl Coordinator {
     /// * `channel` — Channel name (e.g., `"observability.events"`).
     /// * `name` — Module name for debugging.
     /// * `callback` — Async callback that returns a `Value` contribution.
-    pub fn register_contributor(
-        &self,
-        channel: &str,
-        name: &str,
-        callback: ContributorCallback,
-    ) {
+    pub fn register_contributor(&self, channel: &str, name: &str, callback: ContributorCallback) {
         let entry = ContributorEntry {
             name: name.to_string(),
             callback,
@@ -336,9 +331,7 @@ impl Coordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{
-        FakeContextManager, FakeOrchestrator, FakeProvider, FakeTool,
-    };
+    use crate::testing::{FakeContextManager, FakeOrchestrator, FakeProvider, FakeTool};
 
     // ---------------------------------------------------------------
     // Tool mount/get
@@ -535,11 +528,7 @@ mod tests {
         coord.register_contributor(
             "events",
             "failing",
-            Box::new(|| {
-                Box::pin(async {
-                    Err("contributor failed".into())
-                })
-            }),
+            Box::new(|| Box::pin(async { Err("contributor failed".into()) })),
         );
         coord.register_contributor(
             "events",

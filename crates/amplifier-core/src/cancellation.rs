@@ -48,7 +48,6 @@ pub enum CancellationState {
     Immediate,
 }
 
-
 // ---------------------------------------------------------------------------
 // Callback type alias
 // ---------------------------------------------------------------------------
@@ -56,8 +55,7 @@ pub enum CancellationState {
 /// An async cancellation callback: `() -> Future<Output = ()>`.
 ///
 /// Stored in the token and triggered via [`CancellationToken::trigger_callbacks`].
-pub type CancelCallback =
-    Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+pub type CancelCallback = Box<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 // ---------------------------------------------------------------------------
 // Inner state (behind Mutex)
@@ -251,14 +249,20 @@ impl CancellationToken {
     /// Unregister a child session's token.
     pub fn unregister_child(&self, child: &CancellationToken) {
         let mut inner = self.inner.lock().unwrap();
-        inner.child_tokens.retain(|c| !Arc::ptr_eq(&c.inner, &child.inner));
+        inner
+            .child_tokens
+            .retain(|c| !Arc::ptr_eq(&c.inner, &child.inner));
     }
 
     // -- Callbacks ---
 
     /// Register callback to be called on cancellation.
     pub fn on_cancel(&self, callback: CancelCallback) {
-        self.inner.lock().unwrap().on_cancel_callbacks.push(callback);
+        self.inner
+            .lock()
+            .unwrap()
+            .on_cancel_callbacks
+            .push(callback);
     }
 
     /// Trigger all registered cancellation callbacks.
@@ -269,11 +273,7 @@ impl CancellationToken {
         // Take a snapshot of callbacks to avoid holding the lock during async calls.
         let callbacks: Vec<_> = {
             let inner = self.inner.lock().unwrap();
-            inner
-                .on_cancel_callbacks
-                .iter()
-                .map(|cb| cb())
-                .collect()
+            inner.on_cancel_callbacks.iter().map(|cb| cb()).collect()
         };
 
         for fut in callbacks {

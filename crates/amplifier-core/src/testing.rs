@@ -29,9 +29,7 @@ use serde_json::Value;
 use crate::errors::{AmplifierError, ContextError, HookError, ProviderError, ToolError};
 use crate::messages::{ChatRequest, ChatResponse, ContentBlock, ToolCall, ToolSpec};
 use crate::models::{HookResult, ModelInfo, ProviderInfo, ToolResult};
-use crate::traits::{
-    ApprovalProvider, ContextManager, HookHandler, Orchestrator, Provider, Tool,
-};
+use crate::traits::{ApprovalProvider, ContextManager, HookHandler, Orchestrator, Provider, Tool};
 
 // ---------------------------------------------------------------------------
 // FakeTool
@@ -313,10 +311,7 @@ impl HookHandler for FakeHookHandler {
         event: &str,
         data: Value,
     ) -> Pin<Box<dyn Future<Output = Result<HookResult, HookError>> + Send + '_>> {
-        self.events
-            .lock()
-            .unwrap()
-            .push((event.to_string(), data));
+        self.events.lock().unwrap().push((event.to_string(), data));
         let result = self.result.clone();
         Box::pin(async move { Ok(result) })
     }
@@ -380,8 +375,13 @@ impl ApprovalProvider for FakeApprovalProvider {
     fn request_approval(
         &self,
         _request: crate::models::ApprovalRequest,
-    ) -> Pin<Box<dyn Future<Output = Result<crate::models::ApprovalResponse, AmplifierError>> + Send + '_>>
-    {
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<crate::models::ApprovalResponse, AmplifierError>>
+                + Send
+                + '_,
+        >,
+    > {
         let response = crate::models::ApprovalResponse {
             approved: self.approved,
             reason: None,
@@ -507,9 +507,11 @@ mod tests {
     #[tokio::test]
     async fn fake_context_manager_set_and_clear() {
         let ctx = FakeContextManager::new();
-        ctx.set_messages(vec![serde_json::json!({"role": "system", "content": "init"})])
-            .await
-            .unwrap();
+        ctx.set_messages(vec![
+            serde_json::json!({"role": "system", "content": "init"}),
+        ])
+        .await
+        .unwrap();
         assert_eq!(ctx.get_messages().await.unwrap().len(), 1);
 
         ctx.clear().await.unwrap();
