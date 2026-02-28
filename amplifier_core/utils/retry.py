@@ -37,7 +37,7 @@ class RetryConfig:
     """Configuration for retry behavior.
 
     Follows exponential backoff with jitter. Respects
-    ``RateLimitError.retry_after`` when ``honor_retry_after`` is True.
+    error-provided ``retry_after`` hints when ``honor_retry_after`` is True.
     Only retries errors where ``LLMError.retryable`` is True.
     """
 
