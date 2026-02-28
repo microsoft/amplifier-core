@@ -70,15 +70,15 @@ ALL_COST_TIERS: frozenset[str] = frozenset(
 # Note: values may include strings outside ALL_WELL_KNOWN_CAPABILITIES (e.g. "reasoning")
 # because this map describes provider-reported model classes, not the well-known taxonomy.
 MODEL_CLASS_CAPABILITIES = {
-    "reasoning": ["reasoning", "thinking"],
     "fast": ["fast"],
     "vision": ["vision"],
     "research": ["deep_research"],
 }
 
 # Model classes that resolve by cost tier instead of capability tag.
-# "standard" = the balanced middle tier (sonnet-class, gpt-5.x, gemini-pro).
-# These are models that are neither budget/fast nor premium/reasoning.
+# "standard" = balanced middle tier (sonnet-class). Exact-match: only medium tier.
+# "reasoning" = premium tier (opus/flagship). Exact-match: only high tier, excludes extreme.
 MODEL_CLASS_COST_TIERS: dict[str, str] = {
     "standard": COST_TIER_MEDIUM,
+    "reasoning": COST_TIER_HIGH,
 }
