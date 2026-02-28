@@ -198,3 +198,64 @@ Support via config flags:
 | `image` | `source` | Vendor-specific source format |
 
 All blocks support `visibility` field and `extra="allow"` for vendor extensions.
+
+## Capabilities Taxonomy
+
+Model capabilities are declared in `ModelInfo.capabilities` as a list of strings. To ensure consistency across providers, `amplifier_core.capabilities` defines well-known capability constants.
+
+### Tier 1: Universal Capabilities
+
+Core capabilities that most LLM providers can report on:
+
+| Constant | String Value | Description |
+|----------|-------------|-------------|
+| `TOOLS` | `"tools"` | Function/tool calling support |
+| `STREAMING` | `"streaming"` | Streaming response support |
+| `THINKING` | `"thinking"` | Extended reasoning / chain-of-thought (see naming note below) |
+| `VISION` | `"vision"` | Image input understanding |
+| `JSON_MODE` | `"json_mode"` | Structured JSON output mode |
+
+### Tier 2: Specialized Capabilities
+
+Extended capabilities for specialized model features:
+
+| Constant | String Value | Description |
+|----------|-------------|-------------|
+| `FAST` | `"fast"` | Optimized for low latency |
+| `CODE_EXECUTION` | `"code_execution"` | Server-side code execution |
+| `WEB_SEARCH` | `"web_search"` | Built-in web search |
+| `DEEP_RESEARCH` | `"deep_research"` | Extended multi-step research |
+| `LOCAL` | `"local"` | Runs locally (e.g., Ollama) |
+| `AUDIO` | `"audio"` | Audio input/output support |
+| `IMAGE_GENERATION` | `"image_generation"` | Image generation support |
+| `COMPUTER_USE` | `"computer_use"` | Desktop/browser automation |
+| `EMBEDDINGS` | `"embeddings"` | Text embedding generation |
+| `LONG_CONTEXT` | `"long_context"` | Extended context window support |
+| `BATCH` | `"batch"` | Batch processing API support |
+
+### Naming Decision: `thinking` is Canonical
+
+The canonical capability string for extended reasoning is **`"thinking"`**, not `"reasoning"`. This applies regardless of vendor terminology:
+
+- Anthropic's "extended thinking" → `"thinking"` ✓
+- OpenAI's "reasoning" (o-series) → should be mapped to `"thinking"` ✓
+
+Providers **SHOULD** map vendor-specific terminology to `"thinking"` when populating `ModelInfo.capabilities`. The `MODEL_CLASS_CAPABILITIES` mapping in `amplifier_core.capabilities` handles normalization of provider-reported model classes.
+
+### Extensibility
+
+Providers **MAY** include capability strings not in the well-known set. The taxonomy is intentionally open — `ALL_WELL_KNOWN_CAPABILITIES` is a `frozenset` for validation, not a closed enum. Custom capabilities should use descriptive lowercase strings with underscores (e.g., `"my_custom_feature"`).
+
+### Cost Tiers
+
+Cost tiers categorize models by relative pricing. Providers **SHOULD** set `metadata["cost_tier"]` on `ModelInfo` to one of:
+
+| Constant | String Value | Description |
+|----------|-------------|-------------|
+| `COST_TIER_FREE` | `"free"` | No-cost models (local, free-tier) |
+| `COST_TIER_LOW` | `"low"` | Budget-friendly (e.g., Haiku-class) |
+| `COST_TIER_MEDIUM` | `"medium"` | Standard pricing (e.g., Sonnet-class) |
+| `COST_TIER_HIGH` | `"high"` | Premium pricing (e.g., Opus-class) |
+| `COST_TIER_EXTREME` | `"extreme"` | Highest-cost (e.g., deep research) |
+
+All cost tier constants are available in `amplifier_core.capabilities` and collected in `ALL_COST_TIERS` (`frozenset`).

@@ -27,6 +27,7 @@ PROVIDER_ERROR = "provider:error"
 PROVIDER_RETRY = "provider:retry"
 PROVIDER_THROTTLE = "provider:throttle"
 PROVIDER_TOOL_SEQUENCE_REPAIRED = "provider:tool_sequence_repaired"
+PROVIDER_RESOLVE = "provider:resolve"
 
 # Content Block Events (for real-time display)
 CONTENT_BLOCK_START = "content_block:start"
@@ -100,6 +101,7 @@ ALL_EVENTS = [
     PROVIDER_RETRY,
     PROVIDER_THROTTLE,
     PROVIDER_TOOL_SEQUENCE_REPAIRED,
+    PROVIDER_RESOLVE,
     LLM_REQUEST,
     LLM_REQUEST_DEBUG,
     LLM_REQUEST_RAW,

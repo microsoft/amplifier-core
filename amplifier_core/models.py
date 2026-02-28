@@ -318,6 +318,18 @@ class ModelInfo(BaseModel):
         default_factory=dict,
         description="Model-specific default config values (e.g., temperature, max_tokens)",
     )
+    cost_per_input_token: float | None = Field(
+        default=None,
+        description="Cost per input token in USD e.g. 3e-6 for $3/MTok",
+    )
+    cost_per_output_token: float | None = Field(
+        default=None,
+        description="Cost per output token in USD",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Extensible metadata e.g. cost_tier, model_class, provider-specific tags",
+    )
 
 
 class ConfigField(BaseModel):

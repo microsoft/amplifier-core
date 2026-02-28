@@ -67,6 +67,42 @@ class Provider(Protocol):
 
 ---
 
+## ModelInfo Extensions (Model Class Routing)
+
+The `list_models()` method returns `list[ModelInfo]`. Beyond the required fields (`id`, `display_name`, `context_window`, `max_output_tokens`), ModelInfo supports optional extension fields for model class routing and cost-aware selection:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `cost_per_input_token` | `float \| None` | `None` | Cost per input token in USD (e.g., `3e-6` for $3/MTok) |
+| `cost_per_output_token` | `float \| None` | `None` | Cost per output token in USD |
+| `metadata` | `dict[str, Any]` | `{}` | Extensible metadata bag for cost tier, model class, provider-specific tags |
+
+### Cost Fields
+
+Providers **SHOULD** populate `cost_per_input_token` and `cost_per_output_token` when pricing information is available. These enable cost-aware model selection and budget tracking.
+
+### Metadata: `cost_tier`
+
+Providers **SHOULD** set `metadata["cost_tier"]` to one of the well-known cost tier strings:
+
+| Tier | Description |
+|------|-------------|
+| `free` | No-cost models (local, free-tier) |
+| `low` | Budget-friendly models (e.g., Haiku-class) |
+| `medium` | Standard pricing (e.g., Sonnet-class) |
+| `high` | Premium pricing (e.g., Opus-class) |
+| `extreme` | Highest-cost models (e.g., deep research) |
+
+### Capabilities
+
+Providers **SHOULD** populate the `capabilities` list using well-known constants from `amplifier_core.capabilities`. See the [Capabilities Taxonomy](../specs/PROVIDER_SPECIFICATION.md#capabilities-taxonomy) in the Provider Specification for the full list.
+
+### Backward Compatibility
+
+All extension fields are optional with sensible defaults. Existing providers that do not populate these fields continue to work unchanged — they simply won't participate in cost-aware or capability-based routing.
+
+---
+
 ## Entry Point Pattern
 
 ### mount() Function
