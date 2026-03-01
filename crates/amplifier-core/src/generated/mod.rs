@@ -4,3 +4,5 @@ mod amplifier_module {
 }
 
 pub use amplifier_module::*;
+
+mod equivalence_tests;
