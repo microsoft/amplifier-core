@@ -176,3 +176,166 @@ message AmplifierError {
     string validation_error      = 5;
   }
 }
+
+// ---------------------------------------------------------------------------
+// LLM conversation types
+// ---------------------------------------------------------------------------
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_SYSTEM      = 1;
+  ROLE_USER        = 2;
+  ROLE_ASSISTANT   = 3;
+  ROLE_TOOL        = 4;
+  ROLE_FUNCTION    = 5;
+  ROLE_DEVELOPER   = 6;
+}
+
+enum Visibility {
+  VISIBILITY_UNSPECIFIED = 0;
+  VISIBILITY_ALL         = 1;
+  VISIBILITY_LLM_ONLY    = 2;
+  VISIBILITY_USER_ONLY   = 3;
+}
+
+// --- Content block types ---
+
+message TextBlock {
+  string text = 1;
+}
+
+message ThinkingBlock {
+  string thinking  = 1;
+  string signature = 2;
+  string content   = 3;
+}
+
+message RedactedThinkingBlock {
+  string data = 1;
+}
+
+message ToolCallBlock {
+  string id         = 1;
+  string name       = 2;
+  string input_json = 3;
+}
+
+message ToolResultBlock {
+  string tool_call_id = 1;
+  string output_json  = 2;
+}
+
+message ImageBlock {
+  string media_type  = 1;
+  bytes  data        = 2;
+  string source_json = 3;
+}
+
+message ReasoningBlock {
+  string content = 1;
+  string summary = 2;
+}
+
+message ContentBlock {
+  oneof block {
+    TextBlock             text_block              = 1;
+    ThinkingBlock         thinking_block          = 2;
+    RedactedThinkingBlock redacted_thinking_block = 3;
+    ToolCallBlock         tool_call_block         = 4;
+    ToolResultBlock       tool_result_block       = 5;
+    ImageBlock            image_block             = 6;
+    ReasoningBlock        reasoning_block         = 7;
+  }
+  Visibility visibility = 8;
+}
+
+message ContentBlockList {
+  repeated ContentBlock blocks = 1;
+}
+
+// --- Conversation message ---
+
+message Message {
+  Role role = 1;
+  oneof content {
+    string           text_content  = 2;
+    ContentBlockList block_content = 3;
+  }
+  string name          = 4;
+  string tool_call_id  = 5;
+  string metadata_json = 6;
+}
+
+// --- Tool specifications and calls ---
+
+message ToolCallMessage {
+  string id             = 1;
+  string name           = 2;
+  string arguments_json = 3;
+}
+
+message ToolSpecProto {
+  string name            = 1;
+  string description     = 2;
+  string parameters_json = 3;
+}
+
+// --- Response format ---
+
+message JsonSchemaFormat {
+  string schema_json = 1;
+  bool   strict      = 2;
+}
+
+message ResponseFormat {
+  oneof format {
+    bool             text        = 1;
+    bool             json        = 2;
+    JsonSchemaFormat  json_schema = 3;
+  }
+}
+
+// --- Token usage and degradation ---
+
+message Usage {
+  int32 prompt_tokens          = 1;
+  int32 completion_tokens      = 2;
+  int32 total_tokens           = 3;
+  int32 reasoning_tokens       = 4;
+  int32 cache_read_tokens      = 5;
+  int32 cache_creation_tokens  = 6;
+}
+
+message Degradation {
+  string requested = 1;
+  string actual    = 2;
+  string reason    = 3;
+}
+
+// --- Chat request and response ---
+
+message ChatRequest {
+  repeated Message       messages          = 1;
+  repeated ToolSpecProto tools             = 2;
+  ResponseFormat         response_format   = 3;
+  double                 temperature       = 4;
+  double                 top_p             = 5;
+  int32                  max_output_tokens = 6;
+  string                 conversation_id   = 7;
+  bool                   stream            = 8;
+  string                 metadata_json     = 9;
+  string                 model             = 10;
+  string                 tool_choice       = 11;
+  repeated string        stop              = 12;
+  string                 reasoning_effort  = 13;
+  double                 timeout           = 14;
+}
+
+message ChatResponse {
+  string                    content       = 1;
+  repeated ToolCallMessage  tool_calls    = 2;
+  Usage                     usage         = 3;
+  Degradation               degradation   = 4;
+  string                    finish_reason = 5;
+  string                    metadata_json = 6;
+}
