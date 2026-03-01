@@ -1,0 +1,130 @@
+"""Event name constants for the Amplifier kernel.
+
+All constants are defined in the Rust kernel and re-exported here
+for backward compatibility.
+"""
+
+from amplifier_core._engine import (
+    # Session lifecycle
+    SESSION_START,
+    SESSION_START_DEBUG,
+    SESSION_START_RAW,
+    SESSION_END,
+    SESSION_FORK,
+    SESSION_FORK_DEBUG,
+    SESSION_FORK_RAW,
+    SESSION_RESUME,
+    SESSION_RESUME_DEBUG,
+    SESSION_RESUME_RAW,
+    # Prompt lifecycle
+    PROMPT_SUBMIT,
+    PROMPT_COMPLETE,
+    # Planning
+    PLAN_START,
+    PLAN_END,
+    # Provider calls
+    PROVIDER_REQUEST,
+    PROVIDER_RESPONSE,
+    PROVIDER_RETRY,
+    PROVIDER_ERROR,
+    PROVIDER_THROTTLE,
+    PROVIDER_TOOL_SEQUENCE_REPAIRED,
+    PROVIDER_RESOLVE,
+    # LLM events
+    LLM_REQUEST,
+    LLM_REQUEST_DEBUG,
+    LLM_REQUEST_RAW,
+    LLM_RESPONSE,
+    LLM_RESPONSE_DEBUG,
+    LLM_RESPONSE_RAW,
+    # Content block events
+    CONTENT_BLOCK_START,
+    CONTENT_BLOCK_DELTA,
+    CONTENT_BLOCK_END,
+    # Thinking events
+    THINKING_DELTA,
+    THINKING_FINAL,
+    # Tool invocations
+    TOOL_PRE,
+    TOOL_POST,
+    TOOL_ERROR,
+    # Context management
+    CONTEXT_PRE_COMPACT,
+    CONTEXT_POST_COMPACT,
+    CONTEXT_COMPACTION,
+    CONTEXT_INCLUDE,
+    # Orchestrator lifecycle
+    ORCHESTRATOR_COMPLETE,
+    EXECUTION_START,
+    EXECUTION_END,
+    # User notifications
+    USER_NOTIFICATION,
+    # Artifacts
+    ARTIFACT_WRITE,
+    ARTIFACT_READ,
+    # Policy / approvals
+    POLICY_VIOLATION,
+    APPROVAL_REQUIRED,
+    APPROVAL_GRANTED,
+    APPROVAL_DENIED,
+    # Cancellation lifecycle
+    CANCEL_REQUESTED,
+    CANCEL_COMPLETED,
+    # Aggregate list
+    ALL_EVENTS,
+)
+
+__all__ = [
+    "SESSION_START",
+    "SESSION_START_DEBUG",
+    "SESSION_START_RAW",
+    "SESSION_END",
+    "SESSION_FORK",
+    "SESSION_FORK_DEBUG",
+    "SESSION_FORK_RAW",
+    "SESSION_RESUME",
+    "SESSION_RESUME_DEBUG",
+    "SESSION_RESUME_RAW",
+    "PROMPT_SUBMIT",
+    "PROMPT_COMPLETE",
+    "PLAN_START",
+    "PLAN_END",
+    "PROVIDER_REQUEST",
+    "PROVIDER_RESPONSE",
+    "PROVIDER_RETRY",
+    "PROVIDER_ERROR",
+    "PROVIDER_THROTTLE",
+    "PROVIDER_TOOL_SEQUENCE_REPAIRED",
+    "PROVIDER_RESOLVE",
+    "LLM_REQUEST",
+    "LLM_REQUEST_DEBUG",
+    "LLM_REQUEST_RAW",
+    "LLM_RESPONSE",
+    "LLM_RESPONSE_DEBUG",
+    "LLM_RESPONSE_RAW",
+    "CONTENT_BLOCK_START",
+    "CONTENT_BLOCK_DELTA",
+    "CONTENT_BLOCK_END",
+    "THINKING_DELTA",
+    "THINKING_FINAL",
+    "TOOL_PRE",
+    "TOOL_POST",
+    "TOOL_ERROR",
+    "CONTEXT_PRE_COMPACT",
+    "CONTEXT_POST_COMPACT",
+    "CONTEXT_COMPACTION",
+    "CONTEXT_INCLUDE",
+    "ORCHESTRATOR_COMPLETE",
+    "EXECUTION_START",
+    "EXECUTION_END",
+    "USER_NOTIFICATION",
+    "ARTIFACT_WRITE",
+    "ARTIFACT_READ",
+    "POLICY_VIOLATION",
+    "APPROVAL_REQUIRED",
+    "APPROVAL_GRANTED",
+    "APPROVAL_DENIED",
+    "CANCEL_REQUESTED",
+    "CANCEL_COMPLETED",
+    "ALL_EVENTS",
+]

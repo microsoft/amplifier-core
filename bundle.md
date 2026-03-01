@@ -15,7 +15,7 @@ includes:
 
 ---
 
-The **core** bundle is the representative for the Amplifier kernel. The kernel is intentionally tiny (~2,600 lines) and provides MECHANISMS only, never POLICIES.
+The **core** bundle is the representative for the Amplifier kernel. The kernel is implemented in Rust (~6,600 lines) with Python bindings via PyO3. It provides MECHANISMS only, never POLICIES.
 
 **Core Principle**: "The center stays still so the edges can move fast."
 

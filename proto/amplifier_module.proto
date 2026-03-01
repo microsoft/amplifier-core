@@ -1,0 +1,39 @@
+// amplifier-core/proto/amplifier_module.proto
+syntax = "proto3";
+package amplifier.module;
+
+// Universal contract for tool modules in any language.
+// Implement this service to create an Amplifier tool in Go, TypeScript, C#, etc.
+service ToolService {
+  // Return the tool's name, description, and JSON Schema parameters.
+  rpc GetSpec(Empty) returns (ToolSpec);
+
+  // Execute the tool with JSON (or MessagePack) input.
+  rpc Execute(ToolExecuteRequest) returns (ToolExecuteResponse);
+}
+
+message Empty {}
+
+message ToolSpec {
+  string name = 1;
+  string description = 2;
+  // JSON Schema describing the tool's input parameters, as a JSON string.
+  string parameters_json = 3;
+}
+
+message ToolExecuteRequest {
+  // Serialized input payload (default: JSON, future: MessagePack).
+  bytes input = 1;
+  // MIME type: "application/json" (default if empty) or "application/msgpack".
+  string content_type = 2;
+}
+
+message ToolExecuteResponse {
+  bool success = 1;
+  // Serialized output payload.
+  bytes output = 2;
+  // MIME type of output (mirrors request content_type).
+  string content_type = 3;
+  // Error message if success is false.
+  string error = 4;
+}

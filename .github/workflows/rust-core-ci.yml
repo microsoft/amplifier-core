@@ -1,0 +1,55 @@
+name: Rust Core CI
+
+on:
+  push:
+    branches: [rust-core]
+  pull_request:
+    branches: [rust-core, main]
+
+jobs:
+  rust-tests:
+    name: Rust Kernel Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Run Rust tests
+        run: cargo test -p amplifier-core --verbose
+      - name: Check workspace
+        run: cargo check --workspace
+      - name: Rustfmt
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+
+  python-tests:
+    name: Python Tests (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Create venv and build
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install maturin
+          maturin build --release --out dist
+          pip install dist/amplifier_core-*.whl
+      - name: Install test dependencies
+        run: |
+          source .venv/bin/activate
+          pip install pytest pytest-asyncio
+      - name: Run all Python tests
+        run: |
+          source .venv/bin/activate
+          pytest tests/ bindings/python/tests/ -v --tb=short
