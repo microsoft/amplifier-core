@@ -343,3 +343,97 @@ message ChatResponse {
   string                    finish_reason = 5;
   string                    metadata_json = 6;
 }
+
+// ---------------------------------------------------------------------------
+// Module-specific enums
+// ---------------------------------------------------------------------------
+
+enum HookAction {
+  HOOK_ACTION_UNSPECIFIED = 0;
+  HOOK_ACTION_CONTINUE    = 1;
+  HOOK_ACTION_MODIFY      = 2;
+  HOOK_ACTION_SKIP        = 3;
+  HOOK_ACTION_BLOCK       = 4;
+  HOOK_ACTION_ASK_USER    = 5;
+}
+
+enum ContextInjectionRole {
+  CONTEXT_INJECTION_ROLE_UNSPECIFIED = 0;
+  CONTEXT_INJECTION_ROLE_SYSTEM     = 1;
+  CONTEXT_INJECTION_ROLE_USER       = 2;
+  CONTEXT_INJECTION_ROLE_ASSISTANT  = 3;
+}
+
+enum ApprovalDefault {
+  APPROVAL_DEFAULT_UNSPECIFIED = 0;
+  APPROVAL_DEFAULT_APPROVE    = 1;
+  APPROVAL_DEFAULT_DENY       = 2;
+}
+
+enum UserMessageLevel {
+  USER_MESSAGE_LEVEL_UNSPECIFIED = 0;
+  USER_MESSAGE_LEVEL_INFO       = 1;
+  USER_MESSAGE_LEVEL_WARNING    = 2;
+  USER_MESSAGE_LEVEL_ERROR      = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Module-specific messages
+// ---------------------------------------------------------------------------
+
+message ToolResult {
+  bool   success     = 1;
+  string output_json = 2;
+  string error_json  = 3;
+}
+
+message HookResult {
+  HookAction           action                     = 1;
+  string               data_json                  = 2;
+  string               reason                     = 3;
+  string               context_injection          = 4;
+  ContextInjectionRole context_injection_role      = 5;
+  bool                 ephemeral                  = 6;
+  string               approval_prompt            = 7;
+  repeated string      approval_options           = 8;
+  // Default: 300.0 seconds (5 minutes).
+  double               approval_timeout           = 9;
+  ApprovalDefault      approval_default           = 10;
+  bool                 suppress_output            = 11;
+  string               user_message               = 12;
+  UserMessageLevel     user_message_level         = 13;
+  string               user_message_source        = 14;
+  bool                 append_to_last_tool_result = 15;
+}
+
+message ModelInfo {
+  string          id                = 1;
+  string          display_name      = 2;
+  int32           context_window    = 3;
+  int32           max_output_tokens = 4;
+  repeated string capabilities      = 5;
+  string          defaults_json     = 6;
+}
+
+message ProviderInfo {
+  string                 id            = 1;
+  string                 name          = 2;
+  string                 description   = 3;
+  repeated ModelInfo     models        = 4;
+  repeated ConfigField   config_fields = 5;
+  string                 metadata_json = 6;
+}
+
+message ApprovalRequest {
+  string tool_name    = 1;
+  string action       = 2;
+  string details_json = 3;
+  string risk_level   = 4;
+  double timeout      = 5;
+}
+
+message ApprovalResponse {
+  bool   approved = 1;
+  string reason   = 2;
+  bool   remember = 3;
+}
