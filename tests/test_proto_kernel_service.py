@@ -76,81 +76,82 @@ class TestKernelServiceExists:
 class TestKernelServiceRPCs:
     """Each of the 10 RPCs with correct signatures."""
 
-    def test_complete_with_provider_rpc(self):
+    @staticmethod
+    def _kernel_service_body() -> str:
+        """Extract the KernelService block body for scoped RPC matching."""
         proto = _read_proto()
+        match = re.search(r"service KernelService\s*\{(.*?)\}", proto, re.DOTALL)
+        assert match, "KernelService block not found"
+        return match.group(1)
+
+    def test_complete_with_provider_rpc(self):
+        body = self._kernel_service_body()
         assert re.search(
             r"rpc\s+CompleteWithProvider\s*\(\s*CompleteWithProviderRequest\s*\)\s+returns\s*\(\s*ChatResponse\s*\)",
-            proto,
+            body,
         )
 
     def test_complete_with_provider_streaming_is_server_stream(self):
-        proto = _read_proto()
+        body = self._kernel_service_body()
         assert re.search(
             r"rpc\s+CompleteWithProviderStreaming\s*\(\s*CompleteWithProviderRequest\s*\)\s+returns\s*\(\s*stream\s+ChatResponse\s*\)",
-            proto,
+            body,
         )
 
     def test_execute_tool_rpc(self):
-        proto = _read_proto()
+        body = self._kernel_service_body()
         assert re.search(
             r"rpc\s+ExecuteTool\s*\(\s*ExecuteToolRequest\s*\)\s+returns\s*\(\s*ToolResult\s*\)",
-            proto,
+            body,
         )
 
     def test_emit_hook_rpc(self):
-        proto = _read_proto()
+        body = self._kernel_service_body()
         assert re.search(
             r"rpc\s+EmitHook\s*\(\s*EmitHookRequest\s*\)\s+returns\s*\(\s*Empty\s*\)",
-            proto,
+            body,
         )
 
     def test_emit_hook_and_collect_rpc(self):
-        proto = _read_proto()
+        body = self._kernel_service_body()
         assert re.search(
             r"rpc\s+EmitHookAndCollect\s*\(\s*EmitHookAndCollectRequest\s*\)\s+returns\s*\(\s*EmitHookAndCollectResponse\s*\)",
-            proto,
+            body,
         )
 
     def test_get_messages_rpc(self):
-        proto = _read_proto()
-        # Must match inside KernelService block specifically
-        match = re.search(r"service KernelService\s*\{(.*?)\}", proto, re.DOTALL)
-        assert match, "KernelService block not found"
-        body = match.group(1)
+        body = self._kernel_service_body()
         assert re.search(
             r"rpc\s+GetMessages\s*\(\s*GetMessagesRequest\s*\)\s+returns\s*\(\s*GetMessagesResponse\s*\)",
             body,
         )
 
     def test_add_message_rpc(self):
-        proto = _read_proto()
-        match = re.search(r"service KernelService\s*\{(.*?)\}", proto, re.DOTALL)
-        assert match, "KernelService block not found"
-        body = match.group(1)
+        body = self._kernel_service_body()
         assert re.search(
             r"rpc\s+AddMessage\s*\(\s*KernelAddMessageRequest\s*\)\s+returns\s*\(\s*Empty\s*\)",
             body,
         )
 
     def test_get_mounted_module_rpc(self):
-        proto = _read_proto()
+        body = self._kernel_service_body()
         assert re.search(
             r"rpc\s+GetMountedModule\s*\(\s*GetMountedModuleRequest\s*\)\s+returns\s*\(\s*GetMountedModuleResponse\s*\)",
-            proto,
+            body,
         )
 
     def test_register_capability_rpc(self):
-        proto = _read_proto()
+        body = self._kernel_service_body()
         assert re.search(
             r"rpc\s+RegisterCapability\s*\(\s*RegisterCapabilityRequest\s*\)\s+returns\s*\(\s*Empty\s*\)",
-            proto,
+            body,
         )
 
     def test_get_capability_rpc(self):
-        proto = _read_proto()
+        body = self._kernel_service_body()
         assert re.search(
             r"rpc\s+GetCapability\s*\(\s*GetCapabilityRequest\s*\)\s+returns\s*\(\s*GetCapabilityResponse\s*\)",
-            proto,
+            body,
         )
 
 
