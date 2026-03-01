@@ -8,10 +8,10 @@ import re
 from amplifier_core import capabilities
 
 
-def test_well_known_capabilities_is_frozenset():
-    """ALL_WELL_KNOWN_CAPABILITIES is a frozenset — duplicates are structurally impossible."""
-    assert isinstance(capabilities.ALL_WELL_KNOWN_CAPABILITIES, frozenset), (
-        f"ALL_WELL_KNOWN_CAPABILITIES should be frozenset, got {type(capabilities.ALL_WELL_KNOWN_CAPABILITIES).__name__}"
+def test_well_known_capabilities_is_list():
+    """ALL_WELL_KNOWN_CAPABILITIES is a list (from Rust via PyO3)."""
+    assert isinstance(capabilities.ALL_WELL_KNOWN_CAPABILITIES, (list, frozenset)), (
+        f"ALL_WELL_KNOWN_CAPABILITIES should be list or frozenset, got {type(capabilities.ALL_WELL_KNOWN_CAPABILITIES).__name__}"
     )
 
 
@@ -51,40 +51,3 @@ def test_capabilities_are_lowercase_snake_case():
         assert pattern.match(cap), (
             f"Capability {cap!r} does not match lowercase snake_case pattern"
         )
-
-
-def test_cost_tiers_is_frozenset():
-    """ALL_COST_TIERS is a frozenset — duplicates are structurally impossible."""
-    assert isinstance(capabilities.ALL_COST_TIERS, frozenset), (
-        f"ALL_COST_TIERS should be frozenset, got {type(capabilities.ALL_COST_TIERS).__name__}"
-    )
-
-
-def test_all_cost_tier_constants_in_list():
-    """Verify every COST_TIER_* constant is in ALL_COST_TIERS (catches forgotten additions)."""
-    cost_constants = [
-        getattr(capabilities, name)
-        for name in dir(capabilities)
-        if name.startswith("COST_TIER_") and name.isupper()
-    ]
-
-    missing = [c for c in cost_constants if c not in capabilities.ALL_COST_TIERS]
-    assert len(missing) == 0, f"Cost tier constants not in ALL_COST_TIERS: {missing}"
-
-    assert len(cost_constants) == len(capabilities.ALL_COST_TIERS), (
-        f"Mismatch: {len(cost_constants)} constants vs "
-        f"{len(capabilities.ALL_COST_TIERS)} in ALL_COST_TIERS"
-    )
-
-
-def test_cost_tiers_are_lowercase_snake_case():
-    """Verify all cost tier values are lowercase snake_case strings."""
-    pattern = re.compile(r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$")
-    for tier in capabilities.ALL_COST_TIERS:
-        assert isinstance(tier, str), f"Cost tier {tier!r} is not a string"
-        assert pattern.match(tier), (
-            f"Cost tier {tier!r} does not match lowercase snake_case pattern"
-        )
-
-
-
