@@ -13,6 +13,7 @@ class TestPb2MessageAttributes:
     @pytest.fixture(scope="class")
     def pb2(self):
         from amplifier_core._grpc_gen import amplifier_module_pb2
+
         return amplifier_module_pb2
 
     def test_has_tool_spec(self, pb2):
@@ -34,6 +35,7 @@ class TestPb2GrpcServiceStubs:
     @pytest.fixture(scope="class")
     def pb2_grpc(self):
         from amplifier_core._grpc_gen import amplifier_module_pb2_grpc
+
         return amplifier_module_pb2_grpc
 
     def test_has_tool_service_stub(self, pb2_grpc):
@@ -43,7 +45,9 @@ class TestPb2GrpcServiceStubs:
         assert hasattr(pb2_grpc, "ProviderServiceStub"), "Missing ProviderServiceStub"
 
     def test_has_orchestrator_service_stub(self, pb2_grpc):
-        assert hasattr(pb2_grpc, "OrchestratorServiceStub"), "Missing OrchestratorServiceStub"
+        assert hasattr(pb2_grpc, "OrchestratorServiceStub"), (
+            "Missing OrchestratorServiceStub"
+        )
 
     def test_has_context_service_stub(self, pb2_grpc):
         assert hasattr(pb2_grpc, "ContextServiceStub"), "Missing ContextServiceStub"
