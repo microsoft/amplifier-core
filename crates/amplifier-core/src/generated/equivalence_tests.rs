@@ -7,6 +7,11 @@
 mod tests {
     use crate::generated::*;
 
+    /// Expected number of meaningful (non-Unspecified) enum variants per design.
+    const EXPECTED_MODULE_TYPES: usize = 6;
+    const EXPECTED_PROVIDER_ERROR_TYPES: usize = 8;
+    const EXPECTED_HOOK_ACTIONS: usize = 5;
+
     #[test]
     fn proto_module_info_has_all_fields() {
         let info = ModuleInfo {
@@ -300,7 +305,7 @@ mod tests {
                 ModuleType::Approval,
             ],
             ModuleType::Unspecified,
-            6, // 6 meaningful module types as per design
+            EXPECTED_MODULE_TYPES,
             module_type_label
         );
     }
@@ -321,7 +326,7 @@ mod tests {
                 ProviderErrorType::Unknown,
             ],
             ProviderErrorType::Unspecified,
-            8, // 8 meaningful error types as per design
+            EXPECTED_PROVIDER_ERROR_TYPES,
             provider_error_type_label
         );
     }
@@ -339,7 +344,7 @@ mod tests {
                 HookAction::AskUser,
             ],
             HookAction::Unspecified,
-            5, // 5 meaningful hook actions as per design
+            EXPECTED_HOOK_ACTIONS,
             hook_action_label
         );
     }
