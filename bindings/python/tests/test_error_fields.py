@@ -1,8 +1,7 @@
 """Tests for ProviderError field access via PyO3.
 
-Verifies that the Rust ProviderError exposes model, retry_after, and
-delay_multiplier as Python-accessible properties on the _engine.ProviderError
-class.
+Verifies that the Rust ProviderError exposes model and retry_after
+as Python-accessible properties on the _engine.ProviderError class.
 """
 
 from amplifier_core._engine import ProviderError
@@ -26,40 +25,22 @@ def test_provider_error_has_retry_after_field():
     assert err.retry_after == 2.5
 
 
-def test_provider_error_has_delay_multiplier_field():
-    """ProviderError exposes .delay_multiplier, defaulting to 1.0."""
-    err = ProviderError(message="test error")
-    assert err.delay_multiplier == 1.0
-
-
-def test_provider_error_delay_multiplier_custom():
-    """ProviderError with delay_multiplier=2.0 exposes .delay_multiplier == 2.0."""
-    err = ProviderError(
-        message="test error",
-        delay_multiplier=2.0,
-    )
-    assert err.delay_multiplier == 2.0
-
-
 def test_provider_error_fields_default_to_none():
     """model and retry_after default to None when not set."""
     err = ProviderError(message="generic error")
     assert err.model is None
     assert err.retry_after is None
-    assert err.delay_multiplier == 1.0
 
 
 def test_provider_error_all_fields_set():
-    """All three new fields can be set and read back together."""
+    """model and retry_after can be set and read back together."""
     err = ProviderError(
         message="rate limit",
         model="gpt-4",
         retry_after=3.0,
-        delay_multiplier=1.5,
     )
     assert err.model == "gpt-4"
     assert err.retry_after == 3.0
-    assert err.delay_multiplier == 1.5
 
 
 def test_provider_error_message_field():

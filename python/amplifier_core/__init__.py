@@ -6,7 +6,7 @@ extension module. Submodule paths (e.g. `from amplifier_core.session import
 AmplifierSession`) still give the pure-Python implementations.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 # --- Rust-backed primary types (THE SWITCHOVER) ---
 # These four were previously imported from their Python submodules.
@@ -105,6 +105,7 @@ __all__ = [
     # Cancellation primitives
     "CancellationState",
     "CancellationToken",
+    "capabilities",
     "ModuleCoordinator",
     "ModuleLoader",
     "ModuleValidationError",

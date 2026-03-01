@@ -1989,8 +1989,8 @@ impl PyCoordinator {
 
 /// Python-visible provider error with structured fields.
 ///
-/// Exposes `model`, `retry_after`, and `delay_multiplier` as Python-accessible
-/// properties, matching the Python `LLMError` API. This class can be:
+/// Exposes `model` and `retry_after` as Python-accessible properties,
+/// matching the Python `LLMError` API. This class can be:
 /// - Constructed directly from Python for testing or provider modules
 /// - Created from a Rust `ProviderError` when errors cross the PyO3 boundary
 #[pyclass(name = "ProviderError")]
@@ -1999,7 +1999,6 @@ struct PyProviderError {
     provider: Option<String>,
     model: Option<String>,
     retry_after: Option<f64>,
-    delay_multiplier: f64,
     retryable: bool,
     error_type: String,
 }
@@ -2009,16 +2008,14 @@ impl PyProviderError {
     /// Create a new ProviderError with structured fields.
     ///
     /// Matches the field set of both the Rust `ProviderError` enum and
-    /// the Python `LLMError` base class, plus the new fields (`model`,
-    /// `retry_after`, `delay_multiplier`) added in Task 6.
+    /// the Python `LLMError` base class (`model`, `retry_after`).
     #[new]
-    #[pyo3(signature = (message, *, provider=None, model=None, retry_after=None, delay_multiplier=1.0, retryable=false, error_type="Other"))]
+    #[pyo3(signature = (message, *, provider=None, model=None, retry_after=None, retryable=false, error_type="Other"))]
     fn new(
         message: String,
         provider: Option<String>,
         model: Option<String>,
         retry_after: Option<f64>,
-        delay_multiplier: f64,
         retryable: bool,
         error_type: &str,
     ) -> Self {
@@ -2027,7 +2024,6 @@ impl PyProviderError {
             provider,
             model,
             retry_after,
-            delay_multiplier,
             retryable,
             error_type: error_type.to_string(),
         }
@@ -2057,12 +2053,6 @@ impl PyProviderError {
         self.retry_after
     }
 
-    /// Multiplier applied to backoff delay. Defaults to 1.0.
-    #[getter]
-    fn delay_multiplier(&self) -> f64 {
-        self.delay_multiplier
-    }
-
     /// Whether the caller should consider retrying the request.
     #[getter]
     fn retryable(&self) -> bool {
@@ -2086,9 +2076,6 @@ impl PyProviderError {
         if let Some(ra) = self.retry_after {
             parts.push(format!("retry_after={ra}"));
         }
-        if (self.delay_multiplier - 1.0).abs() > f64::EPSILON {
-            parts.push(format!("delay_multiplier={}", self.delay_multiplier));
-        }
         if self.retryable {
             parts.push("retryable=True".to_string());
         }
@@ -2105,138 +2092,120 @@ impl PyProviderError {
     #[allow(dead_code)]
     fn from_rust(err: &amplifier_core::errors::ProviderError) -> Self {
         use amplifier_core::errors::ProviderError;
-        let (message, provider, model, retry_after, delay_multiplier, retryable, error_type) =
-            match err {
-                ProviderError::RateLimit {
-                    message,
-                    provider,
-                    model,
-                    retry_after,
-                    delay_multiplier,
-                } => (
-                    message.clone(),
-                    provider.clone(),
-                    model.clone(),
-                    *retry_after,
-                    *delay_multiplier,
-                    true,
-                    "RateLimit",
-                ),
-                ProviderError::Authentication {
-                    message,
-                    provider,
-                    model,
-                    retry_after,
-                    delay_multiplier,
-                } => (
-                    message.clone(),
-                    provider.clone(),
-                    model.clone(),
-                    *retry_after,
-                    *delay_multiplier,
-                    false,
-                    "Authentication",
-                ),
-                ProviderError::ContextLength {
-                    message,
-                    provider,
-                    model,
-                    retry_after,
-                    delay_multiplier,
-                } => (
-                    message.clone(),
-                    provider.clone(),
-                    model.clone(),
-                    *retry_after,
-                    *delay_multiplier,
-                    false,
-                    "ContextLength",
-                ),
-                ProviderError::ContentFilter {
-                    message,
-                    provider,
-                    model,
-                    retry_after,
-                    delay_multiplier,
-                } => (
-                    message.clone(),
-                    provider.clone(),
-                    model.clone(),
-                    *retry_after,
-                    *delay_multiplier,
-                    false,
-                    "ContentFilter",
-                ),
-                ProviderError::InvalidRequest {
-                    message,
-                    provider,
-                    model,
-                    retry_after,
-                    delay_multiplier,
-                } => (
-                    message.clone(),
-                    provider.clone(),
-                    model.clone(),
-                    *retry_after,
-                    *delay_multiplier,
-                    false,
-                    "InvalidRequest",
-                ),
-                ProviderError::Unavailable {
-                    message,
-                    provider,
-                    model,
-                    retry_after,
-                    delay_multiplier,
-                    ..
-                } => (
-                    message.clone(),
-                    provider.clone(),
-                    model.clone(),
-                    *retry_after,
-                    *delay_multiplier,
-                    true,
-                    "Unavailable",
-                ),
-                ProviderError::Timeout {
-                    message,
-                    provider,
-                    model,
-                    retry_after,
-                    delay_multiplier,
-                } => (
-                    message.clone(),
-                    provider.clone(),
-                    model.clone(),
-                    *retry_after,
-                    *delay_multiplier,
-                    true,
-                    "Timeout",
-                ),
-                ProviderError::Other {
-                    message,
-                    provider,
-                    model,
-                    retry_after,
-                    delay_multiplier,
-                    retryable,
-                    ..
-                } => (
-                    message.clone(),
-                    provider.clone(),
-                    model.clone(),
-                    *retry_after,
-                    *delay_multiplier,
-                    *retryable,
-                    "Other",
-                ),
-            };
+        let (message, provider, model, retry_after, retryable, error_type) = match err {
+            ProviderError::RateLimit {
+                message,
+                provider,
+                model,
+                retry_after,
+            } => (
+                message.clone(),
+                provider.clone(),
+                model.clone(),
+                *retry_after,
+                true,
+                "RateLimit",
+            ),
+            ProviderError::Authentication {
+                message,
+                provider,
+                model,
+                retry_after,
+            } => (
+                message.clone(),
+                provider.clone(),
+                model.clone(),
+                *retry_after,
+                false,
+                "Authentication",
+            ),
+            ProviderError::ContextLength {
+                message,
+                provider,
+                model,
+                retry_after,
+            } => (
+                message.clone(),
+                provider.clone(),
+                model.clone(),
+                *retry_after,
+                false,
+                "ContextLength",
+            ),
+            ProviderError::ContentFilter {
+                message,
+                provider,
+                model,
+                retry_after,
+            } => (
+                message.clone(),
+                provider.clone(),
+                model.clone(),
+                *retry_after,
+                false,
+                "ContentFilter",
+            ),
+            ProviderError::InvalidRequest {
+                message,
+                provider,
+                model,
+                retry_after,
+            } => (
+                message.clone(),
+                provider.clone(),
+                model.clone(),
+                *retry_after,
+                false,
+                "InvalidRequest",
+            ),
+            ProviderError::Unavailable {
+                message,
+                provider,
+                model,
+                retry_after,
+                ..
+            } => (
+                message.clone(),
+                provider.clone(),
+                model.clone(),
+                *retry_after,
+                true,
+                "Unavailable",
+            ),
+            ProviderError::Timeout {
+                message,
+                provider,
+                model,
+                retry_after,
+            } => (
+                message.clone(),
+                provider.clone(),
+                model.clone(),
+                *retry_after,
+                true,
+                "Timeout",
+            ),
+            ProviderError::Other {
+                message,
+                provider,
+                model,
+                retry_after,
+                retryable,
+                ..
+            } => (
+                message.clone(),
+                provider.clone(),
+                model.clone(),
+                *retry_after,
+                *retryable,
+                "Other",
+            ),
+        };
         Self {
             message,
             provider,
             model,
             retry_after,
-            delay_multiplier,
             retryable,
             error_type: error_type.to_string(),
         }
@@ -2326,14 +2295,9 @@ fn classify_error_message(message: &str) -> &'static str {
 /// Pure function (deterministic when `config.jitter` is false).
 /// The caller is responsible for sleeping.
 #[pyfunction]
-#[pyo3(signature = (config, attempt, retry_after=None, delay_multiplier=1.0))]
-fn compute_delay(
-    config: &PyRetryConfig,
-    attempt: u32,
-    retry_after: Option<f64>,
-    delay_multiplier: f64,
-) -> f64 {
-    amplifier_core::retry::compute_delay(&config.inner, attempt, retry_after, delay_multiplier)
+#[pyo3(signature = (config, attempt, retry_after=None))]
+fn compute_delay(config: &PyRetryConfig, attempt: u32, retry_after: Option<f64>) -> f64 {
+    amplifier_core::retry::compute_delay(&config.inner, attempt, retry_after)
 }
 
 // ---------------------------------------------------------------------------
@@ -2527,33 +2491,10 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("LONG_CONTEXT", amplifier_core::capabilities::LONG_CONTEXT)?;
     m.add("BATCH", amplifier_core::capabilities::BATCH)?;
 
-    // Cost tiers
-    m.add(
-        "COST_TIER_FREE",
-        amplifier_core::capabilities::COST_TIER_FREE,
-    )?;
-    m.add("COST_TIER_LOW", amplifier_core::capabilities::COST_TIER_LOW)?;
-    m.add(
-        "COST_TIER_MEDIUM",
-        amplifier_core::capabilities::COST_TIER_MEDIUM,
-    )?;
-    m.add(
-        "COST_TIER_HIGH",
-        amplifier_core::capabilities::COST_TIER_HIGH,
-    )?;
-    m.add(
-        "COST_TIER_EXTREME",
-        amplifier_core::capabilities::COST_TIER_EXTREME,
-    )?;
-
     // Collections
     m.add(
         "ALL_WELL_KNOWN_CAPABILITIES",
         amplifier_core::capabilities::ALL_WELL_KNOWN_CAPABILITIES.to_vec(),
-    )?;
-    m.add(
-        "ALL_COST_TIERS",
-        amplifier_core::capabilities::ALL_COST_TIERS.to_vec(),
     )?;
 
     Ok(())

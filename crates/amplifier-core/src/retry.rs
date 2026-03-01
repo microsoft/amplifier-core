@@ -102,23 +102,12 @@ pub fn classify_error_message(message: &str) -> &'static str {
 /// * `config` — Retry configuration.
 /// * `attempt` — Zero-based attempt number (0 = first retry).
 /// * `retry_after` — Optional server-provided retry-after hint in seconds.
-/// * `delay_multiplier` — Error-specific multiplier (1.0 = no change).
-pub fn compute_delay(
-    config: &RetryConfig,
-    attempt: u32,
-    retry_after: Option<f64>,
-    delay_multiplier: f64,
-) -> f64 {
+pub fn compute_delay(config: &RetryConfig, attempt: u32, retry_after: Option<f64>) -> f64 {
     // Exponential backoff: initial_delay * backoff_factor^attempt
     let mut delay = config.initial_delay * config.backoff_factor.powi(attempt as i32);
 
     // Cap at max_delay
     delay = delay.min(config.max_delay);
-
-    // Apply delay_multiplier (from error, can exceed max_delay)
-    if delay_multiplier != 1.0 {
-        delay *= delay_multiplier;
-    }
 
     // Respect retry_after (floor)
     if config.honor_retry_after {
@@ -255,15 +244,15 @@ mod tests {
         };
 
         // attempt 0: initial_delay * 2^0 = 1.0
-        let d0 = compute_delay(&config, 0, None, 1.0);
+        let d0 = compute_delay(&config, 0, None);
         assert!((d0 - 1.0).abs() < f64::EPSILON);
 
         // attempt 1: initial_delay * 2^1 = 2.0
-        let d1 = compute_delay(&config, 1, None, 1.0);
+        let d1 = compute_delay(&config, 1, None);
         assert!((d1 - 2.0).abs() < f64::EPSILON);
 
         // attempt 2: initial_delay * 2^2 = 4.0
-        let d2 = compute_delay(&config, 2, None, 1.0);
+        let d2 = compute_delay(&config, 2, None);
         assert!((d2 - 4.0).abs() < f64::EPSILON);
     }
 
@@ -276,7 +265,7 @@ mod tests {
         };
 
         // attempt 5: 1.0 * 2^5 = 32.0, but capped at 10.0
-        let d = compute_delay(&config, 5, None, 1.0);
+        let d = compute_delay(&config, 5, None);
         assert!((d - 10.0).abs() < f64::EPSILON);
     }
 
@@ -288,7 +277,7 @@ mod tests {
         };
 
         // attempt 0: base delay = 1.0, retry_after = 5.0 → max(1.0, 5.0) = 5.0
-        let d = compute_delay(&config, 0, Some(5.0), 1.0);
+        let d = compute_delay(&config, 0, Some(5.0));
         assert!((d - 5.0).abs() < f64::EPSILON);
     }
 
@@ -301,34 +290,8 @@ mod tests {
         };
 
         // retry_after should be ignored
-        let d = compute_delay(&config, 0, Some(5.0), 1.0);
+        let d = compute_delay(&config, 0, Some(5.0));
         assert!((d - 1.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn test_compute_delay_applies_multiplier() {
-        let config = RetryConfig {
-            jitter: false,
-            ..RetryConfig::default()
-        };
-
-        // attempt 0: base = 1.0, multiplier = 3.0 → 3.0
-        let d = compute_delay(&config, 0, None, 3.0);
-        assert!((d - 3.0).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn test_compute_delay_multiplier_can_exceed_max() {
-        let config = RetryConfig {
-            max_delay: 10.0,
-            jitter: false,
-            ..RetryConfig::default()
-        };
-
-        // attempt 3: base = min(1.0 * 2^3, 10.0) = 8.0, multiplier = 5.0 → 40.0
-        // multiplier is applied AFTER cap, so it can exceed max_delay
-        let d = compute_delay(&config, 3, None, 5.0);
-        assert!((d - 40.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -341,7 +304,7 @@ mod tests {
         // With jitter, delay should be in [0.5 * base, 1.5 * base]
         // attempt 0: base = 1.0, so jittered ∈ [0.5, 1.5]
         for _ in 0..100 {
-            let d = compute_delay(&config, 0, None, 1.0);
+            let d = compute_delay(&config, 0, None);
             assert!(d >= 0.5, "delay {d} below 0.5");
             assert!(d <= 1.5, "delay {d} above 1.5");
         }

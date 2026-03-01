@@ -20,7 +20,7 @@ use serde::Serialize;
 /// Maps 1:1 to Python's `llm_errors.py` hierarchy:
 ///
 /// | Python class              | Rust variant             |
-/// |---------------------------|--------------------------|
+/// |---------------------------|--------------------------|\
 /// | `LLMError`                | `ProviderError::Other`   |
 /// | `RateLimitError`          | `ProviderError::RateLimit` |
 /// | `AuthenticationError`     | `ProviderError::Authentication` |
@@ -39,7 +39,6 @@ pub enum ProviderError {
         provider: Option<String>,
         model: Option<String>,
         retry_after: Option<f64>,
-        delay_multiplier: f64,
     },
 
     /// Invalid or missing API credentials (HTTP 401/403).
@@ -49,7 +48,6 @@ pub enum ProviderError {
         provider: Option<String>,
         model: Option<String>,
         retry_after: Option<f64>,
-        delay_multiplier: f64,
     },
 
     /// Request exceeds the model's context window.
@@ -59,7 +57,6 @@ pub enum ProviderError {
         provider: Option<String>,
         model: Option<String>,
         retry_after: Option<f64>,
-        delay_multiplier: f64,
     },
 
     /// Content blocked by the provider's safety filter.
@@ -69,7 +66,6 @@ pub enum ProviderError {
         provider: Option<String>,
         model: Option<String>,
         retry_after: Option<f64>,
-        delay_multiplier: f64,
     },
 
     /// Malformed request rejected by the provider (HTTP 400/422).
@@ -79,7 +75,6 @@ pub enum ProviderError {
         provider: Option<String>,
         model: Option<String>,
         retry_after: Option<f64>,
-        delay_multiplier: f64,
     },
 
     /// Provider service unavailable (HTTP 5xx, network error).
@@ -90,7 +85,6 @@ pub enum ProviderError {
         provider: Option<String>,
         model: Option<String>,
         retry_after: Option<f64>,
-        delay_multiplier: f64,
         status_code: Option<u16>,
     },
 
@@ -102,7 +96,6 @@ pub enum ProviderError {
         provider: Option<String>,
         model: Option<String>,
         retry_after: Option<f64>,
-        delay_multiplier: f64,
     },
 
     /// Generic LLM error (maps to Python's base `LLMError`).
@@ -112,7 +105,6 @@ pub enum ProviderError {
         provider: Option<String>,
         model: Option<String>,
         retry_after: Option<f64>,
-        delay_multiplier: f64,
         status_code: Option<u16>,
         retryable: bool,
     },
@@ -158,36 +150,6 @@ impl ProviderError {
             | Self::Unavailable { retry_after, .. }
             | Self::Timeout { retry_after, .. }
             | Self::Other { retry_after, .. } => *retry_after,
-        }
-    }
-
-    /// Multiplier applied to backoff delay (default 1.0).
-    pub fn delay_multiplier(&self) -> f64 {
-        match self {
-            Self::RateLimit {
-                delay_multiplier, ..
-            }
-            | Self::Authentication {
-                delay_multiplier, ..
-            }
-            | Self::ContextLength {
-                delay_multiplier, ..
-            }
-            | Self::ContentFilter {
-                delay_multiplier, ..
-            }
-            | Self::InvalidRequest {
-                delay_multiplier, ..
-            }
-            | Self::Unavailable {
-                delay_multiplier, ..
-            }
-            | Self::Timeout {
-                delay_multiplier, ..
-            }
-            | Self::Other {
-                delay_multiplier, ..
-            } => *delay_multiplier,
         }
     }
 }
@@ -309,7 +271,6 @@ mod tests {
             provider: Some("anthropic".into()),
             model: None,
             retry_after: None,
-            delay_multiplier: 1.0,
         };
         assert!(!err.retryable());
     }
@@ -321,7 +282,6 @@ mod tests {
             provider: Some("openai".into()),
             model: None,
             retry_after: Some(1.5),
-            delay_multiplier: 1.0,
         };
         assert!(err.retryable());
         assert_eq!(err.retry_after(), Some(1.5));
@@ -334,7 +294,6 @@ mod tests {
             provider: None,
             model: None,
             retry_after: None,
-            delay_multiplier: 1.0,
             status_code: Some(503),
         };
         assert!(err.retryable());
@@ -347,7 +306,6 @@ mod tests {
             provider: Some("gemini".into()),
             model: None,
             retry_after: None,
-            delay_multiplier: 1.0,
         };
         assert!(err.retryable());
     }
@@ -359,7 +317,6 @@ mod tests {
             provider: None,
             model: None,
             retry_after: None,
-            delay_multiplier: 1.0,
         };
         let outer = AmplifierError::Provider(inner);
         assert!(matches!(outer, AmplifierError::Provider(_)));
@@ -378,7 +335,6 @@ mod tests {
             provider: Some("openai".into()),
             model: None,
             retry_after: Some(2.0),
-            delay_multiplier: 1.0,
         };
         let json = serde_json::to_string(&err).unwrap();
         assert!(json.contains("429"));
@@ -394,7 +350,6 @@ mod tests {
             provider: Some("anthropic".into()),
             model: None,
             retry_after: None,
-            delay_multiplier: 1.0,
         };
         assert_eq!(err.model(), None);
     }
@@ -407,22 +362,8 @@ mod tests {
             provider: None,
             model: None,
             retry_after: None,
-            delay_multiplier: 1.0,
         };
         assert_eq!(err.retry_after(), None);
-    }
-
-    #[test]
-    fn test_provider_error_has_delay_multiplier_field() {
-        // delay_multiplier defaults to 1.0
-        let err = ProviderError::ContentFilter {
-            message: "blocked".into(),
-            provider: None,
-            model: None,
-            retry_after: None,
-            delay_multiplier: 1.0,
-        };
-        assert!((err.delay_multiplier() - 1.0).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -432,10 +373,8 @@ mod tests {
             provider: Some("openai".into()),
             model: Some("gpt-4".into()),
             retry_after: Some(2.5),
-            delay_multiplier: 1.5,
         };
         assert_eq!(err.model(), Some("gpt-4"));
         assert_eq!(err.retry_after(), Some(2.5));
-        assert!((err.delay_multiplier() - 1.5).abs() < f64::EPSILON);
     }
 }

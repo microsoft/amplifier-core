@@ -79,11 +79,3 @@ def test_compute_delay_with_retry_after():
     # attempt 0: base = 1.0, retry_after = 5.0 -> max(1.0, 5.0) = 5.0
     delay = compute_delay(config, 0, retry_after=5.0)
     assert delay == 5.0
-
-
-def test_compute_delay_with_multiplier():
-    """delay_multiplier should scale the computed delay."""
-    config = RetryConfig(jitter=False)
-    # attempt 0: base = 1.0, multiplier = 3.0 -> 3.0
-    delay = compute_delay(config, 0, delay_multiplier=3.0)
-    assert delay == 3.0
