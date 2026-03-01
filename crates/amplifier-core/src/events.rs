@@ -72,6 +72,12 @@ pub const PROVIDER_RESPONSE: &str = "provider:response";
 pub const PROVIDER_RETRY: &str = "provider:retry";
 /// A provider call resulted in an error.
 pub const PROVIDER_ERROR: &str = "provider:error";
+/// A provider is being throttled (rate-limited).
+pub const PROVIDER_THROTTLE: &str = "provider:throttle";
+/// A provider repaired a malformed tool-call sequence.
+pub const PROVIDER_TOOL_SEQUENCE_REPAIRED: &str = "provider:tool_sequence_repaired";
+/// A provider has been resolved (selected for use).
+pub const PROVIDER_RESOLVE: &str = "provider:resolve";
 
 // --- LLM request/response (with debug tiers) ---
 
@@ -188,6 +194,9 @@ pub const ALL_EVENTS: &[&str] = &[
     PROVIDER_RESPONSE,
     PROVIDER_RETRY,
     PROVIDER_ERROR,
+    PROVIDER_THROTTLE,
+    PROVIDER_TOOL_SEQUENCE_REPAIRED,
+    PROVIDER_RESOLVE,
     LLM_REQUEST,
     LLM_REQUEST_DEBUG,
     LLM_REQUEST_RAW,
@@ -330,14 +339,47 @@ mod tests {
         assert_eq!(CANCEL_COMPLETED, "cancel:completed");
     }
 
+    // ---- New provider event constants (Phase 3) ----
+
+    #[test]
+    fn test_provider_throttle_event_value() {
+        assert_eq!(PROVIDER_THROTTLE, "provider:throttle");
+    }
+
+    #[test]
+    fn test_provider_resolve_event_value() {
+        assert_eq!(PROVIDER_RESOLVE, "provider:resolve");
+    }
+
+    #[test]
+    fn test_provider_tool_sequence_repaired_event_value() {
+        assert_eq!(PROVIDER_TOOL_SEQUENCE_REPAIRED, "provider:tool_sequence_repaired");
+    }
+
+    #[test]
+    fn test_all_events_contains_new_constants() {
+        assert!(
+            ALL_EVENTS.contains(&PROVIDER_THROTTLE),
+            "ALL_EVENTS missing: provider:throttle"
+        );
+        assert!(
+            ALL_EVENTS.contains(&PROVIDER_TOOL_SEQUENCE_REPAIRED),
+            "ALL_EVENTS missing: provider:tool_sequence_repaired"
+        );
+        assert!(
+            ALL_EVENTS.contains(&PROVIDER_RESOLVE),
+            "ALL_EVENTS missing: provider:resolve"
+        );
+    }
+
     // ---- ALL_EVENTS aggregate tests ----
 
     #[test]
     fn all_events_count() {
         assert_eq!(
             ALL_EVENTS.len(),
-            48,
-            "Python source defines exactly 48 events"
+            51,
+            "Python source defines exactly 51 events"
         );
     }
 
