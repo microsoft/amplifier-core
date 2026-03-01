@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "amplifier-core"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "chrono",
  "rand",
@@ -17,7 +17,7 @@ dependencies = [
 
 [[package]]
 name = "amplifier-core-py"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "amplifier-core",
  "pyo3",
