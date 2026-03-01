@@ -360,8 +360,9 @@ class HookValidator:
             )
             return
 
-        call_method = hook.__call__
-        if not asyncio.iscoroutinefunction(call_method):
+        # Check the handler itself first (handles bound async methods),
+        # then fall back to checking __call__ (handles objects with async __call__)
+        if not (asyncio.iscoroutinefunction(hook) or asyncio.iscoroutinefunction(getattr(hook, '__call__', None))):
             result.add(
                 ValidationCheck(
                     name="hook_call",
@@ -373,7 +374,7 @@ class HookValidator:
             return
 
         # Check signature: event, data
-        sig = inspect.signature(call_method)
+        sig = inspect.signature(hook)
         params = [p for p in sig.parameters if p != "self"]
         if len(params) >= 2:
             result.add(
