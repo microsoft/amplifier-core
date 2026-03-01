@@ -353,7 +353,10 @@ mod tests {
 
     #[test]
     fn test_provider_tool_sequence_repaired_event_value() {
-        assert_eq!(PROVIDER_TOOL_SEQUENCE_REPAIRED, "provider:tool_sequence_repaired");
+        assert_eq!(
+            PROVIDER_TOOL_SEQUENCE_REPAIRED,
+            "provider:tool_sequence_repaired"
+        );
     }
 
     #[test]

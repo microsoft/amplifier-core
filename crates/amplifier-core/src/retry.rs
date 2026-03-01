@@ -167,10 +167,7 @@ mod tests {
             classify_error_message("Too Many Requests (429)"),
             "rate_limit"
         );
-        assert_eq!(
-            classify_error_message("rate_limit_exceeded"),
-            "rate_limit"
-        );
+        assert_eq!(classify_error_message("rate_limit_exceeded"), "rate_limit");
     }
 
     #[test]
@@ -181,10 +178,7 @@ mod tests {
 
     #[test]
     fn test_classify_authentication() {
-        assert_eq!(
-            classify_error_message("invalid api key"),
-            "authentication"
-        );
+        assert_eq!(classify_error_message("invalid api key"), "authentication");
         assert_eq!(
             classify_error_message("Authentication failed"),
             "authentication"
@@ -201,10 +195,7 @@ mod tests {
             classify_error_message("context length exceeded"),
             "context_length"
         );
-        assert_eq!(
-            classify_error_message("too many tokens"),
-            "context_length"
-        );
+        assert_eq!(classify_error_message("too many tokens"), "context_length");
         assert_eq!(
             classify_error_message("maximum context reached"),
             "context_length"

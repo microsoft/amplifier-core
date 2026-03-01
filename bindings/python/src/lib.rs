@@ -2361,15 +2361,30 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Session lifecycle
     m.add("SESSION_START", amplifier_core::events::SESSION_START)?;
-    m.add("SESSION_START_DEBUG", amplifier_core::events::SESSION_START_DEBUG)?;
-    m.add("SESSION_START_RAW", amplifier_core::events::SESSION_START_RAW)?;
+    m.add(
+        "SESSION_START_DEBUG",
+        amplifier_core::events::SESSION_START_DEBUG,
+    )?;
+    m.add(
+        "SESSION_START_RAW",
+        amplifier_core::events::SESSION_START_RAW,
+    )?;
     m.add("SESSION_END", amplifier_core::events::SESSION_END)?;
     m.add("SESSION_FORK", amplifier_core::events::SESSION_FORK)?;
-    m.add("SESSION_FORK_DEBUG", amplifier_core::events::SESSION_FORK_DEBUG)?;
+    m.add(
+        "SESSION_FORK_DEBUG",
+        amplifier_core::events::SESSION_FORK_DEBUG,
+    )?;
     m.add("SESSION_FORK_RAW", amplifier_core::events::SESSION_FORK_RAW)?;
     m.add("SESSION_RESUME", amplifier_core::events::SESSION_RESUME)?;
-    m.add("SESSION_RESUME_DEBUG", amplifier_core::events::SESSION_RESUME_DEBUG)?;
-    m.add("SESSION_RESUME_RAW", amplifier_core::events::SESSION_RESUME_RAW)?;
+    m.add(
+        "SESSION_RESUME_DEBUG",
+        amplifier_core::events::SESSION_RESUME_DEBUG,
+    )?;
+    m.add(
+        "SESSION_RESUME_RAW",
+        amplifier_core::events::SESSION_RESUME_RAW,
+    )?;
 
     // Prompt lifecycle
     m.add("PROMPT_SUBMIT", amplifier_core::events::PROMPT_SUBMIT)?;
@@ -2381,25 +2396,49 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Provider calls
     m.add("PROVIDER_REQUEST", amplifier_core::events::PROVIDER_REQUEST)?;
-    m.add("PROVIDER_RESPONSE", amplifier_core::events::PROVIDER_RESPONSE)?;
+    m.add(
+        "PROVIDER_RESPONSE",
+        amplifier_core::events::PROVIDER_RESPONSE,
+    )?;
     m.add("PROVIDER_RETRY", amplifier_core::events::PROVIDER_RETRY)?;
     m.add("PROVIDER_ERROR", amplifier_core::events::PROVIDER_ERROR)?;
-    m.add("PROVIDER_THROTTLE", amplifier_core::events::PROVIDER_THROTTLE)?;
-    m.add("PROVIDER_TOOL_SEQUENCE_REPAIRED", amplifier_core::events::PROVIDER_TOOL_SEQUENCE_REPAIRED)?;
+    m.add(
+        "PROVIDER_THROTTLE",
+        amplifier_core::events::PROVIDER_THROTTLE,
+    )?;
+    m.add(
+        "PROVIDER_TOOL_SEQUENCE_REPAIRED",
+        amplifier_core::events::PROVIDER_TOOL_SEQUENCE_REPAIRED,
+    )?;
     m.add("PROVIDER_RESOLVE", amplifier_core::events::PROVIDER_RESOLVE)?;
 
     // LLM request/response
     m.add("LLM_REQUEST", amplifier_core::events::LLM_REQUEST)?;
-    m.add("LLM_REQUEST_DEBUG", amplifier_core::events::LLM_REQUEST_DEBUG)?;
+    m.add(
+        "LLM_REQUEST_DEBUG",
+        amplifier_core::events::LLM_REQUEST_DEBUG,
+    )?;
     m.add("LLM_REQUEST_RAW", amplifier_core::events::LLM_REQUEST_RAW)?;
     m.add("LLM_RESPONSE", amplifier_core::events::LLM_RESPONSE)?;
-    m.add("LLM_RESPONSE_DEBUG", amplifier_core::events::LLM_RESPONSE_DEBUG)?;
+    m.add(
+        "LLM_RESPONSE_DEBUG",
+        amplifier_core::events::LLM_RESPONSE_DEBUG,
+    )?;
     m.add("LLM_RESPONSE_RAW", amplifier_core::events::LLM_RESPONSE_RAW)?;
 
     // Content block events
-    m.add("CONTENT_BLOCK_START", amplifier_core::events::CONTENT_BLOCK_START)?;
-    m.add("CONTENT_BLOCK_DELTA", amplifier_core::events::CONTENT_BLOCK_DELTA)?;
-    m.add("CONTENT_BLOCK_END", amplifier_core::events::CONTENT_BLOCK_END)?;
+    m.add(
+        "CONTENT_BLOCK_START",
+        amplifier_core::events::CONTENT_BLOCK_START,
+    )?;
+    m.add(
+        "CONTENT_BLOCK_DELTA",
+        amplifier_core::events::CONTENT_BLOCK_DELTA,
+    )?;
+    m.add(
+        "CONTENT_BLOCK_END",
+        amplifier_core::events::CONTENT_BLOCK_END,
+    )?;
 
     // Thinking events
     m.add("THINKING_DELTA", amplifier_core::events::THINKING_DELTA)?;
@@ -2411,18 +2450,33 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("TOOL_ERROR", amplifier_core::events::TOOL_ERROR)?;
 
     // Context management
-    m.add("CONTEXT_PRE_COMPACT", amplifier_core::events::CONTEXT_PRE_COMPACT)?;
-    m.add("CONTEXT_POST_COMPACT", amplifier_core::events::CONTEXT_POST_COMPACT)?;
-    m.add("CONTEXT_COMPACTION", amplifier_core::events::CONTEXT_COMPACTION)?;
+    m.add(
+        "CONTEXT_PRE_COMPACT",
+        amplifier_core::events::CONTEXT_PRE_COMPACT,
+    )?;
+    m.add(
+        "CONTEXT_POST_COMPACT",
+        amplifier_core::events::CONTEXT_POST_COMPACT,
+    )?;
+    m.add(
+        "CONTEXT_COMPACTION",
+        amplifier_core::events::CONTEXT_COMPACTION,
+    )?;
     m.add("CONTEXT_INCLUDE", amplifier_core::events::CONTEXT_INCLUDE)?;
 
     // Orchestrator lifecycle
-    m.add("ORCHESTRATOR_COMPLETE", amplifier_core::events::ORCHESTRATOR_COMPLETE)?;
+    m.add(
+        "ORCHESTRATOR_COMPLETE",
+        amplifier_core::events::ORCHESTRATOR_COMPLETE,
+    )?;
     m.add("EXECUTION_START", amplifier_core::events::EXECUTION_START)?;
     m.add("EXECUTION_END", amplifier_core::events::EXECUTION_END)?;
 
     // User notifications
-    m.add("USER_NOTIFICATION", amplifier_core::events::USER_NOTIFICATION)?;
+    m.add(
+        "USER_NOTIFICATION",
+        amplifier_core::events::USER_NOTIFICATION,
+    )?;
 
     // Artifacts
     m.add("ARTIFACT_WRITE", amplifier_core::events::ARTIFACT_WRITE)?;
@@ -2430,7 +2484,10 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Policy / approvals
     m.add("POLICY_VIOLATION", amplifier_core::events::POLICY_VIOLATION)?;
-    m.add("APPROVAL_REQUIRED", amplifier_core::events::APPROVAL_REQUIRED)?;
+    m.add(
+        "APPROVAL_REQUIRED",
+        amplifier_core::events::APPROVAL_REQUIRED,
+    )?;
     m.add("APPROVAL_GRANTED", amplifier_core::events::APPROVAL_GRANTED)?;
     m.add("APPROVAL_DENIED", amplifier_core::events::APPROVAL_DENIED)?;
 
@@ -2453,27 +2510,51 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("JSON_MODE", amplifier_core::capabilities::JSON_MODE)?;
     // Capabilities — Tier 2 (extended)
     m.add("FAST", amplifier_core::capabilities::FAST)?;
-    m.add("CODE_EXECUTION", amplifier_core::capabilities::CODE_EXECUTION)?;
+    m.add(
+        "CODE_EXECUTION",
+        amplifier_core::capabilities::CODE_EXECUTION,
+    )?;
     m.add("WEB_SEARCH", amplifier_core::capabilities::WEB_SEARCH)?;
     m.add("DEEP_RESEARCH", amplifier_core::capabilities::DEEP_RESEARCH)?;
     m.add("LOCAL", amplifier_core::capabilities::LOCAL)?;
     m.add("AUDIO", amplifier_core::capabilities::AUDIO)?;
-    m.add("IMAGE_GENERATION", amplifier_core::capabilities::IMAGE_GENERATION)?;
+    m.add(
+        "IMAGE_GENERATION",
+        amplifier_core::capabilities::IMAGE_GENERATION,
+    )?;
     m.add("COMPUTER_USE", amplifier_core::capabilities::COMPUTER_USE)?;
     m.add("EMBEDDINGS", amplifier_core::capabilities::EMBEDDINGS)?;
     m.add("LONG_CONTEXT", amplifier_core::capabilities::LONG_CONTEXT)?;
     m.add("BATCH", amplifier_core::capabilities::BATCH)?;
 
     // Cost tiers
-    m.add("COST_TIER_FREE", amplifier_core::capabilities::COST_TIER_FREE)?;
+    m.add(
+        "COST_TIER_FREE",
+        amplifier_core::capabilities::COST_TIER_FREE,
+    )?;
     m.add("COST_TIER_LOW", amplifier_core::capabilities::COST_TIER_LOW)?;
-    m.add("COST_TIER_MEDIUM", amplifier_core::capabilities::COST_TIER_MEDIUM)?;
-    m.add("COST_TIER_HIGH", amplifier_core::capabilities::COST_TIER_HIGH)?;
-    m.add("COST_TIER_EXTREME", amplifier_core::capabilities::COST_TIER_EXTREME)?;
+    m.add(
+        "COST_TIER_MEDIUM",
+        amplifier_core::capabilities::COST_TIER_MEDIUM,
+    )?;
+    m.add(
+        "COST_TIER_HIGH",
+        amplifier_core::capabilities::COST_TIER_HIGH,
+    )?;
+    m.add(
+        "COST_TIER_EXTREME",
+        amplifier_core::capabilities::COST_TIER_EXTREME,
+    )?;
 
     // Collections
-    m.add("ALL_WELL_KNOWN_CAPABILITIES", amplifier_core::capabilities::ALL_WELL_KNOWN_CAPABILITIES.to_vec())?;
-    m.add("ALL_COST_TIERS", amplifier_core::capabilities::ALL_COST_TIERS.to_vec())?;
+    m.add(
+        "ALL_WELL_KNOWN_CAPABILITIES",
+        amplifier_core::capabilities::ALL_WELL_KNOWN_CAPABILITIES.to_vec(),
+    )?;
+    m.add(
+        "ALL_COST_TIERS",
+        amplifier_core::capabilities::ALL_COST_TIERS.to_vec(),
+    )?;
 
     Ok(())
 }
