@@ -607,3 +607,16 @@ service KernelService {
   rpc RegisterCapability(RegisterCapabilityRequest) returns (Empty);
   rpc GetCapability(GetCapabilityRequest) returns (GetCapabilityResponse);
 }
+
+// ---------------------------------------------------------------------------
+// ModuleLifecycle — every gRPC module implements this service
+// ---------------------------------------------------------------------------
+
+// Universal lifecycle contract for all out-of-process modules.
+// Mount is called once at startup; Cleanup before shutdown.
+service ModuleLifecycle {
+  rpc Mount(MountRequest) returns (MountResponse);
+  rpc Cleanup(Empty) returns (Empty);
+  rpc HealthCheck(Empty) returns (HealthCheckResponse);
+  rpc GetModuleInfo(Empty) returns (ModuleInfo);
+}
