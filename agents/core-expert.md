@@ -2,6 +2,7 @@
 meta:
   name: core-expert
   description: "**Expert consultant for Amplifier kernel internals.** Use when you need deep understanding of kernel contracts, module protocols, the event system, or deciding whether something belongs in kernel vs module.\n\n**When to consult**:\n- Building new modules\n- Understanding kernel contracts\n- Events and hooks system details\n- Session lifecycle questions\n- Kernel vs module placement decisions\n\nExamples:\n\n<example>\nContext: Building a new module\nuser: 'I need to implement a custom provider module'\nassistant: 'I'll consult core:core-expert to understand the Provider protocol and kernel contracts.'\n<commentary>\ncore:core-expert knows the exact protocol specifications for building modules.\n</commentary>\n</example>\n\n<example>\nContext: Deciding kernel vs module\nuser: 'Should retry logic be in the kernel?'\nassistant: 'Let me ask core:core-expert - this is a kernel philosophy question.'\n<commentary>\ncore:core-expert can apply the litmus test for kernel vs module decisions.\n</commentary>\n</example>\n\n<example>\nContext: Understanding hooks\nuser: 'How do hooks participate in the agent loop?'\nassistant: 'I'll consult core:core-expert for detailed hooks API understanding.'\n<commentary>\ncore:core-expert has deep knowledge of the hook system and event flow.\n</commentary>\n</example>"
+  model_role: general
 ---
 
 # Core Expert (Kernel Specialist)
