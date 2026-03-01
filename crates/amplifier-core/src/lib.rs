@@ -7,6 +7,7 @@
 //! # Crate Organization
 //!
 //! - `events` — Canonical event name constants
+//! - `capabilities` — Model capability and cost-tier constants
 //! - `errors` — All error types (AmplifierError, ProviderError, etc.)
 //! - `models` — Core data models (HookResult, ToolResult, ModelInfo, etc.)
 //! - `messages` — Chat protocol models (ChatRequest, ChatResponse, Message, etc.)
@@ -17,6 +18,7 @@
 //! - `session` — AmplifierSession lifecycle management
 
 pub mod cancellation;
+pub mod capabilities;
 pub mod coordinator;
 pub mod errors;
 pub mod events;
