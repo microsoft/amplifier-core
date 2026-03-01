@@ -50,6 +50,10 @@ python-source = "python"
 module-name = "amplifier_core._engine"
 bindings = "pyo3"
 manifest-path = "bindings/python/Cargo.toml"
+include = [
+    { path = "LICENSE", format = "sdist" },
+    { path = "README.md", format = "sdist" },
+]
 
 [tool.uv]
 package = true
