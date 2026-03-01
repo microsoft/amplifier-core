@@ -27,6 +27,8 @@ def coordinator():
 
     class MockSession:
         session_id = "test-session"
+        parent_id = None
+        config = {"session": {"orchestrator": "loop-basic"}}
 
     mock_session = MockSession()
     return ModuleCoordinator(session=mock_session)  # type: ignore[arg-type]

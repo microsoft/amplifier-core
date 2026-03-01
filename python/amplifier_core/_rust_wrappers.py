@@ -3,12 +3,14 @@ Thin Python wrappers around Rust PyO3 types.
 
 These add Python-specific behaviors that don't belong in the Rust kernel:
 - process_hook_result (calls approval_system, display_system)
+- cleanup with fatal exception re-raise (CancelledError, KeyboardInterrupt, SystemExit)
 
 The top-level `from amplifier_core import ModuleCoordinator` returns
-this wrapper class. The submodule `from amplifier_core.coordinator import
-ModuleCoordinator` still gives the pure-Python version.
+this wrapper class.  Since coordinator.py is now a re-export stub,
+`from amplifier_core.coordinator import ModuleCoordinator` also returns this.
 """
 
+import inspect
 import logging
 from datetime import datetime
 
@@ -20,15 +22,41 @@ logger = logging.getLogger(__name__)
 
 
 class ModuleCoordinator(RustCoordinator):
-    """Rust-backed coordinator with process_hook_result.
+    """Rust-backed coordinator with Python-specific behavior.
 
     Extends RustCoordinator with:
     - process_hook_result (calls approval_system, display_system)
+    - cleanup that re-raises fatal exceptions after all cleanup runs
 
     Hook dispatch is handled by the Rust RustHookRegistry (inherited from
     RustCoordinator). The PyO3 async bridge correctly awaits Python async
     handlers from Rust.
     """
+
+    async def cleanup(self):
+        """Call all registered cleanup functions, re-raising fatal exceptions.
+
+        The Rust coordinator's cleanup catches all exceptions but does not
+        re-raise fatal ones (CancelledError, KeyboardInterrupt, SystemExit).
+        This override preserves the Python coordinator's safety guarantee:
+        all cleanup functions run, then any fatal exception is re-raised.
+        """
+        first_fatal = None
+        for cleanup_fn in reversed(self._cleanup_fns):
+            try:
+                if callable(cleanup_fn):
+                    if inspect.iscoroutinefunction(cleanup_fn):
+                        await cleanup_fn()
+                    else:
+                        result = cleanup_fn()
+                        if inspect.iscoroutine(result):
+                            await result
+            except BaseException as e:
+                logger.error(f"Error during cleanup: {e}")
+                if first_fatal is None and not isinstance(e, Exception):
+                    first_fatal = e
+        if first_fatal is not None:
+            raise first_fatal
 
     async def process_hook_result(
         self, result: HookResult, event: str, hook_name: str = "unknown"
