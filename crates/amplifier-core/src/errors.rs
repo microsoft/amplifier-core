@@ -37,7 +37,9 @@ pub enum ProviderError {
     RateLimit {
         message: String,
         provider: Option<String>,
+        model: Option<String>,
         retry_after: Option<f64>,
+        delay_multiplier: f64,
     },
 
     /// Invalid or missing API credentials (HTTP 401/403).
@@ -45,6 +47,9 @@ pub enum ProviderError {
     Authentication {
         message: String,
         provider: Option<String>,
+        model: Option<String>,
+        retry_after: Option<f64>,
+        delay_multiplier: f64,
     },
 
     /// Request exceeds the model's context window.
@@ -52,6 +57,9 @@ pub enum ProviderError {
     ContextLength {
         message: String,
         provider: Option<String>,
+        model: Option<String>,
+        retry_after: Option<f64>,
+        delay_multiplier: f64,
     },
 
     /// Content blocked by the provider's safety filter.
@@ -59,6 +67,9 @@ pub enum ProviderError {
     ContentFilter {
         message: String,
         provider: Option<String>,
+        model: Option<String>,
+        retry_after: Option<f64>,
+        delay_multiplier: f64,
     },
 
     /// Malformed request rejected by the provider (HTTP 400/422).
@@ -66,6 +77,9 @@ pub enum ProviderError {
     InvalidRequest {
         message: String,
         provider: Option<String>,
+        model: Option<String>,
+        retry_after: Option<f64>,
+        delay_multiplier: f64,
     },
 
     /// Provider service unavailable (HTTP 5xx, network error).
@@ -74,6 +88,9 @@ pub enum ProviderError {
     Unavailable {
         message: String,
         provider: Option<String>,
+        model: Option<String>,
+        retry_after: Option<f64>,
+        delay_multiplier: f64,
         status_code: Option<u16>,
     },
 
@@ -83,6 +100,9 @@ pub enum ProviderError {
     Timeout {
         message: String,
         provider: Option<String>,
+        model: Option<String>,
+        retry_after: Option<f64>,
+        delay_multiplier: f64,
     },
 
     /// Generic LLM error (maps to Python's base `LLMError`).
@@ -90,6 +110,9 @@ pub enum ProviderError {
     Other {
         message: String,
         provider: Option<String>,
+        model: Option<String>,
+        retry_after: Option<f64>,
+        delay_multiplier: f64,
         status_code: Option<u16>,
         retryable: bool,
     },
@@ -110,14 +133,45 @@ impl ProviderError {
         }
     }
 
+    /// Model identifier that caused the error (e.g., "claude-opus-4-6").
+    pub fn model(&self) -> Option<&str> {
+        match self {
+            Self::RateLimit { model, .. }
+            | Self::Authentication { model, .. }
+            | Self::ContextLength { model, .. }
+            | Self::ContentFilter { model, .. }
+            | Self::InvalidRequest { model, .. }
+            | Self::Unavailable { model, .. }
+            | Self::Timeout { model, .. }
+            | Self::Other { model, .. } => model.as_deref(),
+        }
+    }
+
     /// Seconds to wait before retrying, if available.
-    ///
-    /// Only `RateLimit` carries this field (parsed from the provider's
-    /// `Retry-After` header).
     pub fn retry_after(&self) -> Option<f64> {
         match self {
-            Self::RateLimit { retry_after, .. } => *retry_after,
-            _ => None,
+            Self::RateLimit { retry_after, .. }
+            | Self::Authentication { retry_after, .. }
+            | Self::ContextLength { retry_after, .. }
+            | Self::ContentFilter { retry_after, .. }
+            | Self::InvalidRequest { retry_after, .. }
+            | Self::Unavailable { retry_after, .. }
+            | Self::Timeout { retry_after, .. }
+            | Self::Other { retry_after, .. } => *retry_after,
+        }
+    }
+
+    /// Multiplier applied to backoff delay (default 1.0).
+    pub fn delay_multiplier(&self) -> f64 {
+        match self {
+            Self::RateLimit { delay_multiplier, .. }
+            | Self::Authentication { delay_multiplier, .. }
+            | Self::ContextLength { delay_multiplier, .. }
+            | Self::ContentFilter { delay_multiplier, .. }
+            | Self::InvalidRequest { delay_multiplier, .. }
+            | Self::Unavailable { delay_multiplier, .. }
+            | Self::Timeout { delay_multiplier, .. }
+            | Self::Other { delay_multiplier, .. } => *delay_multiplier,
         }
     }
 }
@@ -237,6 +291,9 @@ mod tests {
         let err = ProviderError::Authentication {
             message: "bad key".into(),
             provider: Some("anthropic".into()),
+            model: None,
+            retry_after: None,
+            delay_multiplier: 1.0,
         };
         assert!(!err.retryable());
     }
@@ -246,7 +303,9 @@ mod tests {
         let err = ProviderError::RateLimit {
             message: "429".into(),
             provider: Some("openai".into()),
+            model: None,
             retry_after: Some(1.5),
+            delay_multiplier: 1.0,
         };
         assert!(err.retryable());
         assert_eq!(err.retry_after(), Some(1.5));
@@ -257,6 +316,9 @@ mod tests {
         let err = ProviderError::Unavailable {
             message: "503".into(),
             provider: None,
+            model: None,
+            retry_after: None,
+            delay_multiplier: 1.0,
             status_code: Some(503),
         };
         assert!(err.retryable());
@@ -267,6 +329,9 @@ mod tests {
         let err = ProviderError::Timeout {
             message: "timed out".into(),
             provider: Some("gemini".into()),
+            model: None,
+            retry_after: None,
+            delay_multiplier: 1.0,
         };
         assert!(err.retryable());
     }
@@ -276,7 +341,9 @@ mod tests {
         let inner = ProviderError::RateLimit {
             message: "429".into(),
             provider: None,
+            model: None,
             retry_after: None,
+            delay_multiplier: 1.0,
         };
         let outer = AmplifierError::Provider(inner);
         assert!(matches!(outer, AmplifierError::Provider(_)));
@@ -293,9 +360,66 @@ mod tests {
         let err = ProviderError::RateLimit {
             message: "429".into(),
             provider: Some("openai".into()),
+            model: None,
             retry_after: Some(2.0),
+            delay_multiplier: 1.0,
         };
         let json = serde_json::to_string(&err).unwrap();
         assert!(json.contains("429"));
+    }
+
+    // -- New field tests (Task 6) --
+
+    #[test]
+    fn test_provider_error_has_model_field() {
+        // model defaults to None when not specified
+        let err = ProviderError::Authentication {
+            message: "bad key".into(),
+            provider: Some("anthropic".into()),
+            model: None,
+            retry_after: None,
+            delay_multiplier: 1.0,
+        };
+        assert_eq!(err.model(), None);
+    }
+
+    #[test]
+    fn test_provider_error_has_retry_after_field() {
+        // retry_after is now available on all variants, not just RateLimit
+        let err = ProviderError::Timeout {
+            message: "timed out".into(),
+            provider: None,
+            model: None,
+            retry_after: None,
+            delay_multiplier: 1.0,
+        };
+        assert_eq!(err.retry_after(), None);
+    }
+
+    #[test]
+    fn test_provider_error_has_delay_multiplier_field() {
+        // delay_multiplier defaults to 1.0
+        let err = ProviderError::ContentFilter {
+            message: "blocked".into(),
+            provider: None,
+            model: None,
+            retry_after: None,
+            delay_multiplier: 1.0,
+        };
+        assert!((err.delay_multiplier() - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_provider_error_with_all_new_fields() {
+        let err = ProviderError::RateLimit {
+            message: "429".into(),
+            provider: Some("openai".into()),
+            model: Some("gpt-4".into()),
+            retry_after: Some(2.5),
+            delay_multiplier: 1.5,
+        };
+        assert_eq!(err.model(), Some("gpt-4"));
+        assert_eq!(err.retry_after(), Some(2.5));
+        assert!((err.delay_multiplier() - 1.5).abs() < f64::EPSILON);
     }
 }
