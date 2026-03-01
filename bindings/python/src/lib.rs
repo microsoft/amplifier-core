@@ -468,14 +468,19 @@ impl PySession {
         ))?;
         let debug_coro_py: Py<PyAny> = debug_coro.unbind();
 
-        // Prepare the pre-execution event emission coroutine
-        let coord = self.coordinator.bind(py);
-        let hooks = coord.getattr("hooks")?;
-        let emit_data = PyDict::new(py);
-        emit_data.set_item("session_id", &self.cached_session_id)?;
-        emit_data.set_item("parent_id", self.cached_parent_id.as_deref())?;
-        let pre_event_coro = hooks.call_method1("emit", (event_base, &emit_data))?;
-        let pre_event_coro_py: Py<PyAny> = pre_event_coro.unbind();
+        // Get the inner HookRegistry for direct Rust emit (avoids PyO3 Future/coroutine mismatch:
+        // calling a #[pymethods] fn that uses future_into_py returns a Future object, but
+        // into_future() expects a native Python coroutine — they are different awaitables).
+        let hooks_inner: Arc<amplifier_core::HookRegistry> = {
+            let coord = self.coordinator.bind(py);
+            let hooks = coord.getattr("hooks")?;
+            let hook_registry = hooks.extract::<PyRef<PyHookRegistry>>()?;
+            hook_registry.inner.clone()
+        };
+        let pre_event_data = serde_json::json!({
+            "session_id": self.cached_session_id,
+            "parent_id": self.cached_parent_id,
+        });
 
         // Clone references for the async block
         let coordinator = self.coordinator.clone_ref(py);
@@ -483,20 +488,10 @@ impl PySession {
         // Step 3: Return an awaitable that runs the full execute sequence
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             // 3a: Emit pre-execution event (session:start or session:resume)
-            let pre_event_future = Python::try_attach(|py| {
-                pyo3_async_runtimes::tokio::into_future(pre_event_coro_py.into_bound(py))
-            })
-            .ok_or_else(|| PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime"))?
-            .map_err(|e| {
-                PyErr::new::<PyRuntimeError, _>(format!(
-                    "Failed to convert pre-event coroutine: {e}"
-                ))
-            })?;
-
-            // Await outside GIL
-            pre_event_future.await.map_err(|e| {
-                PyErr::new::<PyRuntimeError, _>(format!("Pre-execution event emission failed: {e}"))
-            })?;
+            // Call inner Rust emit directly — avoids the Future/coroutine mismatch that
+            // occurs when going through the Python PyO3 bridge (future_into_py returns
+            // a Future object, but into_future() expects a native coroutine).
+            hooks_inner.emit(event_base, pre_event_data).await;
 
             // 3b: Emit debug events (delegates to Python for redact_secrets/truncate_values)
             let debug_future = Python::try_attach(|py| {
@@ -542,21 +537,20 @@ impl PySession {
                 Ok(py_result) => {
                     // Success path — check cancellation and emit event if needed
                     if is_cancelled {
-                        let cancel_future = Python::try_attach(|py| -> PyResult<_> {
+                        // Get cancellation state and emit directly via Rust — avoids
+                        // Future/coroutine mismatch when going through the Python bridge.
+                        let cancel_data = Python::try_attach(|py| -> PyResult<_> {
                             let coord = coordinator.bind(py);
-                            let hooks = coord.getattr("hooks")?;
                             let cancellation = coord.getattr("cancellation")?;
                             let state: String = cancellation.getattr("state")?.extract()?;
-                            let data = PyDict::new(py);
-                            data.set_item("was_immediate", state == "immediate")?;
-                            let coro = hooks.call_method1("emit", ("cancel:completed", data))?;
-                            pyo3_async_runtimes::tokio::into_future(coro)
+                            Ok(serde_json::json!({ "was_immediate": state == "immediate" }))
                         })
                         .ok_or_else(|| {
                             PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
                         })??;
 
-                        let _ = cancel_future.await; // Best-effort cancel event
+                        let _ = hooks_inner.emit("cancel:completed", cancel_data).await;
+                        // Best-effort
                     }
 
                     // Extract the result string
@@ -574,22 +568,23 @@ impl PySession {
                     // Error path — check cancellation and emit event if needed
                     if is_cancelled {
                         let err_str = format!("{e}");
-                        let cancel_future = Python::try_attach(|py| -> PyResult<_> {
+                        // Get cancellation state and emit directly via Rust — avoids
+                        // Future/coroutine mismatch when going through the Python bridge.
+                        let cancel_data = Python::try_attach(|py| -> PyResult<_> {
                             let coord = coordinator.bind(py);
-                            let hooks = coord.getattr("hooks")?;
                             let cancellation = coord.getattr("cancellation")?;
                             let state: String = cancellation.getattr("state")?.extract()?;
-                            let data = PyDict::new(py);
-                            data.set_item("was_immediate", state == "immediate")?;
-                            data.set_item("error", &err_str)?;
-                            let coro = hooks.call_method1("emit", ("cancel:completed", data))?;
-                            pyo3_async_runtimes::tokio::into_future(coro)
+                            Ok(serde_json::json!({
+                                "was_immediate": state == "immediate",
+                                "error": err_str,
+                            }))
                         })
                         .ok_or_else(|| {
                             PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
                         })??;
 
-                        let _ = cancel_future.await; // Best-effort cancel event
+                        let _ = hooks_inner.emit("cancel:completed", cancel_data).await;
+                        // Best-effort
                     }
 
                     Err(PyErr::new::<PyRuntimeError, _>(format!(
@@ -617,8 +612,16 @@ impl PySession {
         let inner = self.inner.clone();
 
         // Grab references we need inside the async block
-        let coordinator = self.coordinator.clone_ref(py);
         let session_id = self.cached_session_id.clone();
+
+        // Extract inner HookRegistry for direct Rust emit in the async block
+        // (avoids Future/coroutine mismatch when calling through the Python bridge).
+        let hooks_inner_for_end: Arc<amplifier_core::HookRegistry> = {
+            let coord = self.coordinator.bind(py);
+            let hooks = coord.getattr("hooks")?;
+            let hook_registry = hooks.extract::<PyRef<PyHookRegistry>>()?;
+            hook_registry.inner.clone()
+        };
 
         // Step 1: Collect cleanup functions while we still hold the GIL.
         // Also pre-check iscoroutinefunction so we know how to call each one.
@@ -746,29 +749,12 @@ impl PySession {
 
             // ----------------------------------------------------------
             // Step 2: Emit session:end event (best-effort)
+            // Direct Rust emit — avoids Future/coroutine mismatch when going
+            // through the Python PyO3 bridge (future_into_py returns a Future,
+            // but into_future() expects a native coroutine).
             // ----------------------------------------------------------
-            let end_event_result: Option<PyResult<_>> = Python::try_attach(|py| {
-                let coord = coordinator.bind(py);
-                let hooks = coord.getattr("hooks")?;
-                let data = PyDict::new(py);
-                data.set_item("session_id", &session_id)?;
-                let coro = hooks.call_method1("emit", ("session:end", data))?;
-                pyo3_async_runtimes::tokio::into_future(coro)
-            });
-
-            if let Some(Ok(future)) = end_event_result {
-                if let Err(e) = future.await {
-                    // Log but don't propagate
-                    let _ = Python::try_attach(|py| -> PyResult<()> {
-                        let logging = py.import("logging")?;
-                        let logger =
-                            logging.call_method1("getLogger", ("amplifier_core.session",))?;
-                        let _ = logger
-                            .call_method1("error", (format!("Error emitting session:end: {e}"),));
-                        Ok(())
-                    });
-                }
-            }
+            let end_data = serde_json::json!({ "session_id": session_id });
+            hooks_inner_for_end.emit("session:end", end_data).await;
 
             // ----------------------------------------------------------
             // Step 3: Reset the initialized flag
@@ -805,6 +791,38 @@ impl PySession {
         _exc_tb: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyAny>> {
         self.cleanup(py)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PyUnregisterFn — callable returned by PyHookRegistry.register()
+// ---------------------------------------------------------------------------
+
+/// Python-callable returned by `RustHookRegistry.register()`.
+///
+/// When called, removes the handler from the hook registry.
+/// This matches the Python `HookRegistry.register()` contract which returns
+/// a callable that unregisters the handler when invoked.
+#[pyclass(name = "RustUnregisterFn")]
+struct PyUnregisterFn {
+    #[allow(clippy::type_complexity)]
+    unregister_fns: Arc<std::sync::Mutex<HashMap<String, Box<dyn Fn() + Send + Sync>>>>,
+    name: String,
+}
+
+#[pymethods]
+impl PyUnregisterFn {
+    fn __call__(&self) -> PyResult<()> {
+        if let Ok(mut fns) = self.unregister_fns.lock() {
+            if let Some(unreg) = fns.remove(&self.name) {
+                unreg();
+            }
+        }
+        Ok(())
+    }
+
+    fn __repr__(&self) -> String {
+        format!("<unregister '{}'>", self.name)
     }
 }
 
@@ -852,11 +870,12 @@ impl PyHookRegistry {
     #[pyo3(signature = (event, handler, priority = 0, name = None))]
     fn register(
         &self,
+        py: Python<'_>,
         event: &str,
         handler: Py<PyAny>,
         priority: i32,
         name: Option<String>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Py<PyAny>> {
         let handler_name =
             name.unwrap_or_else(|| format!("_auto_{event}_{}", uuid::Uuid::new_v4()));
         let bridge = Arc::new(PyHookHandlerBridge { callable: handler });
@@ -867,9 +886,18 @@ impl PyHookRegistry {
         self.unregister_fns
             .lock()
             .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Lock poisoned: {e}")))?
-            .insert(handler_name, unregister_fn);
+            .insert(handler_name.clone(), unregister_fn);
 
-        Ok(())
+        // Return a callable that unregisters this handler when invoked.
+        // Matches the Python HookRegistry.register() contract.
+        let callable = Py::new(
+            py,
+            PyUnregisterFn {
+                unregister_fns: self.unregister_fns.clone(),
+                name: handler_name,
+            },
+        )?;
+        Ok(callable.into_any())
     }
 
     /// Emit an event and return the aggregated result as a JSON string.
@@ -946,12 +974,13 @@ impl PyHookRegistry {
     #[pyo3(signature = (event, handler, priority = 0, name = None))]
     fn on(
         &self,
+        py: Python<'_>,
         event: &str,
         handler: Py<PyAny>,
         priority: i32,
         name: Option<String>,
-    ) -> PyResult<()> {
-        self.register(event, handler, priority, name)
+    ) -> PyResult<Py<PyAny>> {
+        self.register(py, event, handler, priority, name)
     }
 
     /// List registered handlers, optionally filtered by event.
@@ -2311,6 +2340,7 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", "1.0.0")?;
     m.add("RUST_AVAILABLE", true)?;
     m.add_class::<PySession>()?;
+    m.add_class::<PyUnregisterFn>()?;
     m.add_class::<PyHookRegistry>()?;
     m.add_class::<PyCancellationToken>()?;
     m.add_class::<PyCoordinator>()?;
