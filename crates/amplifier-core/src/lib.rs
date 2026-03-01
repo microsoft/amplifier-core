@@ -92,6 +92,9 @@ mod tests {
         let _: fn() -> crate::ProviderError = || crate::ProviderError::Timeout {
             message: "t".into(),
             provider: None,
+            model: None,
+            retry_after: None,
+            delay_multiplier: 1.0,
         };
         let _: fn() -> crate::ToolError = || crate::ToolError::Other {
             message: "e".into(),
