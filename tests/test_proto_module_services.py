@@ -16,7 +16,7 @@ def _read_proto() -> str:
     return PROTO_PATH.read_text()
 
 
-def _compile_proto() -> subprocess.CompletedProcess:
+def _compile_proto() -> subprocess.CompletedProcess[str]:
     """Compile the proto file using protoc and return the result."""
     proto_dir = PROTO_PATH.parent
     result = subprocess.run(
@@ -36,6 +36,14 @@ def _compile_proto() -> subprocess.CompletedProcess:
     return result
 
 
+def _service_body(service_name: str) -> str:
+    """Extract the body of a named service block for scoped RPC matching."""
+    proto = _read_proto()
+    match = re.search(rf"service {service_name}\s*\{{(.*?)\}}", proto, re.DOTALL)
+    assert match, f"{service_name} block not found"
+    return match.group(1)
+
+
 class TestProtoCompiles:
     def test_proto_compiles_with_exit_code_0(self):
         result = _compile_proto()
@@ -53,37 +61,37 @@ class TestProviderService:
         assert "service ProviderService" in proto
 
     def test_provider_service_get_info_rpc(self):
-        proto = _read_proto()
+        body = _service_body("ProviderService")
         assert re.search(
-            r"rpc\s+GetInfo\s*\(\s*Empty\s*\)\s+returns\s*\(\s*ProviderInfo\s*\)", proto
+            r"rpc\s+GetInfo\s*\(\s*Empty\s*\)\s+returns\s*\(\s*ProviderInfo\s*\)", body
         )
 
     def test_provider_service_list_models_rpc(self):
-        proto = _read_proto()
+        body = _service_body("ProviderService")
         assert re.search(
             r"rpc\s+ListModels\s*\(\s*Empty\s*\)\s+returns\s*\(\s*ListModelsResponse\s*\)",
-            proto,
+            body,
         )
 
     def test_provider_service_complete_rpc(self):
-        proto = _read_proto()
+        body = _service_body("ProviderService")
         assert re.search(
             r"rpc\s+Complete\s*\(\s*ChatRequest\s*\)\s+returns\s*\(\s*ChatResponse\s*\)",
-            proto,
+            body,
         )
 
     def test_provider_service_complete_streaming_is_server_stream(self):
-        proto = _read_proto()
+        body = _service_body("ProviderService")
         assert re.search(
             r"rpc\s+CompleteStreaming\s*\(\s*ChatRequest\s*\)\s+returns\s*\(\s*stream\s+ChatResponse\s*\)",
-            proto,
+            body,
         )
 
     def test_provider_service_parse_tool_calls_rpc(self):
-        proto = _read_proto()
+        body = _service_body("ProviderService")
         assert re.search(
             r"rpc\s+ParseToolCalls\s*\(\s*ChatResponse\s*\)\s+returns\s*\(\s*ParseToolCallsResponse\s*\)",
-            proto,
+            body,
         )
 
     def test_list_models_response_message(self):
@@ -110,10 +118,10 @@ class TestOrchestratorService:
         assert "service OrchestratorService" in proto
 
     def test_orchestrator_execute_rpc(self):
-        proto = _read_proto()
+        body = _service_body("OrchestratorService")
         assert re.search(
             r"rpc\s+Execute\s*\(\s*OrchestratorExecuteRequest\s*\)\s+returns\s*\(\s*OrchestratorExecuteResponse\s*\)",
-            proto,
+            body,
         )
 
     def test_orchestrator_execute_request_message(self):
@@ -143,46 +151,42 @@ class TestContextService:
         assert "service ContextService" in proto
 
     def test_context_service_has_5_rpcs(self):
-        proto = _read_proto()
-        # Extract the ContextService block
-        match = re.search(r"service ContextService\s*\{(.*?)\}", proto, re.DOTALL)
-        assert match, "ContextService block not found"
-        body = match.group(1)
+        body = _service_body("ContextService")
         rpcs = re.findall(r"rpc\s+\w+", body)
         assert len(rpcs) == 5, f"Expected 5 RPCs, found {len(rpcs)}: {rpcs}"
 
     def test_context_service_add_message_rpc(self):
-        proto = _read_proto()
+        body = _service_body("ContextService")
         assert re.search(
             r"rpc\s+AddMessage\s*\(\s*AddMessageRequest\s*\)\s+returns\s*\(\s*Empty\s*\)",
-            proto,
+            body,
         )
 
     def test_context_service_get_messages_rpc(self):
-        proto = _read_proto()
+        body = _service_body("ContextService")
         assert re.search(
             r"rpc\s+GetMessages\s*\(\s*Empty\s*\)\s+returns\s*\(\s*GetMessagesResponse\s*\)",
-            proto,
+            body,
         )
 
     def test_context_service_get_messages_for_request_rpc(self):
-        proto = _read_proto()
+        body = _service_body("ContextService")
         assert re.search(
             r"rpc\s+GetMessagesForRequest\s*\(\s*GetMessagesForRequestParams\s*\)\s+returns\s*\(\s*GetMessagesResponse\s*\)",
-            proto,
+            body,
         )
 
     def test_context_service_set_messages_rpc(self):
-        proto = _read_proto()
+        body = _service_body("ContextService")
         assert re.search(
             r"rpc\s+SetMessages\s*\(\s*SetMessagesRequest\s*\)\s+returns\s*\(\s*Empty\s*\)",
-            proto,
+            body,
         )
 
     def test_context_service_clear_rpc(self):
-        proto = _read_proto()
+        body = _service_body("ContextService")
         assert re.search(
-            r"rpc\s+Clear\s*\(\s*Empty\s*\)\s+returns\s*\(\s*Empty\s*\)", proto
+            r"rpc\s+Clear\s*\(\s*Empty\s*\)\s+returns\s*\(\s*Empty\s*\)", body
         )
 
     def test_add_message_request_message(self):
@@ -224,10 +228,10 @@ class TestHookService:
         assert "service HookService" in proto
 
     def test_hook_handle_rpc(self):
-        proto = _read_proto()
+        body = _service_body("HookService")
         assert re.search(
             r"rpc\s+Handle\s*\(\s*HookHandleRequest\s*\)\s+returns\s*\(\s*HookResult\s*\)",
-            proto,
+            body,
         )
 
     def test_hook_handle_request_message(self):
@@ -248,10 +252,10 @@ class TestApprovalService:
         assert "service ApprovalService" in proto
 
     def test_request_approval_rpc(self):
-        proto = _read_proto()
+        body = _service_body("ApprovalService")
         assert re.search(
             r"rpc\s+RequestApproval\s*\(\s*ApprovalRequest\s*\)\s+returns\s*\(\s*ApprovalResponse\s*\)",
-            proto,
+            body,
         )
 
 
@@ -263,14 +267,14 @@ class TestToolServiceUnchanged:
         assert "service ToolService" in proto
 
     def test_tool_service_has_get_spec(self):
-        proto = _read_proto()
+        body = _service_body("ToolService")
         assert re.search(
-            r"rpc\s+GetSpec\s*\(\s*Empty\s*\)\s+returns\s*\(\s*ToolSpec\s*\)", proto
+            r"rpc\s+GetSpec\s*\(\s*Empty\s*\)\s+returns\s*\(\s*ToolSpec\s*\)", body
         )
 
     def test_tool_service_has_execute(self):
-        proto = _read_proto()
+        body = _service_body("ToolService")
         assert re.search(
             r"rpc\s+Execute\s*\(\s*ToolExecuteRequest\s*\)\s+returns\s*\(\s*ToolExecuteResponse\s*\)",
-            proto,
+            body,
         )
