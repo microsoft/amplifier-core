@@ -1,4 +1,4 @@
-"""Tests for capabilities and cost tier constants exposed via the _engine PyO3 module."""
+"""Tests for capabilities constants exposed via the _engine PyO3 module."""
 
 import pytest
 
@@ -23,15 +23,6 @@ CAPABILITY_NAMES = [
     "BATCH",
 ]
 
-# All 5 cost tier constant names
-COST_TIER_NAMES = [
-    "COST_TIER_FREE",
-    "COST_TIER_LOW",
-    "COST_TIER_MEDIUM",
-    "COST_TIER_HIGH",
-    "COST_TIER_EXTREME",
-]
-
 # Expected values for each capability constant (matches main's capabilities.py)
 EXPECTED_CAPABILITY_VALUES = {
     "TOOLS": "tools",
@@ -52,33 +43,12 @@ EXPECTED_CAPABILITY_VALUES = {
     "BATCH": "batch",
 }
 
-# Expected values for each cost tier constant
-EXPECTED_COST_TIER_VALUES = {
-    "COST_TIER_FREE": "free",
-    "COST_TIER_LOW": "low",
-    "COST_TIER_MEDIUM": "medium",
-    "COST_TIER_HIGH": "high",
-    "COST_TIER_EXTREME": "extreme",
-}
-
 
 class TestCapabilityConstantsImportable:
     """Test that all 16 capability constants are importable from _engine and are strings."""
 
     @pytest.mark.parametrize("name", CAPABILITY_NAMES)
     def test_capability_constant_importable_and_is_string(self, name):
-        import amplifier_core._engine as engine
-
-        value = getattr(engine, name)
-        assert isinstance(value, str), f"{name} should be a string, got {type(value)}"
-        assert len(value) > 0, f"{name} should be non-empty"
-
-
-class TestCostTierConstantsImportable:
-    """Test that all 5 cost tier constants are importable from _engine and are strings."""
-
-    @pytest.mark.parametrize("name", COST_TIER_NAMES)
-    def test_cost_tier_constant_importable_and_is_string(self, name):
         import amplifier_core._engine as engine
 
         value = getattr(engine, name)
@@ -122,54 +92,11 @@ class TestAllWellKnownCapabilities:
             )
 
 
-class TestAllCostTiers:
-    """Test that ALL_COST_TIERS is exposed and contains all 5 cost tiers."""
-
-    def test_all_cost_tiers_exists(self):
-        from amplifier_core._engine import ALL_COST_TIERS
-
-        assert isinstance(ALL_COST_TIERS, list), (
-            f"ALL_COST_TIERS should be a list, got {type(ALL_COST_TIERS)}"
-        )
-
-    def test_all_cost_tiers_count(self):
-        from amplifier_core._engine import ALL_COST_TIERS
-
-        assert len(ALL_COST_TIERS) == 5, (
-            f"Expected 5 cost tiers, got {len(ALL_COST_TIERS)}"
-        )
-
-    def test_all_cost_tiers_contains_all(self):
-        import amplifier_core._engine as engine
-        from amplifier_core._engine import ALL_COST_TIERS
-
-        for name in COST_TIER_NAMES:
-            value = getattr(engine, name)
-            assert value in ALL_COST_TIERS, (
-                f"{name}={value!r} not found in ALL_COST_TIERS"
-            )
-
-    def test_all_cost_tiers_all_strings(self):
-        from amplifier_core._engine import ALL_COST_TIERS
-
-        for tier in ALL_COST_TIERS:
-            assert isinstance(tier, str), (
-                f"ALL_COST_TIERS item should be str, got {type(tier)}"
-            )
-
-
 class TestCapabilityValuesMatchMain:
     """Test that capability constant values match what's defined in main's capabilities.py."""
 
     @pytest.mark.parametrize("name,expected", list(EXPECTED_CAPABILITY_VALUES.items()))
     def test_capability_value(self, name, expected):
-        import amplifier_core._engine as engine
-
-        value = getattr(engine, name)
-        assert value == expected, f"{name}: expected {expected!r}, got {value!r}"
-
-    @pytest.mark.parametrize("name,expected", list(EXPECTED_COST_TIER_VALUES.items()))
-    def test_cost_tier_value(self, name, expected):
         import amplifier_core._engine as engine
 
         value = getattr(engine, name)

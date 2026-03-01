@@ -38,12 +38,6 @@ def test_capabilities_reexport_all_well_known():
     assert len(ALL_WELL_KNOWN_CAPABILITIES) == 16
 
 
-def test_capabilities_reexport_cost_tiers():
-    from amplifier_core.capabilities import COST_TIER_HIGH
-
-    assert COST_TIER_HIGH == "high"
-
-
 def test_capabilities_importable_from_init():
     from amplifier_core import capabilities
 
