@@ -100,16 +100,16 @@ message HealthCheckResponse {
 }
 
 message ConfigField {
-  string name                  = 1;
-  ConfigFieldType field_type   = 2;
-  string description           = 3;
-  bool required                = 4;
-  string default_value         = 5;
-  string placeholder           = 6;
-  repeated string options      = 7;
-  map<string, string> show_when = 8;
-  bool requires_model          = 9;
-  string validation_regex      = 10;
+  string id                     = 1;
+  string display_name           = 2;
+  ConfigFieldType field_type    = 3;
+  string prompt                 = 4;
+  string env_var                = 5;
+  repeated string choices       = 6;
+  bool required                 = 7;
+  string default_value          = 8;
+  map<string, string> show_when = 9;
+  bool requires_model           = 10;
 }
 
 // ---------------------------------------------------------------------------
