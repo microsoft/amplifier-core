@@ -25,6 +25,7 @@ pub mod events;
 pub mod hooks;
 pub mod messages;
 pub mod models;
+pub mod retry;
 pub mod session;
 pub mod testing;
 pub mod traits;
