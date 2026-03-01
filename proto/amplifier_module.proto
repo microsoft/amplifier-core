@@ -226,6 +226,7 @@ message ToolResultBlock {
 }
 
 message ImageBlock {
+  // MIME type of the image: "image/png", "image/jpeg", "image/gif", "image/webp".
   string media_type  = 1;
   bytes  data        = 2;
   string source_json = 3;
@@ -338,6 +339,7 @@ message ChatResponse {
   repeated ToolCallMessage  tool_calls    = 2;
   Usage                     usage         = 3;
   Degradation               degradation   = 4;
+  // Completion stop reason: "stop", "tool_calls", "length", "content_filter".
   string                    finish_reason = 5;
   string                    metadata_json = 6;
 }
