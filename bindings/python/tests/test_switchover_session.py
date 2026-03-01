@@ -217,14 +217,46 @@ def test_hooks_bridge_removed():
 
 
 def test_session_init_is_thin_helper():
-    """_session_init.py must still exist as a thin boundary helper called by Rust."""
-    from amplifier_core._session_init import initialize_session
+    """_session_init.py must still exist as a thin boundary helper called by Rust.
+
+    Rust's PySession::initialize() imports amplifier_core._session_init and calls
+    initialize_session(). PySession::__aenter__() calls _session_aenter().
+    These CANNOT be deleted without breaking the Rust build.
+    """
+    from amplifier_core._session_init import initialize_session, _session_aenter
 
     assert callable(initialize_session)
+    assert callable(_session_aenter)
+
+
+def test_session_init_has_no_dead_code():
+    """_session_init.py should not export _wrap_initialize (dead code removed in Task 12)."""
+    import amplifier_core._session_init as mod
+
+    assert not hasattr(mod, "_wrap_initialize"), (
+        "_wrap_initialize is dead code — not called by Rust or Python. Remove it."
+    )
 
 
 def test_session_exec_is_thin_helper():
-    """_session_exec.py must still exist as a thin boundary helper called by Rust."""
-    from amplifier_core._session_exec import run_orchestrator
+    """_session_exec.py must still exist as a thin boundary helper called by Rust.
+
+    Rust's PySession::execute() imports amplifier_core._session_exec and calls
+    run_orchestrator() and emit_debug_events(). CANNOT be deleted.
+    """
+    from amplifier_core._session_exec import run_orchestrator, emit_debug_events
 
     assert callable(run_orchestrator)
+    assert callable(emit_debug_events)
+
+
+def test_collect_helper_is_boundary_helper():
+    """_collect_helper.py must still exist as a boundary helper called by Rust.
+
+    Rust's PyCoordinator::collect_contributions() imports
+    amplifier_core._collect_helper and calls collect_contributions().
+    CANNOT be deleted without breaking the Rust build.
+    """
+    from amplifier_core._collect_helper import collect_contributions
+
+    assert callable(collect_contributions)
