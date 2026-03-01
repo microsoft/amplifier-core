@@ -374,6 +374,9 @@ pub struct ChatRequest {
     pub reasoning_effort: ::prost::alloc::string::String,
     #[prost(double, tag = "14")]
     pub timeout: f64,
+    /// Additional provider-specific fields serialized as a JSON object.
+    #[prost(string, tag = "15")]
+    pub extensions_json: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ChatResponse {
@@ -735,10 +738,10 @@ pub enum ProviderErrorType {
     RateLimit = 2,
     ContextLength = 3,
     InvalidRequest = 4,
-    ModelNotFound = 5,
-    Server = 6,
-    Network = 7,
-    Unknown = 8,
+    ContentFilter = 5,
+    Unavailable = 6,
+    Timeout = 7,
+    Other = 8,
 }
 impl ProviderErrorType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -752,10 +755,10 @@ impl ProviderErrorType {
             Self::RateLimit => "PROVIDER_ERROR_TYPE_RATE_LIMIT",
             Self::ContextLength => "PROVIDER_ERROR_TYPE_CONTEXT_LENGTH",
             Self::InvalidRequest => "PROVIDER_ERROR_TYPE_INVALID_REQUEST",
-            Self::ModelNotFound => "PROVIDER_ERROR_TYPE_MODEL_NOT_FOUND",
-            Self::Server => "PROVIDER_ERROR_TYPE_SERVER",
-            Self::Network => "PROVIDER_ERROR_TYPE_NETWORK",
-            Self::Unknown => "PROVIDER_ERROR_TYPE_UNKNOWN",
+            Self::ContentFilter => "PROVIDER_ERROR_TYPE_CONTENT_FILTER",
+            Self::Unavailable => "PROVIDER_ERROR_TYPE_UNAVAILABLE",
+            Self::Timeout => "PROVIDER_ERROR_TYPE_TIMEOUT",
+            Self::Other => "PROVIDER_ERROR_TYPE_OTHER",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -766,10 +769,10 @@ impl ProviderErrorType {
             "PROVIDER_ERROR_TYPE_RATE_LIMIT" => Some(Self::RateLimit),
             "PROVIDER_ERROR_TYPE_CONTEXT_LENGTH" => Some(Self::ContextLength),
             "PROVIDER_ERROR_TYPE_INVALID_REQUEST" => Some(Self::InvalidRequest),
-            "PROVIDER_ERROR_TYPE_MODEL_NOT_FOUND" => Some(Self::ModelNotFound),
-            "PROVIDER_ERROR_TYPE_SERVER" => Some(Self::Server),
-            "PROVIDER_ERROR_TYPE_NETWORK" => Some(Self::Network),
-            "PROVIDER_ERROR_TYPE_UNKNOWN" => Some(Self::Unknown),
+            "PROVIDER_ERROR_TYPE_CONTENT_FILTER" => Some(Self::ContentFilter),
+            "PROVIDER_ERROR_TYPE_UNAVAILABLE" => Some(Self::Unavailable),
+            "PROVIDER_ERROR_TYPE_TIMEOUT" => Some(Self::Timeout),
+            "PROVIDER_ERROR_TYPE_OTHER" => Some(Self::Other),
             _ => None,
         }
     }
@@ -917,8 +920,8 @@ pub enum HookAction {
     Unspecified = 0,
     Continue = 1,
     Modify = 2,
-    Skip = 3,
-    Block = 4,
+    Deny = 3,
+    InjectContext = 4,
     AskUser = 5,
 }
 impl HookAction {
@@ -931,8 +934,8 @@ impl HookAction {
             Self::Unspecified => "HOOK_ACTION_UNSPECIFIED",
             Self::Continue => "HOOK_ACTION_CONTINUE",
             Self::Modify => "HOOK_ACTION_MODIFY",
-            Self::Skip => "HOOK_ACTION_SKIP",
-            Self::Block => "HOOK_ACTION_BLOCK",
+            Self::Deny => "HOOK_ACTION_DENY",
+            Self::InjectContext => "HOOK_ACTION_INJECT_CONTEXT",
             Self::AskUser => "HOOK_ACTION_ASK_USER",
         }
     }
@@ -942,8 +945,8 @@ impl HookAction {
             "HOOK_ACTION_UNSPECIFIED" => Some(Self::Unspecified),
             "HOOK_ACTION_CONTINUE" => Some(Self::Continue),
             "HOOK_ACTION_MODIFY" => Some(Self::Modify),
-            "HOOK_ACTION_SKIP" => Some(Self::Skip),
-            "HOOK_ACTION_BLOCK" => Some(Self::Block),
+            "HOOK_ACTION_DENY" => Some(Self::Deny),
+            "HOOK_ACTION_INJECT_CONTEXT" => Some(Self::InjectContext),
             "HOOK_ACTION_ASK_USER" => Some(Self::AskUser),
             _ => None,
         }

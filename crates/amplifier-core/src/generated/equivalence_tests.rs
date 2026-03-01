@@ -81,7 +81,10 @@ mod tests {
         assert_eq!(result.data_json, r#"{"modified": true}"#);
         assert_eq!(result.reason, "content policy");
         assert_eq!(result.context_injection, "Additional context");
-        assert_eq!(result.context_injection_role, ContextInjectionRole::System as i32);
+        assert_eq!(
+            result.context_injection_role,
+            ContextInjectionRole::System as i32
+        );
         assert!(result.ephemeral);
         assert_eq!(result.approval_prompt, "Allow this action?");
         assert_eq!(result.approval_options.len(), 3);
@@ -147,6 +150,7 @@ mod tests {
             stop: vec!["END".into()],
             reasoning_effort: "high".into(),
             timeout: 60.0,
+            extensions_json: r#"{"custom_param":"value"}"#.into(),
         };
         assert_eq!(req.messages.len(), 1);
         assert_eq!(req.tools.len(), 1);
@@ -162,6 +166,7 @@ mod tests {
         assert_eq!(req.stop, vec!["END"]);
         assert_eq!(req.reasoning_effort, "high");
         assert!((req.timeout - 60.0).abs() < f64::EPSILON);
+        assert_eq!(req.extensions_json, r#"{"custom_param":"value"}"#);
     }
 
     #[test]
@@ -247,10 +252,10 @@ mod tests {
             ProviderErrorType::RateLimit => "rate_limit",
             ProviderErrorType::ContextLength => "context_length",
             ProviderErrorType::InvalidRequest => "invalid_request",
-            ProviderErrorType::ModelNotFound => "model_not_found",
-            ProviderErrorType::Server => "server",
-            ProviderErrorType::Network => "network",
-            ProviderErrorType::Unknown => "unknown",
+            ProviderErrorType::ContentFilter => "content_filter",
+            ProviderErrorType::Unavailable => "unavailable",
+            ProviderErrorType::Timeout => "timeout",
+            ProviderErrorType::Other => "other",
         }
     }
 
@@ -259,8 +264,8 @@ mod tests {
             HookAction::Unspecified => "unspecified",
             HookAction::Continue => "continue",
             HookAction::Modify => "modify",
-            HookAction::Skip => "skip",
-            HookAction::Block => "block",
+            HookAction::Deny => "deny",
+            HookAction::InjectContext => "inject_context",
             HookAction::AskUser => "ask_user",
         }
     }
@@ -320,10 +325,10 @@ mod tests {
                 ProviderErrorType::RateLimit,
                 ProviderErrorType::ContextLength,
                 ProviderErrorType::InvalidRequest,
-                ProviderErrorType::ModelNotFound,
-                ProviderErrorType::Server,
-                ProviderErrorType::Network,
-                ProviderErrorType::Unknown,
+                ProviderErrorType::ContentFilter,
+                ProviderErrorType::Unavailable,
+                ProviderErrorType::Timeout,
+                ProviderErrorType::Other,
             ],
             ProviderErrorType::Unspecified,
             EXPECTED_PROVIDER_ERROR_TYPES,
@@ -339,8 +344,8 @@ mod tests {
                 HookAction::Unspecified,
                 HookAction::Continue,
                 HookAction::Modify,
-                HookAction::Skip,
-                HookAction::Block,
+                HookAction::Deny,
+                HookAction::InjectContext,
                 HookAction::AskUser,
             ],
             HookAction::Unspecified,
