@@ -37,3 +37,142 @@ message ToolExecuteResponse {
   // Error message if success is false.
   string error = 4;
 }
+
+// ---------------------------------------------------------------------------
+// Common enums
+// ---------------------------------------------------------------------------
+
+enum ModuleType {
+  MODULE_TYPE_UNSPECIFIED = 0;
+  MODULE_TYPE_PROVIDER    = 1;
+  MODULE_TYPE_TOOL        = 2;
+  MODULE_TYPE_HOOK        = 3;
+  MODULE_TYPE_MEMORY      = 4;
+  MODULE_TYPE_GUARDRAIL   = 5;
+  MODULE_TYPE_APPROVAL    = 6;
+}
+
+enum HealthStatus {
+  HEALTH_STATUS_UNSPECIFIED = 0;
+  HEALTH_STATUS_SERVING     = 1;
+  HEALTH_STATUS_NOT_SERVING = 2;
+  HEALTH_STATUS_UNKNOWN     = 3;
+}
+
+enum ConfigFieldType {
+  CONFIG_FIELD_TYPE_UNSPECIFIED = 0;
+  CONFIG_FIELD_TYPE_STRING      = 1;
+  CONFIG_FIELD_TYPE_NUMBER      = 2;
+  CONFIG_FIELD_TYPE_BOOLEAN     = 3;
+  CONFIG_FIELD_TYPE_SECRET      = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Module lifecycle messages
+// ---------------------------------------------------------------------------
+
+message ModuleInfo {
+  string id                = 1;
+  string name              = 2;
+  string version           = 3;
+  ModuleType module_type   = 4;
+  string mount_point       = 5;
+  string description       = 6;
+  string config_schema_json = 7;
+  repeated string capabilities = 8;
+  string author            = 9;
+}
+
+message MountRequest {
+  map<string, string> config = 1;
+  string module_id           = 2;
+}
+
+message MountResponse {
+  bool success         = 1;
+  string error         = 2;
+  HealthStatus status  = 3;
+}
+
+message HealthCheckResponse {
+  HealthStatus status = 1;
+  string message      = 2;
+}
+
+message ConfigField {
+  string name                  = 1;
+  ConfigFieldType field_type   = 2;
+  string description           = 3;
+  bool required                = 4;
+  string default_value         = 5;
+  string placeholder           = 6;
+  repeated string options      = 7;
+  map<string, string> show_when = 8;
+  bool requires_model          = 9;
+  string validation_regex      = 10;
+}
+
+// ---------------------------------------------------------------------------
+// Error taxonomy
+// ---------------------------------------------------------------------------
+
+enum ProviderErrorType {
+  PROVIDER_ERROR_TYPE_UNSPECIFIED     = 0;
+  PROVIDER_ERROR_TYPE_AUTH            = 1;
+  PROVIDER_ERROR_TYPE_RATE_LIMIT      = 2;
+  PROVIDER_ERROR_TYPE_CONTEXT_LENGTH  = 3;
+  PROVIDER_ERROR_TYPE_INVALID_REQUEST = 4;
+  PROVIDER_ERROR_TYPE_MODEL_NOT_FOUND = 5;
+  PROVIDER_ERROR_TYPE_SERVER          = 6;
+  PROVIDER_ERROR_TYPE_NETWORK         = 7;
+  PROVIDER_ERROR_TYPE_UNKNOWN         = 8;
+}
+
+enum ToolErrorType {
+  TOOL_ERROR_TYPE_UNSPECIFIED = 0;
+  TOOL_ERROR_TYPE_EXECUTION   = 1;
+  TOOL_ERROR_TYPE_VALIDATION  = 2;
+  TOOL_ERROR_TYPE_TIMEOUT     = 3;
+}
+
+enum HookErrorType {
+  HOOK_ERROR_TYPE_UNSPECIFIED = 0;
+  HOOK_ERROR_TYPE_EXECUTION   = 1;
+  HOOK_ERROR_TYPE_VALIDATION  = 2;
+  HOOK_ERROR_TYPE_TIMEOUT     = 3;
+}
+
+message ProviderError {
+  ProviderErrorType error_type = 1;
+  string message               = 2;
+  string provider_name         = 3;
+  string model                 = 4;
+  int32 status_code            = 5;
+  bool retryable               = 6;
+  double retry_after            = 7;
+}
+
+message ToolError {
+  ToolErrorType error_type = 1;
+  string message           = 2;
+  string tool_name         = 3;
+  string stdout            = 4;
+  string stderr            = 5;
+  int32 exit_code          = 6;
+}
+
+message HookError {
+  HookErrorType error_type = 1;
+  string message           = 2;
+  string hook_name         = 3;
+}
+
+message AmplifierError {
+  oneof error {
+    ProviderError provider_error = 1;
+    ToolError tool_error         = 2;
+    HookError hook_error         = 3;
+    string generic_error         = 4;
+    string validation_error      = 5;
+  }
+}
