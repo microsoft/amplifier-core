@@ -117,6 +117,8 @@ mod tests {
             metadata_json: String::new(),
             content: Some(message::Content::TextContent("Hello".into())),
         };
+        // ToolSpecProto is the proto message used inside ChatRequest.tools;
+        // ToolSpec is a separate proto message used in the tool module RPC responses.
         let tool = ToolSpecProto {
             name: "read_file".into(),
             description: "Read a file".into(),
@@ -217,6 +219,46 @@ mod tests {
         assert!(!response.remember);
     }
 
+    // Exhaustive match helpers — adding a proto enum variant without updating
+    // these functions produces a compile error, keeping the tests self-updating.
+
+    fn module_type_label(v: ModuleType) -> &'static str {
+        match v {
+            ModuleType::Unspecified => "unspecified",
+            ModuleType::Provider => "provider",
+            ModuleType::Tool => "tool",
+            ModuleType::Hook => "hook",
+            ModuleType::Memory => "memory",
+            ModuleType::Guardrail => "guardrail",
+            ModuleType::Approval => "approval",
+        }
+    }
+
+    fn provider_error_type_label(v: ProviderErrorType) -> &'static str {
+        match v {
+            ProviderErrorType::Unspecified => "unspecified",
+            ProviderErrorType::Auth => "auth",
+            ProviderErrorType::RateLimit => "rate_limit",
+            ProviderErrorType::ContextLength => "context_length",
+            ProviderErrorType::InvalidRequest => "invalid_request",
+            ProviderErrorType::ModelNotFound => "model_not_found",
+            ProviderErrorType::Server => "server",
+            ProviderErrorType::Network => "network",
+            ProviderErrorType::Unknown => "unknown",
+        }
+    }
+
+    fn hook_action_label(v: HookAction) -> &'static str {
+        match v {
+            HookAction::Unspecified => "unspecified",
+            HookAction::Continue => "continue",
+            HookAction::Modify => "modify",
+            HookAction::Skip => "skip",
+            HookAction::Block => "block",
+            HookAction::AskUser => "ask_user",
+        }
+    }
+
     #[test]
     fn proto_module_type_covers_all_variants() {
         // 6 meaningful variants + Unspecified sentinel
@@ -229,6 +271,10 @@ mod tests {
             ModuleType::Guardrail,
             ModuleType::Approval,
         ];
+        // Exhaustive match guarantees we track every variant
+        for &v in &variants {
+            assert!(!module_type_label(v).is_empty());
+        }
         // 6 non-Unspecified module types as per design
         let meaningful: Vec<_> = variants
             .iter()
@@ -257,6 +303,10 @@ mod tests {
             ProviderErrorType::Network,
             ProviderErrorType::Unknown,
         ];
+        // Exhaustive match guarantees we track every variant
+        for &v in &variants {
+            assert!(!provider_error_type_label(v).is_empty());
+        }
         // 8 non-Unspecified error types as per design
         let meaningful: Vec<_> = variants
             .iter()
@@ -282,6 +332,10 @@ mod tests {
             HookAction::Block,
             HookAction::AskUser,
         ];
+        // Exhaustive match guarantees we track every variant
+        for &v in &variants {
+            assert!(!hook_action_label(v).is_empty());
+        }
         // 5 non-Unspecified hook actions as per design
         let meaningful: Vec<_> = variants
             .iter()
