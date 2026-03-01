@@ -2084,6 +2084,40 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Aggregate list of all events
     m.add("ALL_EVENTS", amplifier_core::events::ALL_EVENTS.to_vec())?;
 
+    // -----------------------------------------------------------------------
+    // Capabilities — expose all 16 well-known capability constants
+    // -----------------------------------------------------------------------
+
+    // Capabilities — Tier 1 (core)
+    m.add("TOOLS", amplifier_core::capabilities::TOOLS)?;
+    m.add("STREAMING", amplifier_core::capabilities::STREAMING)?;
+    m.add("THINKING", amplifier_core::capabilities::THINKING)?;
+    m.add("VISION", amplifier_core::capabilities::VISION)?;
+    m.add("JSON_MODE", amplifier_core::capabilities::JSON_MODE)?;
+    // Capabilities — Tier 2 (extended)
+    m.add("FAST", amplifier_core::capabilities::FAST)?;
+    m.add("CODE_EXECUTION", amplifier_core::capabilities::CODE_EXECUTION)?;
+    m.add("WEB_SEARCH", amplifier_core::capabilities::WEB_SEARCH)?;
+    m.add("DEEP_RESEARCH", amplifier_core::capabilities::DEEP_RESEARCH)?;
+    m.add("LOCAL", amplifier_core::capabilities::LOCAL)?;
+    m.add("AUDIO", amplifier_core::capabilities::AUDIO)?;
+    m.add("IMAGE_GENERATION", amplifier_core::capabilities::IMAGE_GENERATION)?;
+    m.add("COMPUTER_USE", amplifier_core::capabilities::COMPUTER_USE)?;
+    m.add("EMBEDDINGS", amplifier_core::capabilities::EMBEDDINGS)?;
+    m.add("LONG_CONTEXT", amplifier_core::capabilities::LONG_CONTEXT)?;
+    m.add("BATCH", amplifier_core::capabilities::BATCH)?;
+
+    // Cost tiers
+    m.add("COST_TIER_FREE", amplifier_core::capabilities::COST_TIER_FREE)?;
+    m.add("COST_TIER_LOW", amplifier_core::capabilities::COST_TIER_LOW)?;
+    m.add("COST_TIER_MEDIUM", amplifier_core::capabilities::COST_TIER_MEDIUM)?;
+    m.add("COST_TIER_HIGH", amplifier_core::capabilities::COST_TIER_HIGH)?;
+    m.add("COST_TIER_EXTREME", amplifier_core::capabilities::COST_TIER_EXTREME)?;
+
+    // Collections
+    m.add("ALL_WELL_KNOWN_CAPABILITIES", amplifier_core::capabilities::ALL_WELL_KNOWN_CAPABILITIES.to_vec())?;
+    m.add("ALL_COST_TIERS", amplifier_core::capabilities::ALL_COST_TIERS.to_vec())?;
+
     Ok(())
 }
 
