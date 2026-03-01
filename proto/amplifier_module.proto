@@ -437,3 +437,84 @@ message ApprovalResponse {
   string reason   = 2;
   bool   remember = 3;
 }
+
+// ---------------------------------------------------------------------------
+// Service-specific request/response messages
+// ---------------------------------------------------------------------------
+
+message ListModelsResponse {
+  repeated ModelInfo models = 1;
+}
+
+message ParseToolCallsResponse {
+  repeated ToolCallMessage tool_calls = 1;
+}
+
+message OrchestratorExecuteRequest {
+  string prompt     = 1;
+  string session_id = 2;
+}
+
+message OrchestratorExecuteResponse {
+  string response = 1;
+  string error    = 2;
+}
+
+message AddMessageRequest {
+  Message message = 1;
+}
+
+message GetMessagesResponse {
+  repeated Message messages = 1;
+}
+
+message GetMessagesForRequestParams {
+  int32  token_budget  = 1;
+  string provider_name = 2;
+}
+
+message SetMessagesRequest {
+  repeated Message messages = 1;
+}
+
+message HookHandleRequest {
+  string event     = 1;
+  string data_json = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Module services
+// ---------------------------------------------------------------------------
+
+// Provider module contract — LLM completions in any language.
+service ProviderService {
+  rpc GetInfo(Empty) returns (ProviderInfo);
+  rpc ListModels(Empty) returns (ListModelsResponse);
+  rpc Complete(ChatRequest) returns (ChatResponse);
+  rpc CompleteStreaming(ChatRequest) returns (stream ChatResponse);
+  rpc ParseToolCalls(ChatResponse) returns (ParseToolCallsResponse);
+}
+
+// Orchestrator module contract — high-level prompt execution.
+service OrchestratorService {
+  rpc Execute(OrchestratorExecuteRequest) returns (OrchestratorExecuteResponse);
+}
+
+// Context module contract — conversation message management.
+service ContextService {
+  rpc AddMessage(AddMessageRequest) returns (Empty);
+  rpc GetMessages(Empty) returns (GetMessagesResponse);
+  rpc GetMessagesForRequest(GetMessagesForRequestParams) returns (GetMessagesResponse);
+  rpc SetMessages(SetMessagesRequest) returns (Empty);
+  rpc Clear(Empty) returns (Empty);
+}
+
+// Hook module contract — event interception.
+service HookService {
+  rpc Handle(HookHandleRequest) returns (HookResult);
+}
+
+// Approval module contract — human-in-the-loop approval.
+service ApprovalService {
+  rpc RequestApproval(ApprovalRequest) returns (ApprovalResponse);
+}
