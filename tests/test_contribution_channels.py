@@ -11,6 +11,8 @@ def coordinator():
     # Create coordinator without full session infrastructure (not needed for channel tests)
     class MockSession:
         session_id = "test-session"
+        parent_id = None
+        config = {"session": {"orchestrator": "loop-basic"}}
 
     mock_session = MockSession()
     return ModuleCoordinator(session=mock_session)  # type: ignore[arg-type]
@@ -19,7 +21,9 @@ def coordinator():
 @pytest.mark.asyncio
 async def test_register_contributor(coordinator):
     """Test basic registration."""
-    coordinator.register_contributor("test-channel", "test-module", lambda: ["item1", "item2"])
+    coordinator.register_contributor(
+        "test-channel", "test-module", lambda: ["item1", "item2"]
+    )
 
     assert "test-channel" in coordinator.channels
     assert len(coordinator.channels["test-channel"]) == 1
@@ -159,13 +163,19 @@ async def test_observability_events_pattern(coordinator):
     """Test the observability.events pattern (real-world usage)."""
     # Simulate modules registering events
     coordinator.register_contributor(
-        "observability.events", "tool-filesystem", lambda: ["filesystem:read", "filesystem:write", "filesystem:delete"]
+        "observability.events",
+        "tool-filesystem",
+        lambda: ["filesystem:read", "filesystem:write", "filesystem:delete"],
     )
     coordinator.register_contributor(
-        "observability.events", "tool-task", lambda: ["task:agent_spawned", "task:agent_completed"]
+        "observability.events",
+        "tool-task",
+        lambda: ["task:agent_spawned", "task:agent_completed"],
     )
     coordinator.register_contributor(
-        "observability.events", "loop-streaming", lambda: ["session:start", "session:end", "context:pre_compact"]
+        "observability.events",
+        "loop-streaming",
+        lambda: ["session:start", "session:end", "context:pre_compact"],
     )
 
     # Consumer (hooks-logging) collects events

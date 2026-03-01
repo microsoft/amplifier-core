@@ -5,7 +5,12 @@ After the switchover:
 - `from amplifier_core import HookRegistry` → RustHookRegistry
 - `from amplifier_core import CancellationToken` → RustCancellationToken
 - `from amplifier_core import ModuleCoordinator` → subclass of RustCoordinator
-- Submodule paths still give Python types
+
+Submodule thinning status:
+- coordinator.py → re-export stub (Rust-backed)
+- cancellation.py → re-export stub (Rust-backed)
+- session.py → still full Python (RustSession not yet drop-in)
+- hooks.py → still full Python (RustHookRegistry emit() not yet equivalent)
 """
 
 
@@ -56,12 +61,12 @@ def test_submodule_session_still_python():
     assert PySession is not RustSession
 
 
-def test_submodule_coordinator_still_python():
-    """Submodule import should still give Python type."""
-    from amplifier_core.coordinator import ModuleCoordinator as PyCo
+def test_submodule_coordinator_now_rust_backed():
+    """Submodule coordinator.py is now a re-export stub pointing to _rust_wrappers."""
+    from amplifier_core.coordinator import ModuleCoordinator as SubCo
     from amplifier_core._engine import RustCoordinator
 
-    assert not issubclass(PyCo, RustCoordinator)
+    assert issubclass(SubCo, RustCoordinator)
 
 
 def test_submodule_hooks_still_python():
