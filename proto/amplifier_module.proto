@@ -122,10 +122,10 @@ enum ProviderErrorType {
   PROVIDER_ERROR_TYPE_RATE_LIMIT      = 2;
   PROVIDER_ERROR_TYPE_CONTEXT_LENGTH  = 3;
   PROVIDER_ERROR_TYPE_INVALID_REQUEST = 4;
-  PROVIDER_ERROR_TYPE_MODEL_NOT_FOUND = 5;
-  PROVIDER_ERROR_TYPE_SERVER          = 6;
-  PROVIDER_ERROR_TYPE_NETWORK         = 7;
-  PROVIDER_ERROR_TYPE_UNKNOWN         = 8;
+  PROVIDER_ERROR_TYPE_CONTENT_FILTER  = 5;
+  PROVIDER_ERROR_TYPE_UNAVAILABLE     = 6;
+  PROVIDER_ERROR_TYPE_TIMEOUT         = 7;
+  PROVIDER_ERROR_TYPE_OTHER           = 8;
 }
 
 enum ToolErrorType {
@@ -332,6 +332,8 @@ message ChatRequest {
   // Model reasoning effort: "low", "medium", or "high".
   string                 reasoning_effort  = 13;
   double                 timeout           = 14;
+  // Additional provider-specific fields serialized as a JSON object.
+  string                 extensions_json   = 15;
 }
 
 message ChatResponse {
@@ -349,12 +351,12 @@ message ChatResponse {
 // ---------------------------------------------------------------------------
 
 enum HookAction {
-  HOOK_ACTION_UNSPECIFIED = 0;
-  HOOK_ACTION_CONTINUE    = 1;
-  HOOK_ACTION_MODIFY      = 2;
-  HOOK_ACTION_SKIP        = 3;
-  HOOK_ACTION_BLOCK       = 4;
-  HOOK_ACTION_ASK_USER    = 5;
+  HOOK_ACTION_UNSPECIFIED    = 0;
+  HOOK_ACTION_CONTINUE       = 1;
+  HOOK_ACTION_MODIFY         = 2;
+  HOOK_ACTION_DENY           = 3;
+  HOOK_ACTION_INJECT_CONTEXT = 4;
+  HOOK_ACTION_ASK_USER       = 5;
 }
 
 enum ContextInjectionRole {
