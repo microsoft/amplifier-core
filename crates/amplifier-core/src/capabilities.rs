@@ -140,10 +140,7 @@ mod tests {
     fn test_all_well_known_capabilities_no_duplicates() {
         let mut seen = std::collections::HashSet::new();
         for cap in ALL_WELL_KNOWN_CAPABILITIES {
-            assert!(
-                seen.insert(*cap),
-                "Duplicate capability found: {cap}"
-            );
+            assert!(seen.insert(*cap), "Duplicate capability found: {cap}");
         }
     }
 
@@ -158,21 +155,14 @@ mod tests {
 
     #[test]
     fn test_all_cost_tiers_count() {
-        assert_eq!(
-            ALL_COST_TIERS.len(),
-            5,
-            "Expected exactly 5 cost tiers"
-        );
+        assert_eq!(ALL_COST_TIERS.len(), 5, "Expected exactly 5 cost tiers");
     }
 
     #[test]
     fn test_all_cost_tiers_no_duplicates() {
         let mut seen = std::collections::HashSet::new();
         for tier in ALL_COST_TIERS {
-            assert!(
-                seen.insert(*tier),
-                "Duplicate cost tier found: {tier}"
-            );
+            assert!(seen.insert(*tier), "Duplicate cost tier found: {tier}");
         }
     }
 }

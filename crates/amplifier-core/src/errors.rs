@@ -164,14 +164,30 @@ impl ProviderError {
     /// Multiplier applied to backoff delay (default 1.0).
     pub fn delay_multiplier(&self) -> f64 {
         match self {
-            Self::RateLimit { delay_multiplier, .. }
-            | Self::Authentication { delay_multiplier, .. }
-            | Self::ContextLength { delay_multiplier, .. }
-            | Self::ContentFilter { delay_multiplier, .. }
-            | Self::InvalidRequest { delay_multiplier, .. }
-            | Self::Unavailable { delay_multiplier, .. }
-            | Self::Timeout { delay_multiplier, .. }
-            | Self::Other { delay_multiplier, .. } => *delay_multiplier,
+            Self::RateLimit {
+                delay_multiplier, ..
+            }
+            | Self::Authentication {
+                delay_multiplier, ..
+            }
+            | Self::ContextLength {
+                delay_multiplier, ..
+            }
+            | Self::ContentFilter {
+                delay_multiplier, ..
+            }
+            | Self::InvalidRequest {
+                delay_multiplier, ..
+            }
+            | Self::Unavailable {
+                delay_multiplier, ..
+            }
+            | Self::Timeout {
+                delay_multiplier, ..
+            }
+            | Self::Other {
+                delay_multiplier, ..
+            } => *delay_multiplier,
         }
     }
 }
