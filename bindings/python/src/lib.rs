@@ -1997,6 +1997,93 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyHookRegistry>()?;
     m.add_class::<PyCancellationToken>()?;
     m.add_class::<PyCoordinator>()?;
+
+    // -----------------------------------------------------------------------
+    // Event constants — expose all 51 canonical events from amplifier_core
+    // -----------------------------------------------------------------------
+
+    // Session lifecycle
+    m.add("SESSION_START", amplifier_core::events::SESSION_START)?;
+    m.add("SESSION_START_DEBUG", amplifier_core::events::SESSION_START_DEBUG)?;
+    m.add("SESSION_START_RAW", amplifier_core::events::SESSION_START_RAW)?;
+    m.add("SESSION_END", amplifier_core::events::SESSION_END)?;
+    m.add("SESSION_FORK", amplifier_core::events::SESSION_FORK)?;
+    m.add("SESSION_FORK_DEBUG", amplifier_core::events::SESSION_FORK_DEBUG)?;
+    m.add("SESSION_FORK_RAW", amplifier_core::events::SESSION_FORK_RAW)?;
+    m.add("SESSION_RESUME", amplifier_core::events::SESSION_RESUME)?;
+    m.add("SESSION_RESUME_DEBUG", amplifier_core::events::SESSION_RESUME_DEBUG)?;
+    m.add("SESSION_RESUME_RAW", amplifier_core::events::SESSION_RESUME_RAW)?;
+
+    // Prompt lifecycle
+    m.add("PROMPT_SUBMIT", amplifier_core::events::PROMPT_SUBMIT)?;
+    m.add("PROMPT_COMPLETE", amplifier_core::events::PROMPT_COMPLETE)?;
+
+    // Planning
+    m.add("PLAN_START", amplifier_core::events::PLAN_START)?;
+    m.add("PLAN_END", amplifier_core::events::PLAN_END)?;
+
+    // Provider calls
+    m.add("PROVIDER_REQUEST", amplifier_core::events::PROVIDER_REQUEST)?;
+    m.add("PROVIDER_RESPONSE", amplifier_core::events::PROVIDER_RESPONSE)?;
+    m.add("PROVIDER_RETRY", amplifier_core::events::PROVIDER_RETRY)?;
+    m.add("PROVIDER_ERROR", amplifier_core::events::PROVIDER_ERROR)?;
+    m.add("PROVIDER_THROTTLE", amplifier_core::events::PROVIDER_THROTTLE)?;
+    m.add("PROVIDER_TOOL_SEQUENCE_REPAIRED", amplifier_core::events::PROVIDER_TOOL_SEQUENCE_REPAIRED)?;
+    m.add("PROVIDER_RESOLVE", amplifier_core::events::PROVIDER_RESOLVE)?;
+
+    // LLM request/response
+    m.add("LLM_REQUEST", amplifier_core::events::LLM_REQUEST)?;
+    m.add("LLM_REQUEST_DEBUG", amplifier_core::events::LLM_REQUEST_DEBUG)?;
+    m.add("LLM_REQUEST_RAW", amplifier_core::events::LLM_REQUEST_RAW)?;
+    m.add("LLM_RESPONSE", amplifier_core::events::LLM_RESPONSE)?;
+    m.add("LLM_RESPONSE_DEBUG", amplifier_core::events::LLM_RESPONSE_DEBUG)?;
+    m.add("LLM_RESPONSE_RAW", amplifier_core::events::LLM_RESPONSE_RAW)?;
+
+    // Content block events
+    m.add("CONTENT_BLOCK_START", amplifier_core::events::CONTENT_BLOCK_START)?;
+    m.add("CONTENT_BLOCK_DELTA", amplifier_core::events::CONTENT_BLOCK_DELTA)?;
+    m.add("CONTENT_BLOCK_END", amplifier_core::events::CONTENT_BLOCK_END)?;
+
+    // Thinking events
+    m.add("THINKING_DELTA", amplifier_core::events::THINKING_DELTA)?;
+    m.add("THINKING_FINAL", amplifier_core::events::THINKING_FINAL)?;
+
+    // Tool invocations
+    m.add("TOOL_PRE", amplifier_core::events::TOOL_PRE)?;
+    m.add("TOOL_POST", amplifier_core::events::TOOL_POST)?;
+    m.add("TOOL_ERROR", amplifier_core::events::TOOL_ERROR)?;
+
+    // Context management
+    m.add("CONTEXT_PRE_COMPACT", amplifier_core::events::CONTEXT_PRE_COMPACT)?;
+    m.add("CONTEXT_POST_COMPACT", amplifier_core::events::CONTEXT_POST_COMPACT)?;
+    m.add("CONTEXT_COMPACTION", amplifier_core::events::CONTEXT_COMPACTION)?;
+    m.add("CONTEXT_INCLUDE", amplifier_core::events::CONTEXT_INCLUDE)?;
+
+    // Orchestrator lifecycle
+    m.add("ORCHESTRATOR_COMPLETE", amplifier_core::events::ORCHESTRATOR_COMPLETE)?;
+    m.add("EXECUTION_START", amplifier_core::events::EXECUTION_START)?;
+    m.add("EXECUTION_END", amplifier_core::events::EXECUTION_END)?;
+
+    // User notifications
+    m.add("USER_NOTIFICATION", amplifier_core::events::USER_NOTIFICATION)?;
+
+    // Artifacts
+    m.add("ARTIFACT_WRITE", amplifier_core::events::ARTIFACT_WRITE)?;
+    m.add("ARTIFACT_READ", amplifier_core::events::ARTIFACT_READ)?;
+
+    // Policy / approvals
+    m.add("POLICY_VIOLATION", amplifier_core::events::POLICY_VIOLATION)?;
+    m.add("APPROVAL_REQUIRED", amplifier_core::events::APPROVAL_REQUIRED)?;
+    m.add("APPROVAL_GRANTED", amplifier_core::events::APPROVAL_GRANTED)?;
+    m.add("APPROVAL_DENIED", amplifier_core::events::APPROVAL_DENIED)?;
+
+    // Cancellation lifecycle
+    m.add("CANCEL_REQUESTED", amplifier_core::events::CANCEL_REQUESTED)?;
+    m.add("CANCEL_COMPLETED", amplifier_core::events::CANCEL_COMPLETED)?;
+
+    // Aggregate list of all events
+    m.add("ALL_EVENTS", amplifier_core::events::ALL_EVENTS.to_vec())?;
+
     Ok(())
 }
 
