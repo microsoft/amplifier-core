@@ -2244,6 +2244,99 @@ impl PyProviderError {
 }
 
 // ---------------------------------------------------------------------------
+// PyRetryConfig — wraps amplifier_core::retry::RetryConfig
+// ---------------------------------------------------------------------------
+
+/// Python-visible retry configuration wrapper.
+///
+/// Exposes all fields of the Rust `RetryConfig` as read-only properties,
+/// with sensible defaults matching the Rust `Default` impl.
+#[pyclass(name = "RetryConfig")]
+#[derive(Clone)]
+struct PyRetryConfig {
+    inner: amplifier_core::retry::RetryConfig,
+}
+
+#[pymethods]
+impl PyRetryConfig {
+    #[new]
+    #[pyo3(signature = (max_retries=3, initial_delay=1.0, max_delay=60.0, backoff_factor=2.0, jitter=true, honor_retry_after=true))]
+    fn new(
+        max_retries: u32,
+        initial_delay: f64,
+        max_delay: f64,
+        backoff_factor: f64,
+        jitter: bool,
+        honor_retry_after: bool,
+    ) -> Self {
+        Self {
+            inner: amplifier_core::retry::RetryConfig {
+                max_retries,
+                initial_delay,
+                max_delay,
+                backoff_factor,
+                jitter,
+                honor_retry_after,
+            },
+        }
+    }
+
+    #[getter]
+    fn max_retries(&self) -> u32 {
+        self.inner.max_retries
+    }
+    #[getter]
+    fn initial_delay(&self) -> f64 {
+        self.inner.initial_delay
+    }
+    #[getter]
+    fn max_delay(&self) -> f64 {
+        self.inner.max_delay
+    }
+    #[getter]
+    fn backoff_factor(&self) -> f64 {
+        self.inner.backoff_factor
+    }
+    #[getter]
+    fn jitter(&self) -> bool {
+        self.inner.jitter
+    }
+    #[getter]
+    fn honor_retry_after(&self) -> bool {
+        self.inner.honor_retry_after
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Retry utility functions
+// ---------------------------------------------------------------------------
+
+/// Classify an error message string into an error category.
+///
+/// Returns one of: "rate_limit", "timeout", "authentication",
+/// "context_length", "content_filter", "not_found",
+/// "provider_unavailable", or "unknown".
+#[pyfunction]
+fn classify_error_message(message: &str) -> &'static str {
+    amplifier_core::retry::classify_error_message(message)
+}
+
+/// Compute the delay for a given retry attempt.
+///
+/// Pure function (deterministic when `config.jitter` is false).
+/// The caller is responsible for sleeping.
+#[pyfunction]
+#[pyo3(signature = (config, attempt, retry_after=None, delay_multiplier=1.0))]
+fn compute_delay(
+    config: &PyRetryConfig,
+    attempt: u32,
+    retry_after: Option<f64>,
+    delay_multiplier: f64,
+) -> f64 {
+    amplifier_core::retry::compute_delay(&config.inner, attempt, retry_after, delay_multiplier)
+}
+
+// ---------------------------------------------------------------------------
 // Module registration
 // ---------------------------------------------------------------------------
 
@@ -2258,6 +2351,9 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCancellationToken>()?;
     m.add_class::<PyCoordinator>()?;
     m.add_class::<PyProviderError>()?;
+    m.add_class::<PyRetryConfig>()?;
+    m.add_function(wrap_pyfunction!(classify_error_message, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_delay, m)?)?;
 
     // -----------------------------------------------------------------------
     // Event constants — expose all 51 canonical events from amplifier_core
