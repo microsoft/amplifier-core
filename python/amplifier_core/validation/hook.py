@@ -230,15 +230,31 @@ class HookValidator:
 
             # Check what was mounted - hooks mount point is a HookRegistry, not a dict
             hook_registry = coordinator.mount_points.get("hooks")
-            # Check if any handlers were registered
-            has_registered_hooks = (
-                hook_registry is not None
-                and hasattr(hook_registry, "_handlers")
-                and any(hook_registry._handlers.values())
+            # Check if any handlers were registered.
+            # Supports both:
+            #   - Python HookRegistry (has _handlers: dict[str, list[HookHandler]])
+            #   - RustHookRegistry (has list_handlers() -> dict[str, list[str]])
+            has_registered_hooks = hook_registry is not None and (
+                # Python HookRegistry: check _handlers dict directly
+                (hasattr(hook_registry, "_handlers") and any(hook_registry._handlers.values()))
+                # RustHookRegistry (and any registry with list_handlers()): use that method
+                or (hasattr(hook_registry, "list_handlers") and bool(hook_registry.list_handlers()))
             )
+
             if not has_registered_hooks:
-                # Module might return the instance directly
-                if mount_result is not None and isinstance(mount_result, HookHandler):
+                # Module might return the instance directly — but only if it's a proper
+                # class instance, not a plain function or bound method.
+                # IMPORTANT: @runtime_checkable Protocol isinstance() only checks for
+                # __call__ presence, which means ANY callable (including a sync cleanup
+                # function returned from mount()) incorrectly satisfies HookHandler.
+                # We must explicitly exclude plain functions and methods.
+                is_proper_hook_instance = (
+                    mount_result is not None
+                    and isinstance(mount_result, HookHandler)
+                    and not inspect.isfunction(mount_result)
+                    and not inspect.ismethod(mount_result)
+                )
+                if is_proper_hook_instance:
                     result.add(
                         ValidationCheck(
                             name="protocol_compliance",
@@ -302,14 +318,19 @@ class HookValidator:
                 )
             )
 
-            # Optionally check each handler implements HookHandler protocol
-            # At this point, hook_registry is guaranteed to be not None (checked above)
+            # Optionally check each handler implements HookHandler protocol.
+            # Only possible with Python HookRegistry which stores handler objects
+            # in _handlers and allows direct introspection.
+            # RustHookRegistry stores handlers in Rust-side storage; we cannot
+            # iterate over the callable objects from Python, so we skip this check.
+            # Rust-side handler validation happens at registration time.
             assert hook_registry is not None
-            for _event_name, handlers in hook_registry._handlers.items():
-                for hook in handlers:
-                    if isinstance(hook, HookHandler):
-                        self._check_hook_methods(result, hook)
-                    # Note: Hooks registered via lambdas/callables are also valid
+            if hasattr(hook_registry, "_handlers"):
+                for _event_name, handlers in hook_registry._handlers.items():
+                    for hook in handlers:
+                        if isinstance(hook, HookHandler):
+                            self._check_hook_methods(result, hook)
+                        # Note: Hooks registered via lambdas/callables are also valid
 
         except Exception as e:
             result.add(
