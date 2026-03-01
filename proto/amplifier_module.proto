@@ -325,8 +325,10 @@ message ChatRequest {
   bool                   stream            = 8;
   string                 metadata_json     = 9;
   string                 model             = 10;
+  // Tool selection mode: "auto", "none", "required", or a specific tool name.
   string                 tool_choice       = 11;
   repeated string        stop              = 12;
+  // Model reasoning effort: "low", "medium", or "high".
   string                 reasoning_effort  = 13;
   double                 timeout           = 14;
 }
