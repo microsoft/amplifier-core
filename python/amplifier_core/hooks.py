@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from collections.abc import Awaitable
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
+from datetime import timezone
 from typing import Any
 
 from .models import HookResult
