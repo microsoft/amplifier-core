@@ -29,6 +29,9 @@ class LLMError(Exception):
         status_code: HTTP status code from the provider, if available.
         retryable: Whether the caller should consider retrying the request.
         retry_after: Seconds to wait before retrying, if available.
+        delay_multiplier: Multiplier applied to backoff delay (e.g. 10.0 for
+            overloaded errors). Default 1.0. Accepted for backward compatibility
+            with provider modules that set it; not used by the Rust kernel.
     """
 
     def __init__(
@@ -40,6 +43,7 @@ class LLMError(Exception):
         status_code: int | None = None,
         retryable: bool = False,
         retry_after: float | None = None,
+        delay_multiplier: float = 1.0,
     ) -> None:
         super().__init__(message)
         self.provider = provider
@@ -47,6 +51,7 @@ class LLMError(Exception):
         self.status_code = status_code
         self.retryable = retryable
         self.retry_after = retry_after
+        self.delay_multiplier = delay_multiplier
 
     def __repr__(self) -> str:
         parts = [repr(str(self))]
@@ -60,6 +65,8 @@ class LLMError(Exception):
             parts.append("retryable=True")
         if self.retry_after is not None:
             parts.append(f"retry_after={self.retry_after!r}")
+        if self.delay_multiplier != 1.0:
+            parts.append(f"delay_multiplier={self.delay_multiplier!r}")
         return f"{type(self).__name__}({', '.join(parts)})"
 
 
@@ -80,6 +87,7 @@ class RateLimitError(LLMError):
         model: str | None = None,
         status_code: int | None = None,
         retryable: bool = True,
+        delay_multiplier: float = 1.0,
     ) -> None:
         super().__init__(
             message,
@@ -88,6 +96,7 @@ class RateLimitError(LLMError):
             status_code=status_code,
             retryable=retryable,
             retry_after=retry_after,
+            delay_multiplier=delay_multiplier,
         )
 
 
@@ -129,6 +138,8 @@ class ProviderUnavailableError(LLMError):
         model: str | None = None,
         status_code: int | None = None,
         retryable: bool = True,
+        retry_after: float | None = None,
+        delay_multiplier: float = 1.0,
     ) -> None:
         super().__init__(
             message,
@@ -136,6 +147,8 @@ class ProviderUnavailableError(LLMError):
             model=model,
             status_code=status_code,
             retryable=retryable,
+            retry_after=retry_after,
+            delay_multiplier=delay_multiplier,
         )
 
 
@@ -153,6 +166,8 @@ class LLMTimeoutError(LLMError):
         model: str | None = None,
         status_code: int | None = None,
         retryable: bool = True,
+        retry_after: float | None = None,
+        delay_multiplier: float = 1.0,
     ) -> None:
         super().__init__(
             message,
@@ -160,6 +175,8 @@ class LLMTimeoutError(LLMError):
             model=model,
             status_code=status_code,
             retryable=retryable,
+            retry_after=retry_after,
+            delay_multiplier=delay_multiplier,
         )
 
 
@@ -198,6 +215,8 @@ class StreamError(LLMError):
         model: str | None = None,
         status_code: int | None = None,
         retryable: bool = True,
+        retry_after: float | None = None,
+        delay_multiplier: float = 1.0,
     ) -> None:
         super().__init__(
             message,
@@ -205,6 +224,8 @@ class StreamError(LLMError):
             model=model,
             status_code=status_code,
             retryable=retryable,
+            retry_after=retry_after,
+            delay_multiplier=delay_multiplier,
         )
 
 
@@ -319,6 +340,7 @@ class QuotaExceededError(RateLimitError):
         model: str | None = None,
         status_code: int | None = None,
         retryable: bool = False,
+        delay_multiplier: float = 1.0,
     ) -> None:
         super().__init__(
             message,
@@ -327,4 +349,5 @@ class QuotaExceededError(RateLimitError):
             model=model,
             status_code=status_code,
             retryable=retryable,
+            delay_multiplier=delay_multiplier,
         )
