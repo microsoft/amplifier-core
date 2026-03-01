@@ -201,16 +201,6 @@ async def initialize_session(
     logger.info(f"Session {session_id} initialized successfully")
 
 
-async def _wrap_initialize(coro):
-    """Wrapper that awaits the initialization coroutine.
-
-    Called by the Rust PySession.initialize() to wrap the async
-    initialize_session() call. This is needed because Rust returns
-    the coroutine to Python for awaiting.
-    """
-    await coro
-
-
 async def _session_aenter(session):
     """Async context manager entry for RustSession.
 
