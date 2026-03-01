@@ -2251,7 +2251,7 @@ impl PyProviderError {
 ///
 /// Exposes all fields of the Rust `RetryConfig` as read-only properties,
 /// with sensible defaults matching the Rust `Default` impl.
-#[pyclass(name = "RetryConfig")]
+#[pyclass(name = "RetryConfig", skip_from_py_object)]
 #[derive(Clone)]
 struct PyRetryConfig {
     inner: amplifier_core::retry::RetryConfig,
