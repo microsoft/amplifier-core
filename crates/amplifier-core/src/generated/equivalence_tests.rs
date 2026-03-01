@@ -49,6 +49,7 @@ mod tests {
             error_json: r#"{"code":"NOT_FOUND"}"#.into(),
         };
         assert!(!err_result.success);
+        assert!(err_result.output_json.is_empty());
         assert_eq!(err_result.error_json, r#"{"code":"NOT_FOUND"}"#);
     }
 
@@ -259,94 +260,87 @@ mod tests {
         }
     }
 
+    /// Asserts that a proto enum has the expected number of non-Unspecified
+    /// variants and that every variant round-trips through `i32`.
+    ///
+    /// `$label_fn` must be an exhaustive-match helper (no wildcards) so that
+    /// adding a variant without updating the list causes a compile error.
+    macro_rules! assert_enum_coverage {
+        ($enum_ty:ty, $variants:expr, $unspecified:expr, $expected_meaningful:expr, $label_fn:expr) => {{
+            // Exhaustive match guarantees we track every variant
+            for &v in &$variants {
+                assert!(!$label_fn(v).is_empty());
+            }
+            // Verify expected non-Unspecified count
+            let meaningful = $variants.iter().filter(|v| **v != $unspecified).count();
+            assert_eq!(meaningful, $expected_meaningful);
+            // Verify round-trip through i32
+            for &v in &$variants {
+                let i = v as i32;
+                assert_eq!(
+                    <$enum_ty as TryFrom<i32>>::try_from(i).unwrap(),
+                    v,
+                    "round-trip failed for i32 value {i}"
+                );
+            }
+        }};
+    }
+
     #[test]
     fn proto_module_type_covers_all_variants() {
-        // 6 meaningful variants + Unspecified sentinel
-        let variants = [
+        assert_enum_coverage!(
+            ModuleType,
+            [
+                ModuleType::Unspecified,
+                ModuleType::Provider,
+                ModuleType::Tool,
+                ModuleType::Hook,
+                ModuleType::Memory,
+                ModuleType::Guardrail,
+                ModuleType::Approval,
+            ],
             ModuleType::Unspecified,
-            ModuleType::Provider,
-            ModuleType::Tool,
-            ModuleType::Hook,
-            ModuleType::Memory,
-            ModuleType::Guardrail,
-            ModuleType::Approval,
-        ];
-        // Exhaustive match guarantees we track every variant
-        for &v in &variants {
-            assert!(!module_type_label(v).is_empty());
-        }
-        // 6 non-Unspecified module types as per design
-        let meaningful: Vec<_> = variants
-            .iter()
-            .filter(|v| **v != ModuleType::Unspecified)
-            .collect();
-        assert_eq!(meaningful.len(), 6);
-
-        // Verify round-trip through i32
-        for &v in &variants {
-            let i = v as i32;
-            assert_eq!(ModuleType::try_from(i).unwrap(), v);
-        }
+            6, // 6 meaningful module types as per design
+            module_type_label
+        );
     }
 
     #[test]
     fn proto_provider_error_type_covers_all_variants() {
-        // 8 meaningful variants + Unspecified sentinel
-        let variants = [
+        assert_enum_coverage!(
+            ProviderErrorType,
+            [
+                ProviderErrorType::Unspecified,
+                ProviderErrorType::Auth,
+                ProviderErrorType::RateLimit,
+                ProviderErrorType::ContextLength,
+                ProviderErrorType::InvalidRequest,
+                ProviderErrorType::ModelNotFound,
+                ProviderErrorType::Server,
+                ProviderErrorType::Network,
+                ProviderErrorType::Unknown,
+            ],
             ProviderErrorType::Unspecified,
-            ProviderErrorType::Auth,
-            ProviderErrorType::RateLimit,
-            ProviderErrorType::ContextLength,
-            ProviderErrorType::InvalidRequest,
-            ProviderErrorType::ModelNotFound,
-            ProviderErrorType::Server,
-            ProviderErrorType::Network,
-            ProviderErrorType::Unknown,
-        ];
-        // Exhaustive match guarantees we track every variant
-        for &v in &variants {
-            assert!(!provider_error_type_label(v).is_empty());
-        }
-        // 8 non-Unspecified error types as per design
-        let meaningful: Vec<_> = variants
-            .iter()
-            .filter(|v| **v != ProviderErrorType::Unspecified)
-            .collect();
-        assert_eq!(meaningful.len(), 8);
-
-        // Verify round-trip through i32
-        for &v in &variants {
-            let i = v as i32;
-            assert_eq!(ProviderErrorType::try_from(i).unwrap(), v);
-        }
+            8, // 8 meaningful error types as per design
+            provider_error_type_label
+        );
     }
 
     #[test]
     fn proto_hook_action_covers_all_variants() {
-        // 5 meaningful variants + Unspecified sentinel
-        let variants = [
+        assert_enum_coverage!(
+            HookAction,
+            [
+                HookAction::Unspecified,
+                HookAction::Continue,
+                HookAction::Modify,
+                HookAction::Skip,
+                HookAction::Block,
+                HookAction::AskUser,
+            ],
             HookAction::Unspecified,
-            HookAction::Continue,
-            HookAction::Modify,
-            HookAction::Skip,
-            HookAction::Block,
-            HookAction::AskUser,
-        ];
-        // Exhaustive match guarantees we track every variant
-        for &v in &variants {
-            assert!(!hook_action_label(v).is_empty());
-        }
-        // 5 non-Unspecified hook actions as per design
-        let meaningful: Vec<_> = variants
-            .iter()
-            .filter(|v| **v != HookAction::Unspecified)
-            .collect();
-        assert_eq!(meaningful.len(), 5);
-
-        // Verify round-trip through i32
-        for &v in &variants {
-            let i = v as i32;
-            assert_eq!(HookAction::try_from(i).unwrap(), v);
-        }
+            5, // 5 meaningful hook actions as per design
+            hook_action_label
+        );
     }
 }
