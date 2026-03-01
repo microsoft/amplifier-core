@@ -14,12 +14,20 @@
 
 ---
 
+## Rust Kernel
+
+- [RUST_CORE_TESTING.md](RUST_CORE_TESTING.md) - Development setup and testing guide
+- [RUST_CORE_LIMITATIONS.md](RUST_CORE_LIMITATIONS.md) - Known limitations
+- [CONTRACTS.md](../CONTRACTS.md) - Authoritative Rust/Python type mapping
+
+---
+
 ## Principles
 
 - [DESIGN_PHILOSOPHY.md](DESIGN_PHILOSOPHY.md) - Kernel design framework
 
 ---
 
-**Protocols are in code** (`amplifier_core/interfaces.py`), not duplicated in docs.
+**Protocols are in code** (`python/amplifier_core/interfaces.py`), not duplicated in docs.
 
-For ecosystem: **→ [amplifier](https://github.com/microsoft/amplifier)**
+For ecosystem: **-> [amplifier](https://github.com/microsoft/amplifier)**
