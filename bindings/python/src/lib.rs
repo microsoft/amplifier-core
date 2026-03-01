@@ -359,35 +359,57 @@ impl PySession {
     ///
     /// Rust controls the lifecycle:
     /// 1. Idempotency guard (already initialized → no-op)
-    /// 2. Delegates module loading to `_session_init.initialize_session()`
+    /// 2. Patches the coordinator's `session_ref` to point to the real
+    ///    `RustSession` object (replacing the `SimpleNamespace` placeholder
+    ///    created in `new()` — necessary because `self` doesn't exist yet
+    ///    during `__new__`).
+    /// 3. Delegates module loading to `_session_init.initialize_session()`
     ///    via `into_future` (Python handles loader, importlib, module resolution)
-    /// 3. Sets the Rust `initialized` flag on success
+    /// 4. Sets the Rust `initialized` flag on success
     ///
     /// Errors from module loading propagate; `initialized` stays `false`.
-    fn initialize<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+    fn initialize<'py>(
+        slf: &Bound<'py, PySession>,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, PyAny>> {
         // Step 1: Idempotency — if already initialized, return resolved future
         {
-            let session = self.inner.blocking_lock();
+            let this = slf.borrow();
+            let session = this.inner.blocking_lock();
             if session.is_initialized() {
                 return pyo3_async_runtimes::tokio::future_into_py(py, async { Ok(()) });
             }
         }
 
-        // Step 2: Prepare the Python init coroutine (we have the GIL here)
-        let helper = py.import("amplifier_core._session_init")?;
-        let init_fn = helper.getattr("initialize_session")?;
-        let coro = init_fn.call1((
-            self.config.bind(py),
-            self.coordinator.bind(py),
-            &self.cached_session_id,
-            self.cached_parent_id.as_deref(),
-        ))?;
-        // Convert to an owned Py<PyAny> so it's 'static + Send
-        let coro_py: Py<PyAny> = coro.unbind();
+        // Step 2: Extract what we need before entering the async block
+        let (coro_py, inner) = {
+            let this = slf.borrow();
+            let helper = py.import("amplifier_core._session_init")?;
+            let init_fn = helper.getattr("initialize_session")?;
+            let coro = init_fn.call1((
+                this.config.bind(py),
+                this.coordinator.bind(py),
+                this.cached_session_id.as_str(),
+                this.cached_parent_id.as_deref(),
+            ))?;
+            // Convert to an owned Py<PyAny> so it's 'static + Send
+            let coro_py: Py<PyAny> = coro.unbind();
+            let inner = this.inner.clone();
+            (coro_py, inner)
+        };
 
-        let inner = self.inner.clone();
+        // Step 3: Patch the coordinator's session back-reference to point to
+        //         the real PySession, replacing the SimpleNamespace placeholder
+        //         created in new().  Must happen while we have the GIL and a
+        //         Python reference to `slf` (before future_into_py).
+        {
+            let coord = slf.borrow().coordinator.clone_ref(py);
+            coord
+                .bind(py)
+                .call_method1("_set_session", (slf.as_any(),))?;
+        }
 
-        // Step 3: Return an awaitable that runs init then sets the flag
+        // Step 4: Return an awaitable that runs init then sets the flag
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             // Convert the Python coroutine to a Rust future (needs GIL + task locals)
             let future = Python::try_attach(|py| {
@@ -403,7 +425,7 @@ impl PySession {
                 PyErr::new::<PyRuntimeError, _>(format!("Session initialization failed: {e}"))
             })?;
 
-            // Step 4: Mark session as initialized in Rust kernel
+            // Step 5: Mark session as initialized in Rust kernel
             {
                 let mut session = inner.lock().await;
                 session.set_initialized();
@@ -1570,6 +1592,17 @@ impl PyCoordinator {
     #[getter]
     fn session<'py>(&self, py: Python<'py>) -> Bound<'py, PyAny> {
         self.session_ref.bind(py).clone()
+    }
+
+    /// Update the session back-reference after construction.
+    ///
+    /// Called by `PySession::initialize()` to replace the `SimpleNamespace`
+    /// placeholder (set during `PySession::new()`) with the real session object.
+    /// This closes the chicken-and-egg circle: `new()` can't pass `self` to the
+    /// coordinator because `self` doesn't exist yet, so `initialize()` patches
+    /// it here once both objects are fully constructed.
+    fn _set_session(&mut self, session: Bound<'_, PyAny>) {
+        self.session_ref = session.unbind();
     }
 
     // -----------------------------------------------------------------------
