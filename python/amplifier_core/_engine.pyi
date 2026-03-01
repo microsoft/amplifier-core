@@ -90,17 +90,17 @@ class RustHookRegistry:
     def register(
         self,
         event: str,
-        name: str,
         handler: Any,
-        priority: int = 100,
-    ) -> None: ...
+        priority: int = 0,
+        name: Optional[str] = None,
+    ) -> Any: ...  # Returns a callable unregister function (RustUnregisterFn)
     def on(
         self,
         event: str,
-        name: str,
         handler: Any,
-        priority: int = 100,
-    ) -> None:
+        priority: int = 0,
+        name: Optional[str] = None,
+    ) -> Any:
         """Alias for register()."""
         ...
     async def emit(self, event: str, data: dict[str, Any]) -> Any: ...
@@ -109,7 +109,7 @@ class RustHookRegistry:
     ) -> list[Any]: ...
     def unregister(self, name: str) -> None: ...
     def set_default_fields(self, **kwargs: Any) -> None: ...
-    def list_handlers(self, event: Optional[str] = None) -> list[dict[str, Any]]: ...
+    def list_handlers(self, event: Optional[str] = None) -> dict[str, list[str]]: ...
 
 # ---------------------------------------------------------------------------
 # RustCancellationToken — wraps amplifier_core::CancellationToken
