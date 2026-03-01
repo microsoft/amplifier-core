@@ -16,6 +16,9 @@ from ._engine import RustHookRegistry as HookRegistry
 from ._engine import RustSession as AmplifierSession
 from ._rust_wrappers import ModuleCoordinator  # RustCoordinator + process_hook_result
 
+# --- Rust-backed submodule re-exports ---
+from . import capabilities  # noqa: F401  (re-export stub)
+
 # --- Pure-Python types that have no Rust equivalent yet ---
 from .cancellation import CancellationState
 from .content_models import ContentBlock
