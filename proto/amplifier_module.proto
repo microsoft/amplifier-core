@@ -233,8 +233,8 @@ message ImageBlock {
 }
 
 message ReasoningBlock {
-  string content = 1;
-  string summary = 2;
+  repeated string content = 1;
+  repeated string summary = 2;
 }
 
 message ContentBlock {
@@ -332,8 +332,6 @@ message ChatRequest {
   // Model reasoning effort: "low", "medium", or "high".
   string                 reasoning_effort  = 13;
   double                 timeout           = 14;
-  // Additional provider-specific fields serialized as a JSON object.
-  string                 extensions_json   = 15;
 }
 
 message ChatResponse {
@@ -418,12 +416,12 @@ message ModelInfo {
 }
 
 message ProviderInfo {
-  string                 id            = 1;
-  string                 name          = 2;
-  string                 description   = 3;
-  repeated ModelInfo     models        = 4;
-  repeated ConfigField   config_fields = 5;
-  string                 metadata_json = 6;
+  string                 id                 = 1;
+  string                 display_name       = 2;
+  repeated string        credential_env_vars = 3;
+  repeated string        capabilities       = 4;
+  string                 defaults_json      = 5;
+  repeated ConfigField   config_fields      = 6;
 }
 
 message ApprovalRequest {
