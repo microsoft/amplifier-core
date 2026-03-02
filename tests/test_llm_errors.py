@@ -495,6 +495,23 @@ class TestNewErrorsInAllSubtypesCheck:
             assert isinstance(err, Exception)
 
 
+class TestDelayMultiplierDocstring:
+    """Verify delay_multiplier docstring reflects Rust kernel usage."""
+
+    def test_docstring_mentions_rust_kernel_compute_delay(self) -> None:
+        """delay_multiplier docstring should reference Rust kernel's compute_delay()."""
+        docstring = LLMError.__doc__
+        assert docstring is not None
+        assert "compute_delay()" in docstring
+        assert "applied after the max_delay cap" in docstring
+
+    def test_docstring_no_longer_says_not_used(self) -> None:
+        """delay_multiplier docstring should NOT say 'not used by the Rust kernel'."""
+        docstring = LLMError.__doc__
+        assert docstring is not None
+        assert "not used by the Rust kernel" not in docstring
+
+
 class TestNewErrorsImportFromCore:
     """Verify all 8 new error types are importable from amplifier_core."""
 
