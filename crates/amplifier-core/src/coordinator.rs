@@ -188,6 +188,33 @@ impl Coordinator {
         self.tools.lock().unwrap().remove(name).is_some()
     }
 
+    // -- Read-only accessor methods (for to_dict / introspection) --
+
+    /// Names of all mounted tools.
+    pub fn tool_names(&self) -> Vec<String> {
+        self.tools.lock().unwrap().keys().cloned().collect()
+    }
+
+    /// Names of all mounted providers.
+    pub fn provider_names(&self) -> Vec<String> {
+        self.providers.lock().unwrap().keys().cloned().collect()
+    }
+
+    /// Whether an orchestrator is mounted.
+    pub fn has_orchestrator(&self) -> bool {
+        self.orchestrator.lock().unwrap().is_some()
+    }
+
+    /// Whether a context manager is mounted.
+    pub fn has_context(&self) -> bool {
+        self.context.lock().unwrap().is_some()
+    }
+
+    /// Names of all registered capabilities.
+    pub fn capability_names(&self) -> Vec<String> {
+        self.capabilities.lock().unwrap().keys().cloned().collect()
+    }
+
     // -- Subsystem accessors --
 
     /// Reference to the hook registry.
