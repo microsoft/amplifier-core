@@ -906,7 +906,7 @@ class KernelServiceStub(object):
         self.EmitHook = channel.unary_unary(
                 '/amplifier.module.KernelService/EmitHook',
                 request_serializer=amplifier__module__pb2.EmitHookRequest.SerializeToString,
-                response_deserializer=amplifier__module__pb2.Empty.FromString,
+                response_deserializer=amplifier__module__pb2.HookResult.FromString,
                 _registered_method=True)
         self.EmitHookAndCollect = channel.unary_unary(
                 '/amplifier.module.KernelService/EmitHookAndCollect',
@@ -1030,7 +1030,7 @@ def add_KernelServiceServicer_to_server(servicer, server):
             'EmitHook': grpc.unary_unary_rpc_method_handler(
                     servicer.EmitHook,
                     request_deserializer=amplifier__module__pb2.EmitHookRequest.FromString,
-                    response_serializer=amplifier__module__pb2.Empty.SerializeToString,
+                    response_serializer=amplifier__module__pb2.HookResult.SerializeToString,
             ),
             'EmitHookAndCollect': grpc.unary_unary_rpc_method_handler(
                     servicer.EmitHookAndCollect,
@@ -1170,7 +1170,7 @@ class KernelService(object):
             target,
             '/amplifier.module.KernelService/EmitHook',
             amplifier__module__pb2.EmitHookRequest.SerializeToString,
-            amplifier__module__pb2.Empty.FromString,
+            amplifier__module__pb2.HookResult.FromString,
             options,
             channel_credentials,
             insecure,
