@@ -74,7 +74,9 @@ class ModuleSourceResolver(Protocol):
     This is app-layer policy - different apps can use different strategies.
     """
 
-    def resolve(self, module_id: str, source_hint=None, profile_hint=None) -> ModuleSource:
+    def resolve(
+        self, module_id: str, source_hint=None, profile_hint=None
+    ) -> ModuleSource:
         """Resolve module ID to a source.
 
         Args:
@@ -87,10 +89,38 @@ class ModuleSourceResolver(Protocol):
 
         Raises:
             ModuleNotFoundError: Module cannot be found
-            
+
         FIXME: The profile_hint parameter exists only for backward compatibility
         with implementations that haven't migrated yet. All callers should use
         source_hint. Remove profile_hint after all downstream repos are updated
         (target: v2.0 release).
         """
         ...
+
+
+class FileSystemModuleSource:
+    """Module source backed by filesystem paths.
+
+    Provides public API methods for accessing module paths and
+    mention mappings, replacing brittle hasattr chains on private
+    attributes.
+    """
+
+    def __init__(self, paths: list[str] | None = None) -> None:
+        self._paths: list[str] = list(paths) if paths else []
+        self._bundle_mappings: dict[str, str] = {}
+
+    def get_module_paths(self) -> list[str]:
+        """Return configured module search paths.
+
+        Public API replacing direct access to _paths.
+        """
+        return list(self._paths)
+
+    def get_mention_mappings(self) -> dict[str, str]:
+        """Return mention-to-path mappings.
+
+        Public API replacing direct access to _bundle_mappings.
+        Returns empty dict if this source type doesn't support mention mappings.
+        """
+        return dict(self._bundle_mappings)
