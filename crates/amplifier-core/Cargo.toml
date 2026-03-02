@@ -17,6 +17,11 @@ rand = "0.8"
 prost = "0.13"
 tonic = "0.12"
 tokio-stream = { version = "0.1", features = ["net"] }
+wasmtime = { version = "29", optional = true }
+
+[features]
+default = []
+wasm = ["wasmtime"]
 
 [build-dependencies]
 tonic-build = "0.12"
