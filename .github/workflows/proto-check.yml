@@ -36,6 +36,7 @@ jobs:
 
       - name: Regenerate Python stubs
         run: |
+          mkdir -p /tmp/proto_check
           python -m grpc_tools.protoc \
             -Iproto \
             --python_out=/tmp/proto_check \
