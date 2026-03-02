@@ -23,6 +23,7 @@ pub mod coordinator;
 pub mod errors;
 pub mod events;
 pub mod generated;
+pub mod grpc_server;
 pub mod hooks;
 pub mod messages;
 pub mod models;
