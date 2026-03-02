@@ -16,6 +16,7 @@ chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"
 prost = "0.13"
 tonic = "0.12"
+tokio-stream = "0.1"
 
 [build-dependencies]
 tonic-build = "0.12"
