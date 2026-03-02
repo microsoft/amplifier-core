@@ -2138,21 +2138,27 @@ impl PyCoordinator {
 
         // tools: list of mounted tool names from mount_points["tools"]
         let mp = self.mount_points.bind(py);
-        let tools_dict = mp.get_item("tools")?.ok_or_else(|| {
-            PyErr::new::<PyRuntimeError, _>("mount_points missing 'tools'")
-        })?;
-        let tools_keys: Vec<String> = tools_dict.cast::<PyDict>()?.keys().iter().map(|k| {
-            k.extract::<String>().unwrap_or_default()
-        }).collect();
+        let tools_dict = mp
+            .get_item("tools")?
+            .ok_or_else(|| PyErr::new::<PyRuntimeError, _>("mount_points missing 'tools'"))?;
+        let tools_keys: Vec<String> = tools_dict
+            .cast::<PyDict>()?
+            .keys()
+            .iter()
+            .map(|k| k.extract::<String>().unwrap_or_default())
+            .collect();
         dict.set_item("tools", PyList::new(py, &tools_keys)?)?;
 
         // providers: list of mounted provider names from mount_points["providers"]
-        let providers_dict = mp.get_item("providers")?.ok_or_else(|| {
-            PyErr::new::<PyRuntimeError, _>("mount_points missing 'providers'")
-        })?;
-        let provider_keys: Vec<String> = providers_dict.cast::<PyDict>()?.keys().iter().map(|k| {
-            k.extract::<String>().unwrap_or_default()
-        }).collect();
+        let providers_dict = mp
+            .get_item("providers")?
+            .ok_or_else(|| PyErr::new::<PyRuntimeError, _>("mount_points missing 'providers'"))?;
+        let provider_keys: Vec<String> = providers_dict
+            .cast::<PyDict>()?
+            .keys()
+            .iter()
+            .map(|k| k.extract::<String>().unwrap_or_default())
+            .collect();
         dict.set_item("providers", PyList::new(py, &provider_keys)?)?;
 
         // has_orchestrator: whether orchestrator mount point is not None
@@ -2162,16 +2168,18 @@ impl PyCoordinator {
         dict.set_item("has_orchestrator", !orch.is_none())?;
 
         // has_context: whether context mount point is not None
-        let ctx = mp.get_item("context")?.ok_or_else(|| {
-            PyErr::new::<PyRuntimeError, _>("mount_points missing 'context'")
-        })?;
+        let ctx = mp
+            .get_item("context")?
+            .ok_or_else(|| PyErr::new::<PyRuntimeError, _>("mount_points missing 'context'"))?;
         dict.set_item("has_context", !ctx.is_none())?;
 
         // capabilities: list of registered capability names
         let caps = self.capabilities.bind(py);
-        let cap_keys: Vec<String> = caps.keys().iter().map(|k| {
-            k.extract::<String>().unwrap_or_default()
-        }).collect();
+        let cap_keys: Vec<String> = caps
+            .keys()
+            .iter()
+            .map(|k| k.extract::<String>().unwrap_or_default())
+            .collect();
         dict.set_item("capabilities", PyList::new(py, &cap_keys)?)?;
 
         Ok(dict)
