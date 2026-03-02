@@ -39,6 +39,7 @@ pub enum ProviderError {
         provider: Option<String>,
         model: Option<String>,
         retry_after: Option<f64>,
+        delay_multiplier: Option<f64>,
     },
 
     /// Invalid or missing API credentials (HTTP 401/403).
@@ -86,6 +87,7 @@ pub enum ProviderError {
         model: Option<String>,
         retry_after: Option<f64>,
         status_code: Option<u16>,
+        delay_multiplier: Option<f64>,
     },
 
     /// Request timed out before the provider responded.
@@ -96,6 +98,7 @@ pub enum ProviderError {
         provider: Option<String>,
         model: Option<String>,
         retry_after: Option<f64>,
+        delay_multiplier: Option<f64>,
     },
 
     /// Generic LLM error (maps to Python's base `LLMError`).
@@ -107,6 +110,7 @@ pub enum ProviderError {
         retry_after: Option<f64>,
         status_code: Option<u16>,
         retryable: bool,
+        delay_multiplier: Option<f64>,
     },
 }
 
@@ -150,6 +154,25 @@ impl ProviderError {
             | Self::Unavailable { retry_after, .. }
             | Self::Timeout { retry_after, .. }
             | Self::Other { retry_after, .. } => *retry_after,
+        }
+    }
+
+    /// Multiplier applied to the base delay between retries, if specified.
+    pub fn delay_multiplier(&self) -> Option<f64> {
+        match self {
+            Self::RateLimit {
+                delay_multiplier, ..
+            }
+            | Self::Unavailable {
+                delay_multiplier, ..
+            }
+            | Self::Timeout {
+                delay_multiplier, ..
+            }
+            | Self::Other {
+                delay_multiplier, ..
+            } => *delay_multiplier,
+            _ => None,
         }
     }
 }
@@ -282,6 +305,7 @@ mod tests {
             provider: Some("openai".into()),
             model: None,
             retry_after: Some(1.5),
+            delay_multiplier: None,
         };
         assert!(err.retryable());
         assert_eq!(err.retry_after(), Some(1.5));
@@ -295,6 +319,7 @@ mod tests {
             model: None,
             retry_after: None,
             status_code: Some(503),
+            delay_multiplier: None,
         };
         assert!(err.retryable());
     }
@@ -306,6 +331,7 @@ mod tests {
             provider: Some("gemini".into()),
             model: None,
             retry_after: None,
+            delay_multiplier: None,
         };
         assert!(err.retryable());
     }
@@ -317,6 +343,7 @@ mod tests {
             provider: None,
             model: None,
             retry_after: None,
+            delay_multiplier: None,
         };
         let outer = AmplifierError::Provider(inner);
         assert!(matches!(outer, AmplifierError::Provider(_)));
@@ -335,6 +362,7 @@ mod tests {
             provider: Some("openai".into()),
             model: None,
             retry_after: Some(2.0),
+            delay_multiplier: None,
         };
         let json = serde_json::to_string(&err).unwrap();
         assert!(json.contains("429"));
@@ -362,6 +390,7 @@ mod tests {
             provider: None,
             model: None,
             retry_after: None,
+            delay_multiplier: None,
         };
         assert_eq!(err.retry_after(), None);
     }
@@ -373,8 +402,45 @@ mod tests {
             provider: Some("openai".into()),
             model: Some("gpt-4".into()),
             retry_after: Some(2.5),
+            delay_multiplier: None,
         };
         assert_eq!(err.model(), Some("gpt-4"));
         assert_eq!(err.retry_after(), Some(2.5));
+    }
+
+    #[test]
+    fn test_delay_multiplier_on_retryable_variants() {
+        let err = ProviderError::Unavailable {
+            message: "503".into(),
+            provider: None,
+            model: None,
+            retry_after: None,
+            status_code: None,
+            delay_multiplier: Some(10.0),
+        };
+        assert_eq!(err.delay_multiplier(), Some(10.0));
+    }
+
+    #[test]
+    fn test_delay_multiplier_none_on_non_retryable() {
+        let err = ProviderError::Authentication {
+            message: "bad key".into(),
+            provider: None,
+            model: None,
+            retry_after: None,
+        };
+        assert_eq!(err.delay_multiplier(), None);
+    }
+
+    #[test]
+    fn test_delay_multiplier_none_when_not_set() {
+        let err = ProviderError::RateLimit {
+            message: "429".into(),
+            provider: None,
+            model: None,
+            retry_after: None,
+            delay_multiplier: None,
+        };
+        assert_eq!(err.delay_multiplier(), None);
     }
 }
