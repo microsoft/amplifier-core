@@ -32,6 +32,7 @@ pub mod retry;
 pub mod session;
 pub mod testing;
 pub mod traits;
+pub mod transport;
 
 // ---------------------------------------------------------------------------
 // Re-exports — consumers write `use amplifier_core::Tool`, not
