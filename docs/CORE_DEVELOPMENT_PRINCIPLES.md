@@ -68,7 +68,32 @@ When adding new Rust functionality:
 
 ---
 
-## 5. Proto as Source of Truth
+## 5. Rust Is the Source of Truth — Language Layers Are Thin Translators
+
+The Rust kernel (`crates/amplifier-core/src/`) is where logic, types, validation, and behavior live. Language-specific layers (PyO3 bindings, future Napi-RS bindings, etc.) are **thin translation layers** — they convert between the host language's types and Rust types. They do not contain business logic, validation rules, or behavioral decisions.
+
+This means:
+
+- **Logic goes in Rust, not in bindings.** If a function validates input, computes a result, or makes a decision, it belongs in the Rust crate. The binding layer calls the Rust function and translates the result — nothing more.
+- **Types are defined in Rust (and proto), then projected.** Rust structs and proto messages are the canonical type definitions. Python classes, TypeScript interfaces, and Go structs are projections of these — generated or hand-written translations that must stay in sync.
+- **Don't duplicate logic across languages.** If validation logic exists in Rust, the Python layer must NOT reimplement it in Python. Call through to Rust. If both languages need the logic independently (e.g., for a pure-Python fallback), extract the rules to a shared specification (proto or doc) and implement from that spec in both places.
+- **Utility code follows the same rule.** If a utility function (string processing, config parsing, path resolution) is needed by multiple languages, implement it once in Rust and expose it via bindings. Don't create parallel implementations in `python/amplifier_core/utils/` and `crates/amplifier-core/src/` that drift apart.
+
+**The decision matrix for where code lives:**
+
+| Question | If yes → | If no → |
+|----------|----------|---------|
+| Does it contain logic, validation, or computation? | Rust (`crates/amplifier-core/src/`) | — |
+| Is it purely type translation (Rust ↔ host language)? | Binding layer (`bindings/python/`, future `bindings/node/`) | — |
+| Is it host-language-specific glue (e.g., Python `__init__.py` re-exports, async wrappers)? | Language-specific wrapper (`python/amplifier_core/`) | — |
+| Is it a module contract (trait, protocol, service)? | Rust trait + proto definition | — |
+| Is it a utility needed by multiple languages? | Rust, exposed via bindings | NOT duplicated per language |
+
+> **Future work:** Some utility code currently lives in `python/amplifier_core/` (validation, module loading helpers) that predates the Rust kernel. As the Rust core matures, this code should migrate to Rust and be exposed via bindings. Track this as incremental work — don't disrupt existing consumers, but don't add NEW Python-only utilities either.
+
+---
+
+## 6. Proto as Source of Truth
 
 `proto/amplifier_module.proto` defines all module contracts. This is the single source of truth shared by:
 - Rust generated code (`crates/amplifier-core/src/generated/amplifier.module.rs`)
@@ -84,7 +109,7 @@ When adding new Rust functionality:
 
 ---
 
-## 6. Testing Philosophy
+## 7. Testing Philosophy
 
 Each test layer has a distinct purpose:
 
@@ -108,7 +133,7 @@ maturin develop && uv run pytest tests/ bindings/python/tests/  # Python
 
 ---
 
-## 7. Transport Is Invisible to Developers
+## 8. Transport Is Invisible to Developers
 
 The kernel hosts modules via four transports (native, python/PyO3, gRPC, WASM). Developers never choose which transport to use — they say `{"module": "tool-bash"}` and the framework resolves the optimal path.
 
@@ -119,7 +144,7 @@ This means:
 
 ---
 
-## 8. The Backward Compatibility Guarantee
+## 9. The Backward Compatibility Guarantee
 
 Every existing Python module, bundle, and application works unchanged. This is not negotiable.
 
@@ -134,7 +159,7 @@ This guarantee does NOT mean we can't evolve. It means evolution is additive —
 
 ---
 
-## 9. What NOT to Do
+## 10. What NOT to Do
 
 | Anti-pattern | Why |
 |-------------|-----|
