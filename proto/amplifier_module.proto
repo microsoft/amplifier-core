@@ -593,7 +593,7 @@ service KernelService {
   rpc ExecuteTool(ExecuteToolRequest) returns (ToolResult);
 
   // Hook emission.
-  rpc EmitHook(EmitHookRequest) returns (Empty);
+  rpc EmitHook(EmitHookRequest) returns (HookResult);
   rpc EmitHookAndCollect(EmitHookAndCollectRequest) returns (EmitHookAndCollectResponse);
 
   // Conversation message access.
