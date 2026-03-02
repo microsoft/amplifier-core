@@ -57,10 +57,15 @@ Provide:
 
 @core:context/kernel-overview.md
 
+### Repository Development Principles
+
+@core:docs/CORE_DEVELOPMENT_PRINCIPLES.md
+
 @core:docs/
 
 Key documents for deep reference:
 - @core:docs/DESIGN_PHILOSOPHY.md - Why the kernel is tiny and boring
+- @core:docs/CORE_DEVELOPMENT_PRINCIPLES.md - Rust-first, AI-first, polyglot approach, what contributors must know
 - @core:docs/HOOKS_API.md - Complete hooks system documentation
 - @core:docs/MODULE_SOURCE_PROTOCOL.md - How modules are loaded
 
