@@ -32,6 +32,60 @@ use crate::models::{HookResult, ModelInfo, ProviderInfo, ToolResult};
 use crate::traits::{ApprovalProvider, ContextManager, HookHandler, Orchestrator, Provider, Tool};
 
 // ---------------------------------------------------------------------------
+// EchoTool
+// ---------------------------------------------------------------------------
+
+/// A native tool that echoes input back unchanged.
+///
+/// Unlike [`FakeTool`] (which is configurable for general-purpose test faking),
+/// `EchoTool` is a concrete, zero-config tool suitable for integration tests
+/// and examples demonstrating the native tool loading path.
+///
+/// # Usage
+///
+/// ```rust
+/// use amplifier_core::testing::EchoTool;
+/// use amplifier_core::traits::Tool;
+/// use amplifier_core::transport::load_native_tool;
+///
+/// let tool = load_native_tool(EchoTool);
+/// assert_eq!(tool.name(), "echo");
+/// ```
+pub struct EchoTool;
+
+impl Tool for EchoTool {
+    fn name(&self) -> &str {
+        "echo"
+    }
+
+    fn description(&self) -> &str {
+        "Echoes input back unchanged"
+    }
+
+    fn get_spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "echo".into(),
+            parameters: HashMap::new(),
+            description: Some("Echoes input back unchanged".into()),
+            extensions: HashMap::new(),
+        }
+    }
+
+    fn execute(
+        &self,
+        input: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<ToolResult, ToolError>> + Send + '_>> {
+        Box::pin(async move {
+            Ok(ToolResult {
+                success: true,
+                output: Some(input),
+                error: None,
+            })
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // FakeTool
 // ---------------------------------------------------------------------------
 

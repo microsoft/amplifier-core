@@ -48,7 +48,7 @@ jobs:
       - name: Install test dependencies
         run: |
           source .venv/bin/activate
-          pip install pytest pytest-asyncio
+          pip install pytest pytest-asyncio grpcio protobuf grpcio-tools
       - name: Run all Python tests
         run: |
           source .venv/bin/activate

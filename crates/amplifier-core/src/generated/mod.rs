@@ -1,8 +1,9 @@
 #[allow(clippy::all)]
-mod amplifier_module {
+pub mod amplifier_module {
     include!("amplifier.module.rs");
 }
 
-pub use amplifier_module::*;
+pub mod conversions;
 
+#[cfg(test)]
 mod equivalence_tests;

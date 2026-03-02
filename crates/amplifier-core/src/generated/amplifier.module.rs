@@ -84,28 +84,28 @@ pub struct HealthCheckResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ConfigField {
     #[prost(string, tag = "1")]
-    pub name: ::prost::alloc::string::String,
-    #[prost(enumeration = "ConfigFieldType", tag = "2")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub display_name: ::prost::alloc::string::String,
+    #[prost(enumeration = "ConfigFieldType", tag = "3")]
     pub field_type: i32,
-    #[prost(string, tag = "3")]
-    pub description: ::prost::alloc::string::String,
-    #[prost(bool, tag = "4")]
-    pub required: bool,
+    #[prost(string, tag = "4")]
+    pub prompt: ::prost::alloc::string::String,
     #[prost(string, tag = "5")]
+    pub env_var: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "6")]
+    pub choices: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(bool, tag = "7")]
+    pub required: bool,
+    #[prost(string, tag = "8")]
     pub default_value: ::prost::alloc::string::String,
-    #[prost(string, tag = "6")]
-    pub placeholder: ::prost::alloc::string::String,
-    #[prost(string, repeated, tag = "7")]
-    pub options: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(map = "string, string", tag = "8")]
+    #[prost(map = "string, string", tag = "9")]
     pub show_when: ::std::collections::HashMap<
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
-    #[prost(bool, tag = "9")]
+    #[prost(bool, tag = "10")]
     pub requires_model: bool,
-    #[prost(string, tag = "10")]
-    pub validation_regex: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ProviderError {
@@ -216,10 +216,10 @@ pub struct ImageBlock {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReasoningBlock {
-    #[prost(string, tag = "1")]
-    pub content: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub summary: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "1")]
+    pub content: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag = "2")]
+    pub summary: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ContentBlock {
@@ -374,9 +374,6 @@ pub struct ChatRequest {
     pub reasoning_effort: ::prost::alloc::string::String,
     #[prost(double, tag = "14")]
     pub timeout: f64,
-    /// Additional provider-specific fields serialized as a JSON object.
-    #[prost(string, tag = "15")]
-    pub extensions_json: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ChatResponse {
@@ -457,15 +454,15 @@ pub struct ProviderInfo {
     #[prost(string, tag = "1")]
     pub id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub name: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub description: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag = "4")]
-    pub models: ::prost::alloc::vec::Vec<ModelInfo>,
-    #[prost(message, repeated, tag = "5")]
+    pub display_name: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "3")]
+    pub credential_env_vars: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag = "4")]
+    pub capabilities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, tag = "5")]
+    pub defaults_json: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "6")]
     pub config_fields: ::prost::alloc::vec::Vec<ConfigField>,
-    #[prost(string, tag = "6")]
-    pub metadata_json: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApprovalRequest {
@@ -2153,7 +2150,7 @@ pub mod kernel_service_client {
         pub async fn emit_hook(
             &mut self,
             request: impl tonic::IntoRequest<super::EmitHookRequest>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+        ) -> std::result::Result<tonic::Response<super::HookResult>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -4096,7 +4093,7 @@ pub mod kernel_service_server {
         async fn emit_hook(
             &self,
             request: tonic::Request<super::EmitHookRequest>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<super::HookResult>, tonic::Status>;
         async fn emit_hook_and_collect(
             &self,
             request: tonic::Request<super::EmitHookAndCollectRequest>,
@@ -4367,7 +4364,7 @@ pub mod kernel_service_server {
                         T: KernelService,
                     > tonic::server::UnaryService<super::EmitHookRequest>
                     for EmitHookSvc<T> {
-                        type Response = super::Empty;
+                        type Response = super::HookResult;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,

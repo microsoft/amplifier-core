@@ -5,7 +5,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::generated::*;
+    use crate::generated::amplifier_module::*;
 
     /// Expected number of meaningful (non-Unspecified) enum variants per design.
     const EXPECTED_MODULE_TYPES: usize = 6;
@@ -150,7 +150,6 @@ mod tests {
             stop: vec!["END".into()],
             reasoning_effort: "high".into(),
             timeout: 60.0,
-            extensions_json: r#"{"custom_param":"value"}"#.into(),
         };
         assert_eq!(req.messages.len(), 1);
         assert_eq!(req.tools.len(), 1);
@@ -166,7 +165,6 @@ mod tests {
         assert_eq!(req.stop, vec!["END"]);
         assert_eq!(req.reasoning_effort, "high");
         assert!((req.timeout - 60.0).abs() < f64::EPSILON);
-        assert_eq!(req.extensions_json, r#"{"custom_param":"value"}"#);
     }
 
     #[test]
