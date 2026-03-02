@@ -49,9 +49,7 @@ impl GrpcToolBridge {
     ///
     /// Calls `ToolServiceClient::connect` followed by `get_spec` to
     /// cache the tool's name, description, and parameter schema.
-    pub async fn connect(
-        endpoint: &str,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn connect(endpoint: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let mut client = ToolServiceClient::connect(endpoint.to_string()).await?;
 
         let response = client.get_spec(amplifier_module::Empty {}).await?;
@@ -101,10 +99,9 @@ impl Tool for GrpcToolBridge {
         input: Value,
     ) -> Pin<Box<dyn Future<Output = Result<ToolResult, ToolError>> + Send + '_>> {
         Box::pin(async move {
-            let json_bytes =
-                serde_json::to_vec(&input).map_err(|e| ToolError::Other {
-                    message: format!("gRPC call failed: {}", e),
-                })?;
+            let json_bytes = serde_json::to_vec(&input).map_err(|e| ToolError::Other {
+                message: format!("gRPC call failed: {}", e),
+            })?;
 
             let request = amplifier_module::ToolExecuteRequest {
                 input: json_bytes,

@@ -33,12 +33,13 @@ impl KernelService for KernelServiceImpl {
         &self,
         _request: Request<amplifier_module::CompleteWithProviderRequest>,
     ) -> Result<Response<amplifier_module::ChatResponse>, Status> {
-        Err(Status::unimplemented("CompleteWithProvider not yet implemented"))
+        Err(Status::unimplemented(
+            "CompleteWithProvider not yet implemented",
+        ))
     }
 
-    type CompleteWithProviderStreamingStream = tokio_stream::wrappers::ReceiverStream<
-        Result<amplifier_module::ChatResponse, Status>,
-    >;
+    type CompleteWithProviderStreamingStream =
+        tokio_stream::wrappers::ReceiverStream<Result<amplifier_module::ChatResponse, Status>>;
 
     async fn complete_with_provider_streaming(
         &self,

@@ -17,13 +17,13 @@
 //! - `coordinator` — ModuleCoordinator mount points and capabilities
 //! - `session` — AmplifierSession lifecycle management
 
+pub mod bridges;
 pub mod cancellation;
 pub mod capabilities;
 pub mod coordinator;
 pub mod errors;
 pub mod events;
 pub mod generated;
-pub mod bridges;
 pub mod grpc_server;
 pub mod hooks;
 pub mod messages;
