@@ -2498,9 +2498,14 @@ fn classify_error_message(message: &str) -> &'static str {
 /// Pure function (deterministic when `config.jitter` is false).
 /// The caller is responsible for sleeping.
 #[pyfunction]
-#[pyo3(signature = (config, attempt, retry_after=None))]
-fn compute_delay(config: &PyRetryConfig, attempt: u32, retry_after: Option<f64>) -> f64 {
-    amplifier_core::retry::compute_delay(&config.inner, attempt, retry_after)
+#[pyo3(signature = (config, attempt, retry_after=None, delay_multiplier=None))]
+fn compute_delay(
+    config: &PyRetryConfig,
+    attempt: u32,
+    retry_after: Option<f64>,
+    delay_multiplier: Option<f64>,
+) -> f64 {
+    amplifier_core::retry::compute_delay(&config.inner, attempt, retry_after, delay_multiplier)
 }
 
 // ---------------------------------------------------------------------------
