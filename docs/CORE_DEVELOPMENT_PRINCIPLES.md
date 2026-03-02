@@ -108,7 +108,33 @@ maturin develop && uv run pytest tests/ bindings/python/tests/  # Python
 
 ---
 
-## 7. What NOT to Do
+## 7. Transport Is Invisible to Developers
+
+The kernel hosts modules via four transports (native, python/PyO3, gRPC, WASM). Developers never choose which transport to use — they say `{"module": "tool-bash"}` and the framework resolves the optimal path.
+
+This means:
+- **No transport details in public APIs.** The `Tool`, `Provider`, and other traits are the interface. Whether a module is in-process Rust, a gRPC bridge, or a WASM sandbox is hidden behind `Arc<dyn Trait>`.
+- **gRPC is infrastructure, not interface.** Module authors never write proto services or start gRPC servers. The bridges and transport dispatch handle this.
+- **Proto is the contract definition format**, not a developer-facing API. It defines what the bridges serialize — developers interact with Rust traits and Python Protocols.
+
+---
+
+## 8. The Backward Compatibility Guarantee
+
+Every existing Python module, bundle, and application works unchanged. This is not negotiable.
+
+The kernel is the stability boundary. Modules, apps, and the entire Python ecosystem depend on it. Changes to the kernel must be:
+- **Backward compatible** — existing imports, method signatures, and return types must not break.
+- **Additive** — new capabilities are added alongside existing ones, not replacing them.
+- **Tested against the existing ecosystem** — the switchover tests (`bindings/python/tests/test_switchover_*.py`) are the contract tests.
+
+This guarantee does NOT mean we can't evolve. It means evolution is additive — new traits, new transport options, new language bindings — without disturbing what already works.
+
+**Polyglot is a capability, not a migration.**
+
+---
+
+## 9. What NOT to Do
 
 | Anti-pattern | Why |
 |-------------|-----|
