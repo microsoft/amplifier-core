@@ -79,9 +79,9 @@ class TestProtoCompilation:
         """Key enum values have the expected numeric assignments."""
         from amplifier_core._grpc_gen import amplifier_module_pb2 as pb2
 
-        assert pb2.MODULE_TYPE_TOOL == 2
-        assert pb2.MODULE_TYPE_PROVIDER == 1
-        assert pb2.HOOK_ACTION_CONTINUE == 1
-        assert pb2.HOOK_ACTION_DENY == 3
-        assert pb2.PROVIDER_ERROR_TYPE_RATE_LIMIT == 2
-        assert pb2.PROVIDER_ERROR_TYPE_TIMEOUT == 7
+        assert pb2.MODULE_TYPE_TOOL == 2  # type: ignore[attr-defined]
+        assert pb2.MODULE_TYPE_PROVIDER == 1  # type: ignore[attr-defined]
+        assert pb2.HOOK_ACTION_CONTINUE == 1  # type: ignore[attr-defined]
+        assert pb2.HOOK_ACTION_DENY == 3  # type: ignore[attr-defined]
+        assert pb2.PROVIDER_ERROR_TYPE_RATE_LIMIT == 2  # type: ignore[attr-defined]
+        assert pb2.PROVIDER_ERROR_TYPE_TIMEOUT == 7  # type: ignore[attr-defined]
