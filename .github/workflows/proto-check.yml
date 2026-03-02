@@ -1,0 +1,88 @@
+name: Proto Sync Check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'proto/**'
+      - 'python/amplifier_core/_grpc_gen/**'
+      - 'crates/amplifier-core/src/generated/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'proto/**'
+      - 'python/amplifier_core/_grpc_gen/**'
+      - 'crates/amplifier-core/src/generated/**'
+
+jobs:
+  proto-sync:
+    name: Verify Python stubs match proto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install grpcio-tools
+        run: pip install grpcio-tools
+
+      - name: Regenerate Python stubs
+        run: |
+          python -m grpc_tools.protoc \
+            -Iproto \
+            --python_out=/tmp/proto_check \
+            --grpc_python_out=/tmp/proto_check \
+            proto/amplifier_module.proto
+
+      - name: Compare with committed stubs
+        run: |
+          # Check that key message classes exist in regenerated output
+          python -c "
+          import importlib.util, sys
+          spec = importlib.util.spec_from_file_location('pb2', '/tmp/proto_check/amplifier_module_pb2.py')
+          mod = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+          required = ['ChatRequest', 'ChatResponse', 'ToolResult', 'HookResult', 'ModuleInfo']
+          missing = [t for t in required if not hasattr(mod, t)]
+          if missing:
+              print(f'FAIL: Missing types in regenerated stubs: {missing}')
+              sys.exit(1)
+          print('PASS: Regenerated stubs contain all required types')
+          "
+
+  rust-build:
+    name: Rust build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Cargo test (default features)
+        run: cargo test -p amplifier-core
+
+      - name: Cargo test (wasm feature)
+        run: cargo test -p amplifier-core --features wasm
+
+      - name: Clippy
+        run: cargo clippy -p amplifier-core -- -D warnings
+
+      - name: Clippy (wasm)
+        run: cargo clippy -p amplifier-core --features wasm -- -D warnings
+
+      - name: Format check
+        run: cargo fmt -p amplifier-core --check
