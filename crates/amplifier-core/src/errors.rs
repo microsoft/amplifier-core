@@ -443,4 +443,42 @@ mod tests {
         };
         assert_eq!(err.delay_multiplier(), None);
     }
+
+    #[test]
+    fn test_delay_multiplier_on_other_variant() {
+        // delay_multiplier is accessible regardless of the retryable flag
+        let retryable = ProviderError::Other {
+            message: "transient".into(),
+            provider: None,
+            model: None,
+            retry_after: None,
+            status_code: None,
+            retryable: true,
+            delay_multiplier: Some(3.0),
+        };
+        assert_eq!(retryable.delay_multiplier(), Some(3.0));
+
+        let non_retryable = ProviderError::Other {
+            message: "permanent".into(),
+            provider: None,
+            model: None,
+            retry_after: None,
+            status_code: None,
+            retryable: false,
+            delay_multiplier: Some(5.0),
+        };
+        assert_eq!(non_retryable.delay_multiplier(), Some(5.0));
+    }
+
+    #[test]
+    fn test_delay_multiplier_on_timeout_variant() {
+        let err = ProviderError::Timeout {
+            message: "timed out".into(),
+            provider: None,
+            model: None,
+            retry_after: None,
+            delay_multiplier: Some(2.0),
+        };
+        assert_eq!(err.delay_multiplier(), Some(2.0));
+    }
 }
