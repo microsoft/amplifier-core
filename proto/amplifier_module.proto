@@ -100,16 +100,16 @@ message HealthCheckResponse {
 }
 
 message ConfigField {
-  string name                  = 1;
-  ConfigFieldType field_type   = 2;
-  string description           = 3;
-  bool required                = 4;
-  string default_value         = 5;
-  string placeholder           = 6;
-  repeated string options      = 7;
-  map<string, string> show_when = 8;
-  bool requires_model          = 9;
-  string validation_regex      = 10;
+  string id                     = 1;
+  string display_name           = 2;
+  ConfigFieldType field_type    = 3;
+  string prompt                 = 4;
+  string env_var                = 5;
+  repeated string choices       = 6;
+  bool required                 = 7;
+  string default_value          = 8;
+  map<string, string> show_when = 9;
+  bool requires_model           = 10;
 }
 
 // ---------------------------------------------------------------------------
@@ -233,8 +233,8 @@ message ImageBlock {
 }
 
 message ReasoningBlock {
-  string content = 1;
-  string summary = 2;
+  repeated string content = 1;
+  repeated string summary = 2;
 }
 
 message ContentBlock {
@@ -332,8 +332,6 @@ message ChatRequest {
   // Model reasoning effort: "low", "medium", or "high".
   string                 reasoning_effort  = 13;
   double                 timeout           = 14;
-  // Additional provider-specific fields serialized as a JSON object.
-  string                 extensions_json   = 15;
 }
 
 message ChatResponse {
@@ -418,12 +416,12 @@ message ModelInfo {
 }
 
 message ProviderInfo {
-  string                 id            = 1;
-  string                 name          = 2;
-  string                 description   = 3;
-  repeated ModelInfo     models        = 4;
-  repeated ConfigField   config_fields = 5;
-  string                 metadata_json = 6;
+  string                 id                 = 1;
+  string                 display_name       = 2;
+  repeated string        credential_env_vars = 3;
+  repeated string        capabilities       = 4;
+  string                 defaults_json      = 5;
+  repeated ConfigField   config_fields      = 6;
 }
 
 message ApprovalRequest {
@@ -595,7 +593,7 @@ service KernelService {
   rpc ExecuteTool(ExecuteToolRequest) returns (ToolResult);
 
   // Hook emission.
-  rpc EmitHook(EmitHookRequest) returns (Empty);
+  rpc EmitHook(EmitHookRequest) returns (HookResult);
   rpc EmitHookAndCollect(EmitHookAndCollectRequest) returns (EmitHookAndCollectResponse);
 
   // Conversation message access.

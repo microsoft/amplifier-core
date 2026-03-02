@@ -17,12 +17,14 @@
 //! - `coordinator` — ModuleCoordinator mount points and capabilities
 //! - `session` — AmplifierSession lifecycle management
 
+pub mod bridges;
 pub mod cancellation;
 pub mod capabilities;
 pub mod coordinator;
 pub mod errors;
 pub mod events;
 pub mod generated;
+pub mod grpc_server;
 pub mod hooks;
 pub mod messages;
 pub mod models;
@@ -30,6 +32,7 @@ pub mod retry;
 pub mod session;
 pub mod testing;
 pub mod traits;
+pub mod transport;
 
 // ---------------------------------------------------------------------------
 // Re-exports — consumers write `use amplifier_core::Tool`, not

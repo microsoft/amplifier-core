@@ -105,7 +105,7 @@ class TestKernelServiceRPCs:
 
     def test_emit_hook_rpc(self, kernel_service_body: str):
         assert re.search(
-            r"rpc\s+EmitHook\s*\(\s*EmitHookRequest\s*\)\s+returns\s*\(\s*Empty\s*\)",
+            r"rpc\s+EmitHook\s*\(\s*EmitHookRequest\s*\)\s+returns\s*\(\s*HookResult\s*\)",
             kernel_service_body,
         )
 
