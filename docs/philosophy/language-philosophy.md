@@ -70,7 +70,26 @@ This is not a judgment of language quality — each solves real problems well. I
 
 ---
 
-## 5. Language Roles in the Ecosystem
+## 5. Semantic Understanding, Not Text Search
+
+The compiler verifies that code is structurally correct. But AI also needs to *understand* code — to trace what calls what, to know which implementation is live and which is dead, to distinguish the current version of a function from three abandoned predecessors left in the codebase.
+
+Text-based search (grep, file browsing, keyword matching) is the most dangerous tool an AI has for this purpose. It finds *text*, not *truth*. When a codebase contains dead code, abandoned implementations, or multiple versions of the same function — and they all do, eventually — text search treats every match as equally valid. The AI discovers a function via grep, builds understanding on it, generates code that uses it, and the result compiles (or worse, runs) while calling the wrong version. This is context poisoning: bad knowledge propagated through the system, perpetuated by every AI interaction that touches it, spreading like an infection as the AI generates more code based on the poisoned understanding.
+
+**Semantic tools — AST analysis, Language Server Protocol (LSP), call hierarchy tracing, type-flow analysis — are the antidote.** These tools don't search for text; they walk the actual code graph. They know which functions are reachable, which implementations are live, which call paths exist at runtime. When AI needs to understand existing code, the question is never "where does this string appear?" but "what does the compiler/language server actually resolve this symbol to?" The difference between grep finding 12 matches for `process_request` and LSP tracing the one live call path through the actual type hierarchy is the difference between understanding and guessing.
+
+This is non-negotiable. AI agents and tools in the Amplifier ecosystem must:
+
+- **Use semantic tools first.** LSP for navigation, AST for structure, call hierarchy for tracing. Text search is a fallback, not a starting point.
+- **Validate text-search results semantically.** If grep finds a function, verify it's reachable via the actual call graph before building on it.
+- **Report tool gaps honestly.** If semantic tooling is unavailable for a language or codebase, the AI must say "I don't have LSP/AST access and cannot verify code paths" — not silently fall back to grep and hope for the best.
+- **Treat dead code as a defect, not a reference.** Code that isn't reachable from any live path is not "alternative implementation" — it's context poison. The AI's job is to identify and flag it, not learn from it.
+
+This principle connects directly to the verification spectrum. Languages with strong LSP support (Rust via rust-analyzer, TypeScript via tsserver, Go via gopls) give AI semantic understanding. Languages with weaker tooling force AI to rely more on text search — which means more room for context poisoning. The quality of a language's semantic tooling is as important as the strictness of its compiler, because the compiler verifies what you write and the language server verifies what you understand.
+
+---
+
+## 6. Language Roles in the Ecosystem (Current Application)
 
 These roles reflect the current application of the principles above. As the landscape evolves — as compilers improve, as new languages emerge, as WASM capabilities expand — specific roles may shift. The principles don't.
 
@@ -96,7 +115,7 @@ Any language that compiles to WebAssembly becomes a first-class module author. O
 
 ---
 
-## 6. Transport Is Invisible
+## 7. Transport Is Invisible
 
 The developer should never think about how modules communicate. Transport is an implementation detail managed by the framework, not a choice the developer makes.
 
@@ -119,7 +138,7 @@ No module author should ever need to think about gRPC, proto definitions, or ser
 
 ---
 
-## 7. One Mental Model, Every Language
+## 8. One Mental Model, Every Language
 
 AmplifierSession, Coordinator, Tool, Provider, Hook — the same nouns and verbs in every SDK. Learn it once, use it anywhere.
 
@@ -143,7 +162,7 @@ Same config shape. Same lifecycle. Same module interfaces. The language changes;
 
 ---
 
-## 8. The Compatibility Guarantee
+## 9. The Compatibility Guarantee
 
 Every existing Python module, bundle, and application works unchanged. This is not negotiable.
 
@@ -165,10 +184,14 @@ This guarantee extends forward: as we add language SDKs, each new language joins
 
 4. **The verification spectrum determines trust.** The stricter the compiler, the more you can trust AI output without additional verification. Rust > Go > TypeScript > Python on this axis.
 
-5. **Best language for the job — applied, not prescribed.** Specific language roles reflect the current application of these principles. As toolchains evolve, roles may shift. The principles don't.
+5. **Semantic understanding, not text search.** AI must use LSP, AST, and call hierarchy to understand code — not grep. Text search finds text; semantic tools find truth. When semantic tools aren't available, say so — don't guess.
 
-6. **Transport is invisible.** Module authors implement interfaces in their language. The framework handles communication. No one writes gRPC services or proto definitions.
+6. **Dead code is context poison.** Unreachable code isn't harmless — it's a virus that infects AI understanding and propagates errors through every interaction that touches it. Identify it, flag it, remove it.
 
-7. **One mental model, every language.** Same nouns, same verbs, same config, same lifecycle. Learn it once.
+7. **Best language for the job — applied, not prescribed.** Specific language roles reflect the current application of these principles. As toolchains evolve, roles may shift. The principles don't.
 
-8. **Backward compatibility is sacred.** Every existing Python module, bundle, and application works unchanged. Polyglot is additive, never subtractive.
+8. **Transport is invisible.** Module authors implement interfaces in their language. The framework handles communication. No one writes gRPC services or proto definitions.
+
+9. **One mental model, every language.** Same nouns, same verbs, same config, same lifecycle. Learn it once.
+
+10. **Backward compatibility is sacred.** Every existing Python module, bundle, and application works unchanged. Polyglot is additive, never subtractive.
