@@ -368,7 +368,7 @@ mod tests {
         assert!(json.contains("429"));
     }
 
-    // -- New field tests (Task 6) --
+    // -- model, retry_after, and delay_multiplier field tests --
 
     #[test]
     fn test_provider_error_has_model_field() {
