@@ -2202,6 +2202,7 @@ struct PyProviderError {
     provider: Option<String>,
     model: Option<String>,
     retry_after: Option<f64>,
+    delay_multiplier: Option<f64>,
     retryable: bool,
     error_type: String,
 }
@@ -2213,12 +2214,13 @@ impl PyProviderError {
     /// Matches the field set of both the Rust `ProviderError` enum and
     /// the Python `LLMError` base class (`model`, `retry_after`).
     #[new]
-    #[pyo3(signature = (message, *, provider=None, model=None, retry_after=None, retryable=false, error_type="Other"))]
+    #[pyo3(signature = (message, *, provider=None, model=None, retry_after=None, delay_multiplier=None, retryable=false, error_type="Other"))]
     fn new(
         message: String,
         provider: Option<String>,
         model: Option<String>,
         retry_after: Option<f64>,
+        delay_multiplier: Option<f64>,
         retryable: bool,
         error_type: &str,
     ) -> Self {
@@ -2227,6 +2229,7 @@ impl PyProviderError {
             provider,
             model,
             retry_after,
+            delay_multiplier,
             retryable,
             error_type: error_type.to_string(),
         }
@@ -2256,6 +2259,12 @@ impl PyProviderError {
         self.retry_after
     }
 
+    /// Per-error delay multiplier hint, or None if not specified.
+    #[getter]
+    fn delay_multiplier(&self) -> Option<f64> {
+        self.delay_multiplier
+    }
+
     /// Whether the caller should consider retrying the request.
     #[getter]
     fn retryable(&self) -> bool {
@@ -2279,6 +2288,9 @@ impl PyProviderError {
         if let Some(ra) = self.retry_after {
             parts.push(format!("retry_after={ra}"));
         }
+        if let Some(dm) = self.delay_multiplier {
+            parts.push(format!("delay_multiplier={dm}"));
+        }
         if self.retryable {
             parts.push("retryable=True".to_string());
         }
@@ -2295,120 +2307,134 @@ impl PyProviderError {
     #[allow(dead_code)]
     fn from_rust(err: &amplifier_core::errors::ProviderError) -> Self {
         use amplifier_core::errors::ProviderError;
-        let (message, provider, model, retry_after, retryable, error_type) = match err {
-            ProviderError::RateLimit {
-                message,
-                provider,
-                model,
-                retry_after,
-            } => (
-                message.clone(),
-                provider.clone(),
-                model.clone(),
-                *retry_after,
-                true,
-                "RateLimit",
-            ),
-            ProviderError::Authentication {
-                message,
-                provider,
-                model,
-                retry_after,
-            } => (
-                message.clone(),
-                provider.clone(),
-                model.clone(),
-                *retry_after,
-                false,
-                "Authentication",
-            ),
-            ProviderError::ContextLength {
-                message,
-                provider,
-                model,
-                retry_after,
-            } => (
-                message.clone(),
-                provider.clone(),
-                model.clone(),
-                *retry_after,
-                false,
-                "ContextLength",
-            ),
-            ProviderError::ContentFilter {
-                message,
-                provider,
-                model,
-                retry_after,
-            } => (
-                message.clone(),
-                provider.clone(),
-                model.clone(),
-                *retry_after,
-                false,
-                "ContentFilter",
-            ),
-            ProviderError::InvalidRequest {
-                message,
-                provider,
-                model,
-                retry_after,
-            } => (
-                message.clone(),
-                provider.clone(),
-                model.clone(),
-                *retry_after,
-                false,
-                "InvalidRequest",
-            ),
-            ProviderError::Unavailable {
-                message,
-                provider,
-                model,
-                retry_after,
-                ..
-            } => (
-                message.clone(),
-                provider.clone(),
-                model.clone(),
-                *retry_after,
-                true,
-                "Unavailable",
-            ),
-            ProviderError::Timeout {
-                message,
-                provider,
-                model,
-                retry_after,
-            } => (
-                message.clone(),
-                provider.clone(),
-                model.clone(),
-                *retry_after,
-                true,
-                "Timeout",
-            ),
-            ProviderError::Other {
-                message,
-                provider,
-                model,
-                retry_after,
-                retryable,
-                ..
-            } => (
-                message.clone(),
-                provider.clone(),
-                model.clone(),
-                *retry_after,
-                *retryable,
-                "Other",
-            ),
-        };
+        let (message, provider, model, retry_after, delay_multiplier, retryable, error_type) =
+            match err {
+                ProviderError::RateLimit {
+                    message,
+                    provider,
+                    model,
+                    retry_after,
+                    delay_multiplier,
+                } => (
+                    message.clone(),
+                    provider.clone(),
+                    model.clone(),
+                    *retry_after,
+                    *delay_multiplier,
+                    true,
+                    "RateLimit",
+                ),
+                ProviderError::Authentication {
+                    message,
+                    provider,
+                    model,
+                    retry_after,
+                } => (
+                    message.clone(),
+                    provider.clone(),
+                    model.clone(),
+                    *retry_after,
+                    None,
+                    false,
+                    "Authentication",
+                ),
+                ProviderError::ContextLength {
+                    message,
+                    provider,
+                    model,
+                    retry_after,
+                } => (
+                    message.clone(),
+                    provider.clone(),
+                    model.clone(),
+                    *retry_after,
+                    None,
+                    false,
+                    "ContextLength",
+                ),
+                ProviderError::ContentFilter {
+                    message,
+                    provider,
+                    model,
+                    retry_after,
+                } => (
+                    message.clone(),
+                    provider.clone(),
+                    model.clone(),
+                    *retry_after,
+                    None,
+                    false,
+                    "ContentFilter",
+                ),
+                ProviderError::InvalidRequest {
+                    message,
+                    provider,
+                    model,
+                    retry_after,
+                } => (
+                    message.clone(),
+                    provider.clone(),
+                    model.clone(),
+                    *retry_after,
+                    None,
+                    false,
+                    "InvalidRequest",
+                ),
+                ProviderError::Unavailable {
+                    message,
+                    provider,
+                    model,
+                    retry_after,
+                    delay_multiplier,
+                    ..
+                } => (
+                    message.clone(),
+                    provider.clone(),
+                    model.clone(),
+                    *retry_after,
+                    *delay_multiplier,
+                    true,
+                    "Unavailable",
+                ),
+                ProviderError::Timeout {
+                    message,
+                    provider,
+                    model,
+                    retry_after,
+                    delay_multiplier,
+                } => (
+                    message.clone(),
+                    provider.clone(),
+                    model.clone(),
+                    *retry_after,
+                    *delay_multiplier,
+                    true,
+                    "Timeout",
+                ),
+                ProviderError::Other {
+                    message,
+                    provider,
+                    model,
+                    retry_after,
+                    retryable,
+                    delay_multiplier,
+                    ..
+                } => (
+                    message.clone(),
+                    provider.clone(),
+                    model.clone(),
+                    *retry_after,
+                    *delay_multiplier,
+                    *retryable,
+                    "Other",
+                ),
+            };
         Self {
             message,
             provider,
             model,
             retry_after,
+            delay_multiplier,
             retryable,
             error_type: error_type.to_string(),
         }
@@ -2432,50 +2458,145 @@ struct PyRetryConfig {
 #[pymethods]
 impl PyRetryConfig {
     #[new]
-    #[pyo3(signature = (max_retries=3, initial_delay=1.0, max_delay=60.0, backoff_factor=2.0, jitter=true, honor_retry_after=true))]
+    #[pyo3(signature = (
+        max_retries = 3,
+        initial_delay = 1.0,
+        max_delay = 60.0,
+        backoff_factor = 2.0,
+        jitter = None,
+        honor_retry_after = true,
+        min_delay = None,
+        backoff_multiplier = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
+        py: Python<'_>,
         max_retries: u32,
         initial_delay: f64,
         max_delay: f64,
         backoff_factor: f64,
-        jitter: bool,
+        jitter: Option<&Bound<'_, PyAny>>,
         honor_retry_after: bool,
-    ) -> Self {
-        Self {
+        min_delay: Option<f64>,
+        backoff_multiplier: Option<f64>,
+    ) -> PyResult<Self> {
+        // --- deprecated alias: min_delay → initial_delay ---
+        let initial_delay = if let Some(md) = min_delay {
+            PyErr::warn(
+                py,
+                &py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),
+                c"min_delay is deprecated, use initial_delay",
+                1,
+            )?;
+            md
+        } else {
+            initial_delay
+        };
+
+        // --- deprecated alias: backoff_multiplier → backoff_factor ---
+        let backoff_factor = if let Some(bm) = backoff_multiplier {
+            PyErr::warn(
+                py,
+                &py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),
+                c"backoff_multiplier is deprecated, use backoff_factor",
+                1,
+            )?;
+            bm
+        } else {
+            backoff_factor
+        };
+
+        // --- jitter: accept bool or float (float is deprecated) ---
+        let jitter_bool = match jitter {
+            None => true, // default
+            Some(obj) => {
+                if let Ok(b) = obj.extract::<bool>() {
+                    b
+                } else if let Ok(f) = obj.extract::<f64>() {
+                    PyErr::warn(
+                        py,
+                        &py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),
+                        c"passing a float for jitter is deprecated, use a bool",
+                        1,
+                    )?;
+                    f != 0.0
+                } else {
+                    return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                        "jitter must be a bool or float",
+                    ));
+                }
+            }
+        };
+
+        Ok(Self {
             inner: amplifier_core::retry::RetryConfig {
                 max_retries,
                 initial_delay,
                 max_delay,
                 backoff_factor,
-                jitter,
+                jitter: jitter_bool,
                 honor_retry_after,
             },
-        }
+        })
     }
 
     #[getter]
     fn max_retries(&self) -> u32 {
         self.inner.max_retries
     }
+
     #[getter]
     fn initial_delay(&self) -> f64 {
         self.inner.initial_delay
     }
+
     #[getter]
     fn max_delay(&self) -> f64 {
         self.inner.max_delay
     }
+
     #[getter]
     fn backoff_factor(&self) -> f64 {
         self.inner.backoff_factor
     }
+
+    /// Returns 0.2 if jitter is enabled, 0.0 if disabled (numeric compat).
     #[getter]
-    fn jitter(&self) -> bool {
-        self.inner.jitter
+    fn jitter(&self) -> f64 {
+        if self.inner.jitter {
+            0.2
+        } else {
+            0.0
+        }
     }
+
     #[getter]
     fn honor_retry_after(&self) -> bool {
         self.inner.honor_retry_after
+    }
+
+    /// Deprecated: use `initial_delay` instead.
+    #[getter]
+    fn min_delay(&self, py: Python<'_>) -> PyResult<f64> {
+        PyErr::warn(
+            py,
+            &py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),
+            c"min_delay is deprecated, use initial_delay",
+            1,
+        )?;
+        Ok(self.inner.initial_delay)
+    }
+
+    /// Deprecated: use `backoff_factor` instead.
+    #[getter]
+    fn backoff_multiplier(&self, py: Python<'_>) -> PyResult<f64> {
+        PyErr::warn(
+            py,
+            &py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),
+            c"backoff_multiplier is deprecated, use backoff_factor",
+            1,
+        )?;
+        Ok(self.inner.backoff_factor)
     }
 }
 
