@@ -29,7 +29,7 @@ use tonic::transport::Channel;
 use crate::errors::ProviderError;
 use crate::generated::amplifier_module;
 use crate::generated::amplifier_module::provider_service_client::ProviderServiceClient;
-use crate::messages::{ChatRequest, ChatResponse, ToolCall, Usage};
+use crate::messages::{ChatRequest, ChatResponse, ToolCall};
 use crate::models::{ModelInfo, ProviderInfo};
 use crate::traits::Provider;
 
@@ -129,80 +129,22 @@ impl Provider for GrpcProviderBridge {
 
     fn complete(
         &self,
-        request: ChatRequest,
+        _request: ChatRequest,
     ) -> Pin<Box<dyn Future<Output = Result<ChatResponse, ProviderError>> + Send + '_>> {
         Box::pin(async move {
-            let proto_request = amplifier_module::ChatRequest {
-                messages: vec![], // TODO: full Message conversion in Phase 4
-                tools: vec![],
-                response_format: None,
-                temperature: request.temperature.unwrap_or(0.0),
-                top_p: request.top_p.unwrap_or(0.0),
-                max_output_tokens: request.max_output_tokens.unwrap_or(0) as i32,
-                conversation_id: request.conversation_id.unwrap_or_default(),
-                stream: request.stream.unwrap_or(false),
-                metadata_json: serde_json::to_string(&request.metadata).unwrap_or_default(),
-                model: request.model.unwrap_or_default(),
-                tool_choice: request
-                    .tool_choice
-                    .map(|tc| serde_json::to_string(&tc).unwrap_or_default())
-                    .unwrap_or_default(),
-                stop: request.stop.unwrap_or_default(),
-                reasoning_effort: request.reasoning_effort.unwrap_or_default(),
-                timeout: request.timeout.unwrap_or(0.0),
-            };
-
-            let response = {
-                let mut client = self.client.lock().await;
-                client
-                    .complete(proto_request)
-                    .await
-                    .map_err(|e| ProviderError::Other {
-                        message: format!("gRPC call failed: {}", e),
-                        provider: Some(self.name.clone()),
-                        model: None,
-                        retry_after: None,
-                        status_code: None,
-                        retryable: false,
-                    })?
-            };
-
-            let proto_resp = response.into_inner();
-
-            let usage = proto_resp.usage.map(|u| Usage {
-                input_tokens: u.prompt_tokens as i64,
-                output_tokens: u.completion_tokens as i64,
-                total_tokens: u.total_tokens as i64,
-                reasoning_tokens: if u.reasoning_tokens != 0 {
-                    Some(u.reasoning_tokens as i64)
-                } else {
-                    None
-                },
-                cache_read_tokens: if u.cache_read_tokens != 0 {
-                    Some(u.cache_read_tokens as i64)
-                } else {
-                    None
-                },
-                cache_write_tokens: if u.cache_creation_tokens != 0 {
-                    Some(u.cache_creation_tokens as i64)
-                } else {
-                    None
-                },
-                extensions: HashMap::new(),
-            });
-
-            Ok(ChatResponse {
-                content: vec![], // TODO: full ContentBlock conversion in Phase 4
-                tool_calls: None,
-                usage,
-                degradation: None,
-                finish_reason: if proto_resp.finish_reason.is_empty() {
-                    None
-                } else {
-                    Some(proto_resp.finish_reason)
-                },
-                metadata: None,
-                extensions: HashMap::new(),
+            // Phase 2 stub: Message ↔ proto::Message and ContentBlock ↔
+            // proto::ContentBlock conversions are not yet implemented.
+            // Fail loudly so callers know this bridge cannot complete yet.
+            // Full conversion will land in Phase 4 (Task 21).
+            Err(ProviderError::Other {
+                message: "GrpcProviderBridge::complete() not yet implemented: \
+                          Message/ContentBlock conversion requires Phase 4"
+                    .into(),
+                provider: Some(self.name.clone()),
+                model: None,
+                retry_after: None,
+                status_code: None,
+                retryable: false,
             })
         })
     }
