@@ -12,11 +12,21 @@ impl From<crate::models::ToolResult> for super::amplifier_module::ToolResult {
             success: native.success,
             output_json: native
                 .output
-                .map(|v| serde_json::to_string(&v).unwrap_or_default())
+                .map(|v| {
+                    serde_json::to_string(&v).unwrap_or_else(|e| {
+                        log::warn!("Failed to serialize ToolResult output to JSON: {e}");
+                        String::new()
+                    })
+                })
                 .unwrap_or_default(),
             error_json: native
                 .error
-                .map(|e| serde_json::to_string(&e).unwrap_or_default())
+                .map(|e| {
+                    serde_json::to_string(&e).unwrap_or_else(|ser_err| {
+                        log::warn!("Failed to serialize ToolResult error to JSON: {ser_err}");
+                        String::new()
+                    })
+                })
                 .unwrap_or_default(),
         }
     }
@@ -29,12 +39,22 @@ impl From<super::amplifier_module::ToolResult> for crate::models::ToolResult {
             output: if proto.output_json.is_empty() {
                 None
             } else {
-                serde_json::from_str(&proto.output_json).ok()
+                serde_json::from_str(&proto.output_json)
+                    .map_err(|e| {
+                        log::warn!("Failed to deserialize ToolResult output_json: {e}");
+                        e
+                    })
+                    .ok()
             },
             error: if proto.error_json.is_empty() {
                 None
             } else {
-                serde_json::from_str(&proto.error_json).ok()
+                serde_json::from_str(&proto.error_json)
+                    .map_err(|e| {
+                        log::warn!("Failed to deserialize ToolResult error_json: {e}");
+                        e
+                    })
+                    .ok()
             },
         }
     }
@@ -49,10 +69,25 @@ impl From<crate::models::ModelInfo> for super::amplifier_module::ModelInfo {
         Self {
             id: native.id,
             display_name: native.display_name,
-            context_window: native.context_window as i32,
-            max_output_tokens: native.max_output_tokens as i32,
+            context_window: i32::try_from(native.context_window).unwrap_or_else(|_| {
+                log::warn!(
+                    "context_window {} overflows i32, clamping to i32::MAX",
+                    native.context_window
+                );
+                i32::MAX
+            }),
+            max_output_tokens: i32::try_from(native.max_output_tokens).unwrap_or_else(|_| {
+                log::warn!(
+                    "max_output_tokens {} overflows i32, clamping to i32::MAX",
+                    native.max_output_tokens
+                );
+                i32::MAX
+            }),
             capabilities: native.capabilities,
-            defaults_json: serde_json::to_string(&native.defaults).unwrap_or_default(),
+            defaults_json: serde_json::to_string(&native.defaults).unwrap_or_else(|e| {
+                log::warn!("Failed to serialize ModelInfo defaults to JSON: {e}");
+                String::new()
+            }),
         }
     }
 }
@@ -65,7 +100,14 @@ impl From<super::amplifier_module::ModelInfo> for crate::models::ModelInfo {
             context_window: i64::from(proto.context_window),
             max_output_tokens: i64::from(proto.max_output_tokens),
             capabilities: proto.capabilities,
-            defaults: serde_json::from_str(&proto.defaults_json).unwrap_or_default(),
+            defaults: if proto.defaults_json.is_empty() {
+                Default::default()
+            } else {
+                serde_json::from_str(&proto.defaults_json).unwrap_or_else(|e| {
+                    log::warn!("Failed to deserialize ModelInfo defaults_json: {e}");
+                    Default::default()
+                })
+            },
         }
     }
 }
@@ -76,12 +118,36 @@ impl From<super::amplifier_module::ModelInfo> for crate::models::ModelInfo {
 
 impl From<crate::messages::Usage> for super::amplifier_module::Usage {
     fn from(native: crate::messages::Usage) -> Self {
+        // NOTE: Optional token counts (reasoning, cache_read, cache_write) use 0 as sentinel
+        // for 'not reported' because proto uses bare int32, not optional int32. This means
+        // Some(0) and None are indistinguishable. Fix requires proto schema change.
         Self {
-            prompt_tokens: native.input_tokens as i32,
-            completion_tokens: native.output_tokens as i32,
-            total_tokens: native.total_tokens as i32,
+            prompt_tokens: i32::try_from(native.input_tokens).unwrap_or_else(|_| {
+                log::warn!(
+                    "input_tokens {} overflows i32, clamping to i32::MAX",
+                    native.input_tokens
+                );
+                i32::MAX
+            }),
+            completion_tokens: i32::try_from(native.output_tokens).unwrap_or_else(|_| {
+                log::warn!(
+                    "output_tokens {} overflows i32, clamping to i32::MAX",
+                    native.output_tokens
+                );
+                i32::MAX
+            }),
+            total_tokens: i32::try_from(native.total_tokens).unwrap_or_else(|_| {
+                log::warn!(
+                    "total_tokens {} overflows i32, clamping to i32::MAX",
+                    native.total_tokens
+                );
+                i32::MAX
+            }),
+            // TODO(grpc-v2): proto uses bare int32 — Some(0) and None are indistinguishable
             reasoning_tokens: native.reasoning_tokens.unwrap_or(0) as i32,
+            // TODO(grpc-v2): proto uses bare int32 — Some(0) and None are indistinguishable
             cache_read_tokens: native.cache_read_tokens.unwrap_or(0) as i32,
+            // TODO(grpc-v2): proto uses bare int32 — Some(0) and None are indistinguishable
             cache_creation_tokens: native.cache_write_tokens.unwrap_or(0) as i32,
         }
     }
@@ -89,6 +155,8 @@ impl From<crate::messages::Usage> for super::amplifier_module::Usage {
 
 impl From<super::amplifier_module::Usage> for crate::messages::Usage {
     fn from(proto: super::amplifier_module::Usage) -> Self {
+        // NOTE: 0 values for reasoning/cache tokens are treated as 'not reported' (None).
+        // This is a known proto limitation.
         Self {
             input_tokens: i64::from(proto.prompt_tokens),
             output_tokens: i64::from(proto.completion_tokens),
@@ -202,5 +270,82 @@ mod tests {
         assert_eq!(original.reasoning_tokens, restored.reasoning_tokens);
         assert_eq!(original.cache_read_tokens, restored.cache_read_tokens);
         assert_eq!(original.cache_write_tokens, restored.cache_write_tokens);
+    }
+
+    // -- E-3: ModelInfo i64→i32 overflow clamps to i32::MAX --
+
+    #[test]
+    fn model_info_context_window_overflow_clamps() {
+        let original = crate::models::ModelInfo {
+            id: "big-model".into(),
+            display_name: "Big".into(),
+            context_window: i64::from(i32::MAX) + 1,
+            max_output_tokens: 100,
+            capabilities: vec![],
+            defaults: HashMap::new(),
+        };
+        let proto: super::super::amplifier_module::ModelInfo = original.into();
+        assert_eq!(proto.context_window, i32::MAX);
+    }
+
+    #[test]
+    fn model_info_max_output_tokens_overflow_clamps() {
+        let original = crate::models::ModelInfo {
+            id: "big-model".into(),
+            display_name: "Big".into(),
+            context_window: 100,
+            max_output_tokens: i64::from(i32::MAX) + 500,
+            capabilities: vec![],
+            defaults: HashMap::new(),
+        };
+        let proto: super::super::amplifier_module::ModelInfo = original.into();
+        assert_eq!(proto.max_output_tokens, i32::MAX);
+    }
+
+    // -- E-4: Usage i64→i32 overflow clamps to i32::MAX --
+
+    #[test]
+    fn usage_prompt_tokens_overflow_clamps() {
+        let original = crate::messages::Usage {
+            input_tokens: i64::from(i32::MAX) + 1,
+            output_tokens: 0,
+            total_tokens: 0,
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            extensions: HashMap::new(),
+        };
+        let proto: super::super::amplifier_module::Usage = original.into();
+        assert_eq!(proto.prompt_tokens, i32::MAX);
+    }
+
+    #[test]
+    fn usage_completion_tokens_overflow_clamps() {
+        let original = crate::messages::Usage {
+            input_tokens: 0,
+            output_tokens: i64::from(i32::MAX) + 1,
+            total_tokens: 0,
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            extensions: HashMap::new(),
+        };
+        let proto: super::super::amplifier_module::Usage = original.into();
+        assert_eq!(proto.completion_tokens, i32::MAX);
+    }
+
+    #[test]
+    fn usage_total_tokens_overflow_clamps() {
+        let original = crate::messages::Usage {
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: i64::from(i32::MAX) + 1,
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            extensions: HashMap::new(),
+        };
+        let proto: super::super::amplifier_module::Usage = original.into();
+        assert_eq!(proto.total_tokens, i32::MAX);
     }
 }
