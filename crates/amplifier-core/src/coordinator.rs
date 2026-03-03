@@ -689,22 +689,14 @@ mod tests {
         coord.register_contributor(
             "test_channel",
             "failing_contributor",
-            Box::new(|| {
-                Box::pin(async {
-                    Err("simulated contributor failure".into())
-                })
-            }),
+            Box::new(|| Box::pin(async { Err("simulated contributor failure".into()) })),
         );
 
         // Register a succeeding contributor
         coord.register_contributor(
             "test_channel",
             "good_contributor",
-            Box::new(|| {
-                Box::pin(async {
-                    Ok(serde_json::json!({"key": "value"}))
-                })
-            }),
+            Box::new(|| Box::pin(async { Ok(serde_json::json!({"key": "value"})) })),
         );
 
         let results = coord.collect_contributions("test_channel").await;
