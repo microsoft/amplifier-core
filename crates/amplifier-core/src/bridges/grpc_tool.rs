@@ -140,7 +140,7 @@ impl Tool for GrpcToolBridge {
             } else {
                 serde_json::from_slice(&resp.output)
                     .map_err(|e| {
-                        log::warn!("Failed to parse tool output JSON: {e}");
+                        log::warn!("Failed to parse tool '{}' output JSON: {e}", self.name);
                         e
                     })
                     .ok()
