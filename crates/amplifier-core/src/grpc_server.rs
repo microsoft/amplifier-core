@@ -72,11 +72,21 @@ impl KernelService for KernelServiceImpl {
             Ok(result) => {
                 let output_json = result
                     .output
-                    .map(|v| serde_json::to_string(&v).unwrap_or_default())
+                    .map(|v| {
+                        serde_json::to_string(&v).unwrap_or_else(|e| {
+                            log::warn!("Failed to serialize tool result output to JSON: {e}");
+                            String::new()
+                        })
+                    })
                     .unwrap_or_default();
                 let error_json = result
                     .error
-                    .map(|e| serde_json::to_string(&e).unwrap_or_default())
+                    .map(|e| {
+                        serde_json::to_string(&e).unwrap_or_else(|ser_err| {
+                            log::warn!("Failed to serialize tool result error to JSON: {ser_err}");
+                            String::new()
+                        })
+                    })
                     .unwrap_or_default();
                 Ok(Response::new(amplifier_module::ToolResult {
                     success: result.success,

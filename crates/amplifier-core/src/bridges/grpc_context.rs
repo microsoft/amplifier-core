@@ -54,7 +54,10 @@ impl GrpcContextBridge {
     /// Phase 2 simplified conversion: serialize the Value to a JSON string
     /// and store it as `text_content` on a proto Message.
     fn value_to_proto_message(message: &Value) -> amplifier_module::Message {
-        let json_string = serde_json::to_string(message).unwrap_or_default();
+        let json_string = serde_json::to_string(message).unwrap_or_else(|e| {
+            log::warn!("Failed to serialize context message to JSON: {e} — using empty string");
+            String::new()
+        });
         amplifier_module::Message {
             role: 0, // ROLE_UNSPECIFIED
             content: Some(amplifier_module::message::Content::TextContent(json_string)),
