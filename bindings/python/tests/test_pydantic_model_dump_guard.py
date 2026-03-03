@@ -6,7 +6,7 @@ json.dumps(), rather than passing the raw object to json.dumps().
 """
 
 import pytest
-from amplifier_core._engine import RustHookRegistry
+from amplifier_core._engine import RustCoordinator, RustHookRegistry
 
 
 class FakePydanticModel:
@@ -40,7 +40,7 @@ async def test_emit_accepts_pydantic_model_data():
 
     model = FakePydanticModel("greeting", "hello")
     # This should NOT raise — model_dump() guard converts to dict first
-    result = await registry.emit("test:event", model)
+    result = await registry.emit("test:event", model)  # type: ignore[arg-type]
     assert result is not None
     assert result.action == "continue"
 
@@ -56,7 +56,7 @@ async def test_emit_and_collect_accepts_pydantic_model_data():
 
     model = FakePydanticModel("key", "value")
     # This should NOT raise — model_dump() guard converts to dict first
-    result = await registry.emit_and_collect("test:event", model)
+    result = await registry.emit_and_collect("test:event", model)  # type: ignore[arg-type]
     assert isinstance(result, list)
 
 
@@ -80,3 +80,50 @@ async def test_emit_and_collect_still_works_with_plain_dict():
     registry = RustHookRegistry()
     result = await registry.emit_and_collect("test:event", {"plain": "dict"})
     assert isinstance(result, list)
+
+
+# ---- Config serialization path (PyCoordinator.__new__) ----
+
+
+class FakePydanticConfig:
+    """Simulates a Pydantic config object with model_dump().
+
+    json.dumps() cannot serialize this directly (raises TypeError),
+    but model_dump() returns a plain dict that json.dumps() handles.
+    """
+
+    def model_dump(self):
+        return {"session": {"orchestrator": "loop-basic"}}
+
+
+class _SessionWithPydanticConfig:
+    """Session whose config is a Pydantic-like object, not a plain dict."""
+
+    session_id = "pydantic-cfg-test"
+    parent_id = None
+    config = FakePydanticConfig()
+
+
+def test_coordinator_accepts_pydantic_config():
+    """RustCoordinator.__new__ should call model_dump() on config before json.dumps().
+
+    Without the guard, json.dumps(FakePydanticConfig()) raises TypeError.
+    With the guard, model_dump() is called first, returning a serializable dict.
+    """
+    # This should NOT raise — model_dump() guard converts config to dict first
+    coord = RustCoordinator(_SessionWithPydanticConfig())
+    assert coord is not None
+    assert coord.session_id == "pydantic-cfg-test"
+
+
+def test_coordinator_still_works_with_plain_dict_config():
+    """RustCoordinator.__new__ should still work with plain dict configs."""
+
+    class _SessionWithDictConfig:
+        session_id = "dict-cfg-test"
+        parent_id = None
+        config = {"session": {"orchestrator": "loop-basic"}}
+
+    coord = RustCoordinator(_SessionWithDictConfig())
+    assert coord is not None
+    assert coord.session_id == "dict-cfg-test"
