@@ -405,6 +405,58 @@ impl Orchestrator for FakeOrchestrator {
 }
 
 // ---------------------------------------------------------------------------
+// CapturingOrchestrator
+// ---------------------------------------------------------------------------
+
+/// An orchestrator that captures the hooks and coordinator values passed to it.
+///
+/// Returns a pre-configured response (like `FakeOrchestrator`) but also
+/// stores the `hooks` and `coordinator` `Value` arguments for test assertions.
+pub struct CapturingOrchestrator {
+    response: String,
+    last_hooks: Mutex<Value>,
+    last_coordinator: Mutex<Value>,
+}
+
+impl CapturingOrchestrator {
+    /// Create a capturing orchestrator that returns `response`.
+    pub fn new(response: &str) -> Self {
+        Self {
+            response: response.into(),
+            last_hooks: Mutex::new(Value::Null),
+            last_coordinator: Mutex::new(Value::Null),
+        }
+    }
+
+    /// The last `hooks` value passed to `execute()`.
+    pub fn last_hooks_value(&self) -> Value {
+        self.last_hooks.lock().unwrap().clone()
+    }
+
+    /// The last `coordinator` value passed to `execute()`.
+    pub fn last_coordinator_value(&self) -> Value {
+        self.last_coordinator.lock().unwrap().clone()
+    }
+}
+
+impl Orchestrator for CapturingOrchestrator {
+    fn execute(
+        &self,
+        _prompt: String,
+        _context: Arc<dyn ContextManager>,
+        _providers: HashMap<String, Arc<dyn Provider>>,
+        _tools: HashMap<String, Arc<dyn Tool>>,
+        hooks: Value,
+        coordinator: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<String, AmplifierError>> + Send + '_>> {
+        *self.last_hooks.lock().unwrap() = hooks;
+        *self.last_coordinator.lock().unwrap() = coordinator;
+        let resp = self.response.clone();
+        Box::pin(async move { Ok(resp) })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // FakeApprovalProvider
 // ---------------------------------------------------------------------------
 
