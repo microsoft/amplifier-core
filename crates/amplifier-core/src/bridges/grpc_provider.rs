@@ -33,6 +33,20 @@ use crate::messages::{ChatRequest, ChatResponse, ToolCall};
 use crate::models::{ModelInfo, ProviderInfo};
 use crate::traits::Provider;
 
+/// Parse a JSON string into a defaults `HashMap`, logging a warning on non-empty
+/// parse failures.
+fn parse_defaults_json(json_str: &str, id: &str) -> HashMap<String, Value> {
+    serde_json::from_str(json_str).unwrap_or_else(|e| {
+        if !json_str.is_empty() {
+            log::warn!(
+                "Failed to parse provider '{}' defaults_json: {e} — using empty defaults",
+                id
+            );
+        }
+        HashMap::new()
+    })
+}
+
 /// A bridge that wraps a remote gRPC `ProviderService` as a native [`Provider`].
 ///
 /// The client is held behind a [`tokio::sync::Mutex`] because
@@ -57,8 +71,7 @@ impl GrpcProviderBridge {
 
         let name = proto_info.id.clone();
 
-        let defaults: HashMap<String, Value> =
-            serde_json::from_str(&proto_info.defaults_json).unwrap_or_default();
+        let defaults = parse_defaults_json(&proto_info.defaults_json, &proto_info.id);
 
         let info = ProviderInfo {
             id: proto_info.id,
@@ -111,8 +124,7 @@ impl Provider for GrpcProviderBridge {
             let models = proto_models
                 .into_iter()
                 .map(|m| {
-                    let defaults: HashMap<String, Value> =
-                        serde_json::from_str(&m.defaults_json).unwrap_or_default();
+                    let defaults = parse_defaults_json(&m.defaults_json, &m.id);
                     ModelInfo {
                         id: m.id,
                         display_name: m.display_name,
@@ -171,5 +183,24 @@ mod tests {
         fn _check(bridge: GrpcProviderBridge) {
             assert_provider_trait_object(Arc::new(bridge));
         }
+    }
+
+    #[test]
+    fn parse_defaults_json_valid() {
+        let result = parse_defaults_json(r#"{"temperature": 0.7}"#, "test-provider");
+        assert_eq!(result.get("temperature"), Some(&serde_json::json!(0.7)));
+    }
+
+    #[test]
+    fn parse_defaults_json_empty_string_returns_empty() {
+        let result = parse_defaults_json("", "test-provider");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn parse_defaults_json_invalid_nonempty_returns_empty() {
+        // Invalid non-empty JSON should return empty HashMap (and log a warning).
+        let result = parse_defaults_json("not-valid-json", "test-provider");
+        assert!(result.is_empty());
     }
 }
