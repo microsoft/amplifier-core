@@ -59,7 +59,15 @@ impl GrpcToolBridge {
         let description = proto_spec.description.clone();
 
         let parameters: HashMap<String, Value> =
-            serde_json::from_str(&proto_spec.parameters_json).unwrap_or_default();
+            serde_json::from_str(&proto_spec.parameters_json).unwrap_or_else(|e| {
+                if !proto_spec.parameters_json.is_empty() {
+                    log::warn!(
+                        "Failed to parse tool '{}' parameters_json: {e} — using empty schema",
+                        proto_spec.name
+                    );
+                }
+                HashMap::new()
+            });
 
         let spec = messages::ToolSpec {
             name: proto_spec.name,
@@ -120,10 +128,22 @@ impl Tool for GrpcToolBridge {
 
             let resp = response.into_inner();
 
+            if !resp.content_type.is_empty() && resp.content_type != "application/json" {
+                log::warn!(
+                    "Tool response has content_type '{}' but only 'application/json' is supported — parsing as JSON anyway",
+                    resp.content_type
+                );
+            }
+
             let output = if resp.output.is_empty() {
                 None
             } else {
-                serde_json::from_slice(&resp.output).ok()
+                serde_json::from_slice(&resp.output)
+                    .map_err(|e| {
+                        log::warn!("Failed to parse tool output JSON: {e}");
+                        e
+                    })
+                    .ok()
             };
 
             let error = if resp.error.is_empty() {
