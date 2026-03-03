@@ -19,10 +19,11 @@ from amplifier_core.llm_errors import LLMError
 
 try:
     from amplifier_core._engine import RetryConfig, compute_delay as _rust_compute_delay
-except ImportError:  # pragma: no cover – Rust extension not available
+except ImportError as exc:  # pragma: no cover – Rust extension not available
     raise ImportError(
-        "amplifier_core._engine is required for RetryConfig and compute_delay"
-    )
+        "amplifier_core._engine is required for RetryConfig and compute_delay. "
+        "Build with: cd bindings/python && maturin develop"
+    ) from exc
 
 T = TypeVar("T")
 

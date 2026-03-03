@@ -104,6 +104,14 @@ pub fn classify_error_message(message: &str) -> &'static str {
 /// * `retry_after` — Optional server-provided retry-after hint in seconds.
 /// * `delay_multiplier` — Optional per-error multiplier (e.g. 10.0 for overloaded servers).
 ///   Applied after the max_delay cap so it can intentionally exceed it.
+///
+/// # Order of operations
+///
+/// 1. **Base delay**: `initial_delay * backoff_factor^attempt`
+/// 2. **Cap**: `min(delay, max_delay)`
+/// 3. **Multiplier**: `delay * delay_multiplier` (can intentionally exceed `max_delay`)
+/// 4. **Server hint**: `max(delay, retry_after)` used as a floor when `honor_retry_after` is true
+/// 5. **Jitter**: `delay * random[0.5, 1.5)` when `jitter` is true
 pub fn compute_delay(
     config: &RetryConfig,
     attempt: u32,

@@ -2481,27 +2481,37 @@ impl PyRetryConfig {
         backoff_multiplier: Option<f64>,
     ) -> PyResult<Self> {
         // --- deprecated alias: min_delay → initial_delay ---
+        // Only applies when initial_delay is still at its default (1.0); explicit new-style wins.
         let initial_delay = if let Some(md) = min_delay {
-            PyErr::warn(
-                py,
-                &py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),
-                c"min_delay is deprecated, use initial_delay",
-                1,
-            )?;
-            md
+            if initial_delay == 1.0 {
+                PyErr::warn(
+                    py,
+                    &py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),
+                    c"min_delay is deprecated, use initial_delay",
+                    1,
+                )?;
+                md
+            } else {
+                initial_delay
+            }
         } else {
             initial_delay
         };
 
         // --- deprecated alias: backoff_multiplier → backoff_factor ---
+        // Only applies when backoff_factor is still at its default (2.0); explicit new-style wins.
         let backoff_factor = if let Some(bm) = backoff_multiplier {
-            PyErr::warn(
-                py,
-                &py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),
-                c"backoff_multiplier is deprecated, use backoff_factor",
-                1,
-            )?;
-            bm
+            if backoff_factor == 2.0 {
+                PyErr::warn(
+                    py,
+                    &py.get_type::<pyo3::exceptions::PyDeprecationWarning>(),
+                    c"backoff_multiplier is deprecated, use backoff_factor",
+                    1,
+                )?;
+                bm
+            } else {
+                backoff_factor
+            }
         } else {
             backoff_factor
         };
@@ -2521,9 +2531,14 @@ impl PyRetryConfig {
                     )?;
                     f != 0.0
                 } else {
-                    return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-                        "jitter must be a bool or float",
-                    ));
+                    // Invalid type: fall back to default (True) with a warning rather than erroring.
+                    PyErr::warn(
+                        py,
+                        &py.get_type::<pyo3::exceptions::PyUserWarning>(),
+                        c"jitter received an unexpected type; defaulting to True",
+                        1,
+                    )?;
+                    true
                 }
             }
         };
