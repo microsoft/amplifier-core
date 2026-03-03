@@ -52,6 +52,10 @@ impl GrpcOrchestratorBridge {
 }
 
 impl Orchestrator for GrpcOrchestratorBridge {
+    // TODO(grpc-v2): 5 parameters (context, providers, tools, hooks, coordinator)
+    // are accepted by the Orchestrator trait but not transmitted through the gRPC
+    // bridge. The remote orchestrator must access these via the KernelService
+    // callback channel instead. Full parameter passing requires proto schema updates.
     fn execute(
         &self,
         prompt: String,
@@ -62,9 +66,13 @@ impl Orchestrator for GrpcOrchestratorBridge {
         _coordinator: Value,
     ) -> Pin<Box<dyn Future<Output = Result<String, AmplifierError>> + Send + '_>> {
         Box::pin(async move {
+            log::debug!(
+                "GrpcOrchestratorBridge::execute — context, providers, tools, hooks, and coordinator \
+                 parameters are not transmitted via gRPC (remote orchestrator uses KernelService callbacks)"
+            );
             let request = amplifier_module::OrchestratorExecuteRequest {
                 prompt,
-                session_id: String::new(),
+                session_id: String::new(), // TODO(grpc-v2): pass session_id for callback routing
             };
 
             let response = {
@@ -102,5 +110,37 @@ mod tests {
         fn _check(bridge: GrpcOrchestratorBridge) {
             assert_orchestrator_trait_object(Arc::new(bridge));
         }
+    }
+
+    // ── S-4 regression: execute() discards 5 parameters ──────────────────────
+
+    /// execute() discards 5 parameters; the structural gap must be documented
+    /// with TODO(grpc-v2) comments and a log::debug!() call so the loss is
+    /// visible at runtime and flagged for the grpc-v2 phase.
+    ///
+    /// NOTE: we split at the `#[cfg(test)]` boundary so the test assertions
+    /// themselves (which reference the searched tokens as string literals) do
+    /// not produce false positives.
+    #[test]
+    fn execute_discarded_params_are_documented_and_logged() {
+        let full_source = include_str!("grpc_orchestrator.rs");
+        // Inspect only the implementation section (before the test module).
+        let impl_source = full_source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("source must contain an impl section before #[cfg(test)]");
+
+        assert!(
+            impl_source.contains("// TODO(grpc-v2):"),
+            "execute() impl must contain a // TODO(grpc-v2): comment documenting discarded parameters"
+        );
+        assert!(
+            impl_source.contains("log::debug!("),
+            "execute() impl must contain a log::debug!() call for discarded parameters"
+        );
+        assert!(
+            impl_source.contains("session_id: String::new()"),
+            "session_id field must be present and empty (grpc-v2 placeholder)"
+        );
     }
 }
