@@ -230,7 +230,13 @@ impl HookRegistry {
             // Modify chains data to next handler
             if result.action == HookAction::Modify {
                 if let Some(ref modified) = result.data {
-                    current_data = serde_json::to_value(modified).unwrap_or(current_data);
+                    current_data = serde_json::to_value(modified).unwrap_or_else(|e| {
+                        log::warn!(
+                            "Hook handler '{}' returned Modify but data serialization failed: {e} — keeping previous data",
+                            name
+                        );
+                        current_data.clone()
+                    });
                 }
             }
 
@@ -1171,6 +1177,52 @@ mod tests {
                     && msg.contains("failing-handler")
             }),
             "Expected log::error! message about hook handler error, got: {:?}",
+            logs
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // Modify path serialization: uses unwrap_or_else with log::warn!
+    // ---------------------------------------------------------------
+
+    #[tokio::test]
+    async fn modify_path_no_spurious_serialization_warning() {
+        // Verifies that the Modify path's unwrap_or_else does NOT emit
+        // a serialization-failure warning when serialization succeeds.
+        install_test_logger();
+        clear_captured_logs();
+
+        let registry = HookRegistry::new();
+        let modifier = Arc::new(ModifyHandler {
+            key: "injected_key",
+            value: "injected_value",
+        });
+        registry.register(
+            "test:modify_no_warn",
+            modifier,
+            0,
+            Some("modify-handler".into()),
+        );
+
+        let result = registry
+            .emit(
+                "test:modify_no_warn",
+                serde_json::json!({"original": true}),
+            )
+            .await;
+
+        // Modification must still work
+        let data = result.data.unwrap();
+        assert_eq!(data["injected_key"], serde_json::json!("injected_value"));
+        assert_eq!(data["original"], serde_json::json!(true));
+
+        // No serialization-failure warning should have been logged
+        let logs = get_captured_logs();
+        assert!(
+            !logs.iter().any(|(level, msg)| {
+                *level == log::Level::Warn && msg.contains("serialization failed")
+            }),
+            "Unexpected serialization warning in logs: {:?}",
             logs
         );
     }
