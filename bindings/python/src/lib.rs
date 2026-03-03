@@ -85,11 +85,12 @@ impl HookHandler for PyHookHandlerBridge {
             let (is_coro, py_result_or_coro) =
                 Python::try_attach(|py| -> PyResult<(bool, Py<PyAny>)> {
                     let json_mod = py.import("json")?;
-                    let data_str =
-                        serde_json::to_string(&data).unwrap_or_else(|e| {
-                            log::warn!("Failed to serialize hook data to JSON (using empty object): {e}");
-                            "{}".to_string()
-                        });
+                    let data_str = serde_json::to_string(&data).unwrap_or_else(|e| {
+                        log::warn!(
+                            "Failed to serialize hook data to JSON (using empty object): {e}"
+                        );
+                        "{}".to_string()
+                    });
                     let py_data = json_mod.call_method1("loads", (&data_str,))?;
 
                     let call_result = callable.call(py, (&event, py_data), None)?;
@@ -965,7 +966,9 @@ impl PyHookRegistry {
         // Convert Python data to serde_json::Value
         let json_mod = py.import("json")?;
         let serializable = try_model_dump(&data);
-        let json_str: String = json_mod.call_method1("dumps", (&serializable,))?.extract()?;
+        let json_str: String = json_mod
+            .call_method1("dumps", (&serializable,))?
+            .extract()?;
         let value: Value = serde_json::from_str(&json_str)
             .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}")))?;
 
@@ -975,11 +978,10 @@ impl PyHookRegistry {
                 let result = inner.emit(&event, value).await;
                 // Convert HookResult to a JSON string, then parse it back as a
                 // Python HookResult object so callers can access .action, .data, etc.
-                let result_json =
-                    serde_json::to_string(&result).unwrap_or_else(|e| {
-                        log::warn!("Failed to serialize hook result to JSON (using empty object): {e}");
-                        "{}".to_string()
-                    });
+                let result_json = serde_json::to_string(&result).unwrap_or_else(|e| {
+                    log::warn!("Failed to serialize hook result to JSON (using empty object): {e}");
+                    "{}".to_string()
+                });
                 Python::try_attach(|py| -> PyResult<Py<PyAny>> {
                     let json_mod = py.import("json")?;
                     let dict = json_mod.call_method1("loads", (&result_json,))?;
@@ -1072,7 +1074,9 @@ impl PyHookRegistry {
         let inner = self.inner.clone();
         let json_mod = py.import("json")?;
         let serializable = try_model_dump(&data);
-        let json_str: String = json_mod.call_method1("dumps", (&serializable,))?.extract()?;
+        let json_str: String = json_mod
+            .call_method1("dumps", (&serializable,))?
+            .extract()?;
         let value: Value = serde_json::from_str(&json_str)
             .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}")))?;
         let timeout_dur = std::time::Duration::from_secs_f64(timeout);
@@ -1385,7 +1389,9 @@ impl PyCoordinator {
                 let rc: HashMap<String, Value> = {
                     let json_mod = py.import("json")?;
                     let serializable = try_model_dump(&cfg);
-                    let json_str: String = json_mod.call_method1("dumps", (&serializable,))?.extract()?;
+                    let json_str: String = json_mod
+                        .call_method1("dumps", (&serializable,))?
+                        .extract()?;
                     serde_json::from_str(&json_str).unwrap_or_else(|e| {
                         log::warn!("Failed to parse session config as JSON object (using empty config): {e}");
                         HashMap::new()
