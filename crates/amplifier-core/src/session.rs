@@ -78,6 +78,23 @@ impl SessionConfig {
         Ok(Self { config })
     }
 
+    /// Parse a `SessionConfig` from a JSON string.
+    ///
+    /// Convenience constructor for Rust applications that have config as a
+    /// JSON string rather than a `serde_json::Value`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SessionError::Other` if the string is not valid JSON, or
+    /// the usual validation errors from [`from_value`](Self::from_value).
+    pub fn from_json(json: &str) -> Result<Self, SessionError> {
+        let value: serde_json::Value =
+            serde_json::from_str(json).map_err(|e| SessionError::Other {
+                message: format!("invalid JSON: {e}"),
+            })?;
+        Self::from_value(value)
+    }
+
     /// Create a minimal config for testing.
     ///
     /// Sets `session.orchestrator` and `session.context` to the given values.
@@ -290,14 +307,20 @@ impl Session {
         // Execute orchestrator
         self.status = SessionState::Running;
 
+        // Serialize hooks handler list and coordinator state for the orchestrator
+        let hooks_value = serde_json::to_value(self.coordinator.hooks().list_handlers(None))
+            .unwrap_or(serde_json::json!({}));
+        let coordinator_value =
+            serde_json::to_value(self.coordinator.to_dict()).unwrap_or(serde_json::json!({}));
+
         match orchestrator
             .execute(
                 prompt.to_string(),
                 context,
                 providers,
                 tools,
-                serde_json::json!({}), // hooks placeholder (serialised)
-                serde_json::json!({}), // coordinator placeholder (serialised)
+                hooks_value,
+                coordinator_value,
             )
             .await
         {
@@ -354,7 +377,8 @@ impl Session {
 mod tests {
     use super::*;
     use crate::testing::{
-        FakeContextManager, FakeHookHandler, FakeOrchestrator, FakeProvider, FakeTool,
+        CapturingOrchestrator, FakeContextManager, FakeHookHandler, FakeOrchestrator, FakeProvider,
+        FakeTool,
     };
     use std::sync::Arc;
 
@@ -716,5 +740,69 @@ mod tests {
             !session.is_initialized(),
             "cleanup should clear initialized flag"
         );
+    }
+
+    // ---------------------------------------------------------------
+    // Task 4: real hooks + coordinator passed to orchestrator
+    // ---------------------------------------------------------------
+
+    #[tokio::test]
+    async fn execute_passes_hooks_and_coordinator_to_orchestrator() {
+        let config = SessionConfig::minimal("loop-basic", "context-simple");
+        let mut session = Session::new(config, None, None);
+
+        let orch = Arc::new(CapturingOrchestrator::new("test response"));
+        session.coordinator_mut().set_orchestrator(orch.clone());
+        session
+            .coordinator_mut()
+            .set_context(Arc::new(FakeContextManager::new()));
+        session
+            .coordinator_mut()
+            .mount_provider("test", Arc::new(FakeProvider::new("test", "hi")));
+        session
+            .coordinator_mut()
+            .mount_tool("echo", Arc::new(FakeTool::new("echo", "echoes")));
+        session.set_initialized();
+
+        let result = session.execute("hello").await;
+        assert!(result.is_ok());
+
+        // Verify the orchestrator received non-empty coordinator data
+        let captured_coord = orch.last_coordinator_value();
+        assert_ne!(
+            captured_coord,
+            serde_json::json!({}),
+            "coordinator value should not be empty"
+        );
+        // Verify the coordinator value contains tools
+        assert!(
+            captured_coord.get("tools").is_some(),
+            "coordinator value should contain 'tools' key"
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // Task 5: SessionConfig::from_json()
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn session_config_from_json_string() {
+        let json = r#"{
+            "session": {
+                "orchestrator": "loop-basic",
+                "context": "context-simple"
+            }
+        }"#;
+        let config = SessionConfig::from_json(json).unwrap();
+        // Verify the parsed config contains the expected values
+        let session_block = config.config.get("session").unwrap();
+        assert_eq!(session_block["orchestrator"], "loop-basic");
+        assert_eq!(session_block["context"], "context-simple");
+    }
+
+    #[test]
+    fn session_config_from_json_invalid() {
+        let result = SessionConfig::from_json("not json");
+        assert!(result.is_err());
     }
 }
