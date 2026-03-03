@@ -1377,7 +1377,10 @@ impl PyCoordinator {
                     let json_mod = py.import("json")?;
                     let serializable = try_model_dump(&cfg);
                     let json_str: String = json_mod.call_method1("dumps", (&serializable,))?.extract()?;
-                    serde_json::from_str(&json_str).unwrap_or_default()
+                    serde_json::from_str(&json_str).unwrap_or_else(|e| {
+                        log::warn!("Failed to parse session config as JSON object (using empty config): {e}");
+                        HashMap::new()
+                    })
                 };
                 (sid, pid, cfg.unbind(), sess.clone().unbind(), rc)
             }
