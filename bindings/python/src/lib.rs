@@ -2668,6 +2668,7 @@ fn compute_delay(
 /// Python imports this as `amplifier_core._engine`.
 #[pymodule]
 fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    pyo3_log::init();
     m.add("__version__", "1.0.0")?;
     m.add("RUST_AVAILABLE", true)?;
     m.add_class::<PySession>()?;
@@ -2920,5 +2921,15 @@ mod tests {
         let session = amplifier_core::Session::new(config, None, None);
         assert!(!session.session_id().is_empty());
         assert!(!session.is_initialized());
+    }
+
+    /// Verify that `log` and `pyo3-log` crates are available in the bindings crate.
+    /// The `log` macros should compile, and `pyo3_log::init` should be a callable function.
+    #[test]
+    fn log_and_pyo3_log_available() {
+        // log macros compile (no-ops without a logger installed)
+        log::info!("test log from bindings crate");
+        // pyo3_log::init exists as a function — returns ResetHandle
+        let _: fn() -> pyo3_log::ResetHandle = pyo3_log::init;
     }
 }
