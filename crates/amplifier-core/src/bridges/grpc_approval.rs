@@ -29,6 +29,25 @@ use crate::generated::amplifier_module::approval_service_client::ApprovalService
 use crate::models::{ApprovalRequest, ApprovalResponse};
 use crate::traits::ApprovalProvider;
 
+// TODO(grpc-v2): proto uses bare double for timeout, so None (no timeout) and
+// Some(0.0) (expire immediately) are indistinguishable on the wire. Fix requires
+// changing proto to optional double timeout.
+
+/// Map an optional approval timeout to the wire value.
+///
+/// Because the proto field is a bare `double`, `None` (no timeout) is sent as
+/// `0.0` — which is indistinguishable from "expire immediately". See the
+/// `TODO(grpc-v2)` above.
+fn map_approval_timeout(timeout: Option<f64>) -> f64 {
+    timeout.unwrap_or_else(|| {
+        log::debug!(
+            "ApprovalRequest has no timeout — sending 0.0 on wire \
+             (indistinguishable from 'expire immediately')"
+        );
+        0.0
+    })
+}
+
 /// A bridge that wraps a remote gRPC `ApprovalService` as a native [`ApprovalProvider`].
 ///
 /// The client is held behind a [`tokio::sync::Mutex`] because
@@ -66,7 +85,7 @@ impl ApprovalProvider for GrpcApprovalBridge {
                 action: request.action,
                 details_json,
                 risk_level: request.risk_level,
-                timeout: request.timeout.unwrap_or(0.0),
+                timeout: map_approval_timeout(request.timeout),
             };
 
             let response = {
@@ -109,5 +128,20 @@ mod tests {
         fn _check(bridge: GrpcApprovalBridge) {
             assert_approval_trait_object(Arc::new(bridge));
         }
+    }
+
+    #[test]
+    fn none_timeout_defaults_to_zero() {
+        // When timeout is None, the wire value should be 0.0.
+        let timeout: Option<f64> = None;
+        let result = map_approval_timeout(timeout);
+        assert!((result - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn some_timeout_is_preserved() {
+        let timeout: Option<f64> = Some(30.0);
+        let result = map_approval_timeout(timeout);
+        assert!((result - 30.0).abs() < f64::EPSILON);
     }
 }
