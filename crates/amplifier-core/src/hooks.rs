@@ -208,11 +208,15 @@ impl HookRegistry {
         let mut special_result: Option<HookResult> = None;
         let mut inject_context_results: Vec<HookResult> = Vec::new();
 
-        for (handler, _name) in &entries {
+        for (handler, name) in &entries {
             let result = match handler.handle(event, current_data.clone()).await {
                 Ok(r) => r,
-                Err(_e) => {
+                Err(e) => {
                     // Error in handler -- log and continue (matches Python behaviour).
+                    eprintln!(
+                        "Hook handler error for event '{}' (handler '{}'): {e}",
+                        event, name
+                    );
                     continue;
                 }
             };
