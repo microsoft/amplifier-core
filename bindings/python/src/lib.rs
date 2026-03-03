@@ -1780,7 +1780,9 @@ impl PyCoordinator {
                             Some(Err(e)) => {
                                 log::error!("Error during cleanup: {e}");
                             }
-                            None => {}
+                            None => {
+                                // Failed to attach to Python runtime — skip
+                            }
                         }
                     }
                 }
