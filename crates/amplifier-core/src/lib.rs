@@ -99,6 +99,7 @@ mod tests {
             provider: None,
             model: None,
             retry_after: None,
+            delay_multiplier: None,
         };
         let _: fn() -> crate::ToolError = || crate::ToolError::Other {
             message: "e".into(),

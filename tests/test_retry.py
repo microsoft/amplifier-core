@@ -30,26 +30,26 @@ class TestRetryConfig:
     def test_defaults(self) -> None:
         config = RetryConfig()
         assert config.max_retries == 3
-        assert config.min_delay == 1.0
+        assert config.initial_delay == 1.0
         assert config.max_delay == 60.0
         assert config.jitter == 0.2
-        assert config.backoff_multiplier == 2.0
+        assert config.backoff_factor == 2.0
         assert config.honor_retry_after is True
 
     def test_custom_values(self) -> None:
         config = RetryConfig(
             max_retries=5,
-            min_delay=0.5,
+            initial_delay=0.5,
             max_delay=30.0,
-            jitter=0.1,
-            backoff_multiplier=3.0,
+            jitter=False,
+            backoff_factor=3.0,
             honor_retry_after=False,
         )
         assert config.max_retries == 5
-        assert config.min_delay == 0.5
+        assert config.initial_delay == 0.5
         assert config.max_delay == 30.0
-        assert config.jitter == 0.1
-        assert config.backoff_multiplier == 3.0
+        assert config.jitter == 0.0
+        assert config.backoff_factor == 3.0
         assert config.honor_retry_after is False
 
     def test_zero_retries(self) -> None:
@@ -77,7 +77,7 @@ class TestRetryWithBackoff:
                 "success",
             ]
         )
-        config = RetryConfig(max_retries=3, min_delay=0.01, max_delay=0.1)
+        config = RetryConfig(max_retries=3, initial_delay=0.01, max_delay=0.1)
         result = await retry_with_backoff(operation, config)
         assert result == "success"
         assert operation.call_count == 2
@@ -87,7 +87,7 @@ class TestRetryWithBackoff:
         """Gives up after max_retries attempts."""
         error = ProviderUnavailableError("still down", retryable=True)
         operation = AsyncMock(side_effect=error)
-        config = RetryConfig(max_retries=2, min_delay=0.01, max_delay=0.1)
+        config = RetryConfig(max_retries=2, initial_delay=0.01, max_delay=0.1)
         with pytest.raises(ProviderUnavailableError, match="still down"):
             await retry_with_backoff(operation, config)
         # 1 initial + 2 retries = 3 total calls
@@ -98,7 +98,7 @@ class TestRetryWithBackoff:
         """Non-retryable errors raise immediately without retry."""
         error = AuthenticationError("bad key")
         operation = AsyncMock(side_effect=error)
-        config = RetryConfig(max_retries=3, min_delay=0.01)
+        config = RetryConfig(max_retries=3, initial_delay=0.01)
         with pytest.raises(AuthenticationError, match="bad key"):
             await retry_with_backoff(operation, config)
         assert operation.call_count == 1
@@ -107,17 +107,17 @@ class TestRetryWithBackoff:
     async def test_does_not_retry_non_llm_error(self) -> None:
         """Non-LLMError exceptions pass through immediately."""
         operation = AsyncMock(side_effect=ValueError("not an LLM error"))
-        config = RetryConfig(max_retries=3, min_delay=0.01)
+        config = RetryConfig(max_retries=3, initial_delay=0.01)
         with pytest.raises(ValueError, match="not an LLM error"):
             await retry_with_backoff(operation, config)
         assert operation.call_count == 1
 
     @pytest.mark.asyncio
     async def test_respects_retry_after(self) -> None:
-        """Uses RateLimitError.retry_after when available."""
+        """Uses retry_after from any retryable LLMError when available."""
         error = RateLimitError("too fast", retry_after=0.05, retryable=True)
         operation = AsyncMock(side_effect=[error, "ok"])
-        config = RetryConfig(max_retries=3, min_delay=0.01, max_delay=1.0)
+        config = RetryConfig(max_retries=3, initial_delay=0.01, max_delay=1.0)
         result = await retry_with_backoff(operation, config)
         assert result == "ok"
 
@@ -131,10 +131,12 @@ class TestRetryWithBackoff:
 
         error = ProviderUnavailableError("down", retryable=True)
         operation = AsyncMock(side_effect=[error, error, error, "success"])
-        config = RetryConfig(max_retries=3, min_delay=0.01, max_delay=10.0, jitter=0.0)
+        config = RetryConfig(
+            max_retries=3, initial_delay=0.01, max_delay=10.0, jitter=False
+        )
         result = await retry_with_backoff(operation, config, on_retry=on_retry)
         assert result == "success"
-        # With jitter=0: delays should be 0.01, 0.02, 0.04
+        # With jitter=False: delays should be 0.01, 0.02, 0.04
         assert len(delays) == 3
         assert delays[0] == pytest.approx(0.01)
         assert delays[1] == pytest.approx(0.02)
@@ -142,7 +144,7 @@ class TestRetryWithBackoff:
 
     @pytest.mark.asyncio
     async def test_jitter_applied(self) -> None:
-        """Delays vary when jitter > 0."""
+        """Delays vary when jitter is enabled (Rust applies ±50%)."""
         delays: list[float] = []
 
         async def on_retry(attempt: int, delay: float, error: LLMError) -> None:
@@ -150,10 +152,10 @@ class TestRetryWithBackoff:
 
         error = ProviderUnavailableError("down", retryable=True)
         operation = AsyncMock(side_effect=[error, error, "success"])
-        config = RetryConfig(max_retries=3, min_delay=0.01, jitter=0.2)
+        config = RetryConfig(max_retries=3, initial_delay=0.01, jitter=True)
         await retry_with_backoff(operation, config, on_retry=on_retry)
-        # First delay should be around 0.01 +/- 20%
-        assert 0.007 <= delays[0] <= 0.013
+        # Rust jitter: base * [0.5, 1.5), so 0.01 * [0.5, 1.5) = [0.005, 0.015)
+        assert 0.004 <= delays[0] <= 0.016
 
     @pytest.mark.asyncio
     async def test_on_retry_callback_called(self) -> None:
@@ -165,7 +167,7 @@ class TestRetryWithBackoff:
 
         error = ProviderUnavailableError("down", retryable=True)
         operation = AsyncMock(side_effect=[error, "success"])
-        config = RetryConfig(max_retries=3, min_delay=0.01)
+        config = RetryConfig(max_retries=3, initial_delay=0.01)
         await retry_with_backoff(operation, config, on_retry=on_retry)
         assert len(callback_args) == 1
         attempt, delay, err = callback_args[0]
@@ -182,7 +184,7 @@ class TestRetryWithBackoff:
             ProviderUnavailableError("fail 3", retryable=True),
         ]
         operation = AsyncMock(side_effect=errors)
-        config = RetryConfig(max_retries=2, min_delay=0.01)
+        config = RetryConfig(max_retries=2, initial_delay=0.01)
         with pytest.raises(ProviderUnavailableError, match="fail 3"):
             await retry_with_backoff(operation, config)
 
@@ -191,7 +193,7 @@ class TestRetryWithBackoff:
         """With max_retries=0, the operation is called once and errors propagate."""
         error = ProviderUnavailableError("down", retryable=True)
         operation = AsyncMock(side_effect=error)
-        config = RetryConfig(max_retries=0, min_delay=0.01)
+        config = RetryConfig(max_retries=0, initial_delay=0.01)
         with pytest.raises(ProviderUnavailableError):
             await retry_with_backoff(operation, config)
         assert operation.call_count == 1
@@ -208,7 +210,9 @@ class TestRetryWithBackoff:
         operation = AsyncMock(
             side_effect=[error, error, error, error, error, "success"]
         )
-        config = RetryConfig(max_retries=5, min_delay=0.01, max_delay=0.025, jitter=0.0)
+        config = RetryConfig(
+            max_retries=5, initial_delay=0.01, max_delay=0.025, jitter=False
+        )
         await retry_with_backoff(operation, config, on_retry=on_retry)
         # 0.01, 0.02, 0.025(capped), 0.025(capped), 0.025(capped)
         for d in delays:
@@ -236,9 +240,9 @@ class TestRetryWithBackoff:
 
         config = RetryConfig(
             max_retries=3,
-            min_delay=0.01,
+            initial_delay=0.01,
             max_delay=0.05,
-            jitter=0.0,
+            jitter=False,
             honor_retry_after=False,
         )
 
@@ -266,9 +270,9 @@ class TestRetryWithBackoff:
 
         config = RetryConfig(
             max_retries=3,
-            min_delay=0.01,
+            initial_delay=0.01,
             max_delay=0.1,
-            jitter=0.0,
+            jitter=False,
             honor_retry_after=True,
         )
 
@@ -276,6 +280,28 @@ class TestRetryWithBackoff:
         assert result == "ok"
         assert len(delays) == 1
         assert delays[0] >= 5.0  # retry_after (5s) wins over max_delay (0.1s)
+
+    @pytest.mark.asyncio
+    async def test_retry_after_on_any_retryable_llmerror(self) -> None:
+        """retry_after is honored on any retryable LLMError, not just RateLimitError."""
+        delays: list[float] = []
+
+        async def on_retry(attempt: int, delay: float, error: LLMError) -> None:
+            delays.append(delay)
+
+        # ProviderUnavailableError with retry_after (not RateLimitError)
+        error = ProviderUnavailableError("overloaded", retryable=True, retry_after=0.05)
+        operation = AsyncMock(side_effect=[error, "ok"])
+        config = RetryConfig(
+            max_retries=3,
+            initial_delay=0.01,
+            max_delay=1.0,
+            jitter=False,
+        )
+        result = await retry_with_backoff(operation, config, on_retry=on_retry)
+        assert result == "ok"
+        assert len(delays) == 1
+        assert delays[0] >= 0.05  # retry_after honored on non-RateLimitError
 
 
 class TestClassifyErrorMessage:

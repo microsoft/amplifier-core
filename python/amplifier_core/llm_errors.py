@@ -30,8 +30,8 @@ class LLMError(Exception):
         retryable: Whether the caller should consider retrying the request.
         retry_after: Seconds to wait before retrying, if available.
         delay_multiplier: Multiplier applied to backoff delay (e.g. 10.0 for
-            overloaded errors). Default 1.0. Accepted for backward compatibility
-            with provider modules that set it; not used by the Rust kernel.
+            overloaded errors). Default 1.0. Passed to the Rust kernel's
+            compute_delay() where it is applied after the max_delay cap.
     """
 
     def __init__(

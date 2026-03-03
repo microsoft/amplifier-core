@@ -241,3 +241,116 @@ class RustCoordinator:
     # --- Cancellation / turn ---
     async def request_cancel(self, immediate: bool = False) -> None: ...
     def reset_turn(self) -> None: ...
+
+# ---------------------------------------------------------------------------
+# ProviderError — structured error from a provider (PyO3 bridge)
+# ---------------------------------------------------------------------------
+
+class ProviderError:
+    """Structured provider error exposed via PyO3.
+
+    Can be constructed directly from Python (for testing) or created
+    from a Rust ``ProviderError`` when errors cross the PyO3 boundary.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        retry_after: Optional[float] = None,
+        delay_multiplier: Optional[float] = None,
+        retryable: bool = False,
+        error_type: str = "Other",
+    ) -> None: ...
+    @property
+    def message(self) -> str: ...
+    @property
+    def provider(self) -> Optional[str]: ...
+    @property
+    def model(self) -> Optional[str]: ...
+    @property
+    def retry_after(self) -> Optional[float]: ...
+    @property
+    def delay_multiplier(self) -> Optional[float]: ...
+    @property
+    def retryable(self) -> bool: ...
+    @property
+    def error_type(self) -> str: ...
+    def __repr__(self) -> str: ...
+    def __str__(self) -> str: ...
+
+# ---------------------------------------------------------------------------
+# RetryConfig — retry configuration (PyO3 bridge)
+# ---------------------------------------------------------------------------
+
+class RetryConfig:
+    """Retry configuration wrapping the Rust ``RetryConfig`` struct.
+
+    All constructor arguments have defaults matching the Rust ``Default`` impl.
+    ``jitter`` accepts a bool, a float (deprecated), or None (defaults to True).
+    ``min_delay`` and ``backoff_multiplier`` are deprecated aliases.
+    """
+
+    def __init__(
+        self,
+        max_retries: int = 3,
+        initial_delay: float = 1.0,
+        max_delay: float = 60.0,
+        backoff_factor: float = 2.0,
+        jitter: "bool | float | None" = None,
+        honor_retry_after: bool = True,
+        min_delay: Optional[float] = None,
+        backoff_multiplier: Optional[float] = None,
+    ) -> None: ...
+    @property
+    def max_retries(self) -> int: ...
+    @property
+    def initial_delay(self) -> float: ...
+    @property
+    def max_delay(self) -> float: ...
+    @property
+    def backoff_factor(self) -> float: ...
+    @property
+    def jitter(self) -> float:
+        """Returns 0.2 if jitter is enabled, 0.0 if disabled."""
+        ...
+    @property
+    def honor_retry_after(self) -> bool: ...
+    @property
+    def min_delay(self) -> float:
+        """Deprecated: use ``initial_delay`` instead."""
+        ...
+    @property
+    def backoff_multiplier(self) -> float:
+        """Deprecated: use ``backoff_factor`` instead."""
+        ...
+
+# ---------------------------------------------------------------------------
+# Retry utility functions (PyO3 bridge)
+# ---------------------------------------------------------------------------
+
+def classify_error_message(message: str) -> str:
+    """Classify an error message string into an error category.
+
+    Returns one of: ``"rate_limit"``, ``"timeout"``, ``"authentication"``,
+    ``"context_length"``, ``"content_filter"``, ``"not_found"``,
+    ``"provider_unavailable"``, or ``"unknown"``.
+    """
+    ...
+
+def compute_delay(
+    config: RetryConfig,
+    attempt: int,
+    retry_after: Optional[float] = None,
+    delay_multiplier: Optional[float] = None,
+) -> float:
+    """Compute the delay for a given retry attempt.
+
+    Pure function (deterministic when ``config.jitter`` is False).
+    The caller is responsible for sleeping.
+
+    Non-finite or non-positive ``delay_multiplier`` values are ignored.
+    """
+    ...
