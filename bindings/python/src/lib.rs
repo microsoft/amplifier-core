@@ -86,7 +86,10 @@ impl HookHandler for PyHookHandlerBridge {
                 Python::try_attach(|py| -> PyResult<(bool, Py<PyAny>)> {
                     let json_mod = py.import("json")?;
                     let data_str =
-                        serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
+                        serde_json::to_string(&data).unwrap_or_else(|e| {
+                            log::warn!("Failed to serialize hook data to JSON (using empty object): {e}");
+                            "{}".to_string()
+                        });
                     let py_data = json_mod.call_method1("loads", (&data_str,))?;
 
                     let call_result = callable.call(py, (&event, py_data), None)?;
@@ -973,7 +976,10 @@ impl PyHookRegistry {
                 // Convert HookResult to a JSON string, then parse it back as a
                 // Python HookResult object so callers can access .action, .data, etc.
                 let result_json =
-                    serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string());
+                    serde_json::to_string(&result).unwrap_or_else(|e| {
+                        log::warn!("Failed to serialize hook result to JSON (using empty object): {e}");
+                        "{}".to_string()
+                    });
                 Python::try_attach(|py| -> PyResult<Py<PyAny>> {
                     let json_mod = py.import("json")?;
                     let dict = json_mod.call_method1("loads", (&result_json,))?;
@@ -1079,7 +1085,10 @@ impl PyHookRegistry {
                 // Returns Vec<String> which becomes a Python list of strings.
                 let json_strings: Vec<String> = results
                     .iter()
-                    .map(|r| serde_json::to_string(r).unwrap_or_else(|_| "{}".to_string()))
+                    .map(|r| serde_json::to_string(r).unwrap_or_else(|e| {
+                        log::warn!("Failed to serialize emit_and_collect result to JSON (using empty object): {e}");
+                        "{}".to_string()
+                    }))
                     .collect();
                 Ok(json_strings)
             }),
