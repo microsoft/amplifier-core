@@ -70,6 +70,10 @@ pub use coordinator::Coordinator;
 // Session
 pub use session::{Session, SessionConfig};
 
+/// `AmplifierSession` is the universal name for the session type across all language SDKs.
+/// `Session` remains available for backward compatibility.
+pub type AmplifierSession = Session;
+
 #[cfg(test)]
 mod tests {
     #[test]
