@@ -318,11 +318,11 @@ impl Coordinator {
         };
 
         let mut results = Vec::new();
-        for (_name, fut) in entries {
+        for (name, fut) in entries {
             match fut.await {
                 Ok(value) => results.push(value),
-                Err(_e) => {
-                    // Log and skip, matching Python behaviour
+                Err(e) => {
+                    log::warn!("Contributor '{name}' failed: {e}");
                     continue;
                 }
             }
@@ -679,5 +679,37 @@ mod tests {
         assert!(tools.contains(&serde_json::json!("echo")));
         let caps = dict["capabilities"].as_array().unwrap();
         assert!(caps.contains(&serde_json::json!("streaming")));
+    }
+
+    #[tokio::test]
+    async fn collect_contributions_logs_on_contributor_error() {
+        let coord = Coordinator::new_for_test();
+
+        // Register a contributor that always errors
+        coord.register_contributor(
+            "test_channel",
+            "failing_contributor",
+            Box::new(|| {
+                Box::pin(async {
+                    Err("simulated contributor failure".into())
+                })
+            }),
+        );
+
+        // Register a succeeding contributor
+        coord.register_contributor(
+            "test_channel",
+            "good_contributor",
+            Box::new(|| {
+                Box::pin(async {
+                    Ok(serde_json::json!({"key": "value"}))
+                })
+            }),
+        );
+
+        let results = coord.collect_contributions("test_channel").await;
+        // Only the good contributor's result should be present
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], serde_json::json!({"key": "value"}));
     }
 }
