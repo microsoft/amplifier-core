@@ -956,7 +956,12 @@ impl PyHookRegistry {
         let inner = self.inner.clone();
         // Convert Python data to serde_json::Value
         let json_mod = py.import("json")?;
-        let json_str: String = json_mod.call_method1("dumps", (&data,))?.extract()?;
+        // Try model_dump() first (Pydantic BaseModel → dict), then json.dumps
+        let serializable = match data.call_method0("model_dump") {
+            Ok(dict) => dict,
+            Err(_) => data.clone(), // Not a Pydantic model — pass through
+        };
+        let json_str: String = json_mod.call_method1("dumps", (&serializable,))?.extract()?;
         let value: Value = serde_json::from_str(&json_str)
             .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}")))?;
 
@@ -1059,7 +1064,12 @@ impl PyHookRegistry {
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner.clone();
         let json_mod = py.import("json")?;
-        let json_str: String = json_mod.call_method1("dumps", (&data,))?.extract()?;
+        // Try model_dump() first (Pydantic BaseModel → dict), then json.dumps
+        let serializable = match data.call_method0("model_dump") {
+            Ok(dict) => dict,
+            Err(_) => data.clone(), // Not a Pydantic model — pass through
+        };
+        let json_str: String = json_mod.call_method1("dumps", (&serializable,))?.extract()?;
         let value: Value = serde_json::from_str(&json_str)
             .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}")))?;
         let timeout_dur = std::time::Duration::from_secs_f64(timeout);
@@ -1368,7 +1378,12 @@ impl PyCoordinator {
                 let cfg = sess.getattr("config")?;
                 let rc: HashMap<String, Value> = {
                     let json_mod = py.import("json")?;
-                    let json_str: String = json_mod.call_method1("dumps", (&cfg,))?.extract()?;
+                    // Try model_dump() first (Pydantic BaseModel → dict), then json.dumps
+                    let serializable = match cfg.call_method0("model_dump") {
+                        Ok(dict) => dict,
+                        Err(_) => cfg.clone(), // Not a Pydantic model — pass through
+                    };
+                    let json_str: String = json_mod.call_method1("dumps", (&serializable,))?.extract()?;
                     serde_json::from_str(&json_str).unwrap_or_default()
                 };
                 (sid, pid, cfg.unbind(), sess.clone().unbind(), rc)
