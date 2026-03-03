@@ -3,9 +3,15 @@ bundle:
   version: 1.0.0
   description: Expert consultant for Amplifier kernel internals
 
+context:
+  include:
+    - core:context/release-mandate.md
+
 agents:
   include:
     - core:core-expert
 
 # Note: kernel-overview.md context moved to core-expert.md agent
 # This reduces root session token usage - context loads only when agent spawns
+# Exception: release-mandate.md is in context.include because it MUST be visible
+# in every root session working on amplifier-core, not just when core-expert spawns.
