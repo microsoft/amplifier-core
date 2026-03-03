@@ -215,7 +215,8 @@ impl HookRegistry {
                     // Error in handler -- log and continue (matches Python behaviour).
                     log::error!(
                         "Hook handler error for event '{}' (handler '{}'): {e}",
-                        event, name
+                        event,
+                        name
                     );
                     continue;
                 }
@@ -299,16 +300,26 @@ impl HookRegistry {
 
         let mut responses = Vec::new();
 
-        for (handler, _name) in &entries {
+        for (handler, name) in &entries {
             let fut = handler.handle(event, data.clone());
             let result = match tokio::time::timeout(timeout, fut).await {
                 Ok(Ok(r)) => r,
-                Ok(Err(_e)) => {
-                    // Handler error -- skip
+                Ok(Err(e)) => {
+                    // Handler error -- log and skip
+                    log::error!(
+                        "Hook handler error for event '{}' (handler '{}'): {e}",
+                        event,
+                        name
+                    );
                     continue;
                 }
                 Err(_) => {
-                    // Timeout -- skip
+                    // Timeout -- log and skip
+                    log::warn!(
+                        "Hook handler timed out for event '{}' (handler '{}')",
+                        event,
+                        name
+                    );
                     continue;
                 }
             };
@@ -571,9 +582,26 @@ mod tests {
             _data: serde_json::Value,
         ) -> Pin<Box<dyn Future<Output = Result<HookResult, HookError>> + Send + '_>> {
             Box::pin(async {
-                Err(HookError::Other {
-                    message: "handler failed".into(),
+                Err(HookError::HandlerFailed {
+                    message: "simulated handler failure".to_string(),
+                    handler_name: Some("failing_handler".to_string()),
                 })
+            })
+        }
+    }
+
+    /// Handler that sleeps for 60 seconds then returns Ok (for timeout testing).
+    struct SlowHandler;
+
+    impl HookHandler for SlowHandler {
+        fn handle(
+            &self,
+            _event: &str,
+            _data: serde_json::Value,
+        ) -> Pin<Box<dyn Future<Output = Result<HookResult, HookError>> + Send + '_>> {
+            Box::pin(async {
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                Ok(HookResult::default())
             })
         }
     }
@@ -884,6 +912,56 @@ mod tests {
             )
             .await;
         assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn emit_and_collect_skips_handler_error() {
+        let registry = HookRegistry::new();
+        let failing = Arc::new(FailingHandler);
+        let mut data_map = HashMap::new();
+        data_map.insert("key".to_string(), serde_json::json!("value"));
+        let simple = Arc::new(SimpleHandler(HookResult {
+            data: Some(data_map),
+            ..Default::default()
+        }));
+
+        registry.register("test:event", failing, 0, Some("failing_handler".into()));
+        registry.register("test:event", simple, 10, Some("simple_handler".into()));
+
+        let results = registry
+            .emit_and_collect(
+                "test:event",
+                serde_json::json!({}),
+                std::time::Duration::from_secs(5),
+            )
+            .await;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["key"], serde_json::json!("value"));
+    }
+
+    #[tokio::test]
+    async fn emit_and_collect_skips_timed_out_handler() {
+        let registry = HookRegistry::new();
+        let slow = Arc::new(SlowHandler);
+        let mut data_map = HashMap::new();
+        data_map.insert("fast".to_string(), serde_json::json!(true));
+        let simple = Arc::new(SimpleHandler(HookResult {
+            data: Some(data_map),
+            ..Default::default()
+        }));
+
+        registry.register("test:event", slow, 0, Some("slow_handler".into()));
+        registry.register("test:event", simple, 10, Some("fast_handler".into()));
+
+        let results = registry
+            .emit_and_collect(
+                "test:event",
+                serde_json::json!({}),
+                std::time::Duration::from_millis(50),
+            )
+            .await;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["fast"], serde_json::json!(true));
     }
 
     // ---------------------------------------------------------------
