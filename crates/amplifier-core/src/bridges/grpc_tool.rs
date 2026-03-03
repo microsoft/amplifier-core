@@ -32,6 +32,8 @@ use crate::messages;
 use crate::models::ToolResult;
 use crate::traits::Tool;
 
+const CONTENT_TYPE_JSON: &str = "application/json";
+
 /// A bridge that wraps a remote gRPC `ToolService` as a native [`Tool`].
 ///
 /// The client is held behind a [`tokio::sync::Mutex`] because
@@ -113,7 +115,7 @@ impl Tool for GrpcToolBridge {
 
             let request = amplifier_module::ToolExecuteRequest {
                 input: json_bytes,
-                content_type: "application/json".to_string(),
+                content_type: CONTENT_TYPE_JSON.to_string(),
             };
 
             let response = {
@@ -128,7 +130,7 @@ impl Tool for GrpcToolBridge {
 
             let resp = response.into_inner();
 
-            if !resp.content_type.is_empty() && resp.content_type != "application/json" {
+            if !resp.content_type.is_empty() && resp.content_type != CONTENT_TYPE_JSON {
                 log::warn!(
                     "Tool response has content_type '{}' but only 'application/json' is supported — parsing as JSON anyway",
                     resp.content_type
