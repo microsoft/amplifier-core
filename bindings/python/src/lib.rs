@@ -128,14 +128,25 @@ impl HookHandler for PyHookHandlerBridge {
             };
 
             // Step 3: Parse the Python result into a HookResult (reacquire GIL)
+            //
+            // Python hook handlers typically return Pydantic BaseModel instances
+            // (e.g. amplifier_core.models.HookResult). stdlib json.dumps() cannot
+            // serialize Pydantic models directly, so we first try model_dump() to
+            // convert to a plain dict, then json.dumps() the dict. For non-Pydantic
+            // return values (plain dicts, etc.) we fall back to json.dumps() directly.
             let result_json: String = Python::try_attach(|py| -> PyResult<String> {
                 let bound = py_result.bind(py);
                 if bound.is_none() {
                     return Ok("{}".to_string());
                 }
                 let json_mod = py.import("json")?;
+                // Try model_dump() first (Pydantic BaseModel → dict), then json.dumps
+                let serializable = match bound.call_method0("model_dump") {
+                    Ok(dict) => dict,
+                    Err(_) => bound.clone(), // Not a Pydantic model — pass through
+                };
                 let json_str: String = json_mod
-                    .call_method1("dumps", (bound,))?
+                    .call_method1("dumps", (&serializable,))?
                     .extract()
                     .unwrap_or_else(|_| "{}".to_string());
                 Ok(json_str)
@@ -149,7 +160,12 @@ impl HookHandler for PyHookHandlerBridge {
                 handler_name: None,
             })?;
 
-            let hook_result: HookResult = serde_json::from_str(&result_json).unwrap_or_default();
+            let hook_result: HookResult = serde_json::from_str(&result_json).unwrap_or_else(|e| {
+                eprintln!(
+                    "Failed to parse hook handler result JSON (defaulting to Continue): {e} — json: {result_json}"
+                );
+                HookResult::default()
+            });
             Ok(hook_result)
         })
     }
