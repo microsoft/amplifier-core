@@ -269,7 +269,9 @@ class TestNotFoundError:
     """Tests for NotFoundError."""
 
     def test_instantiation(self) -> None:
-        err = NotFoundError("Model gpt-99 not found", provider="openai", status_code=404)
+        err = NotFoundError(
+            "Model gpt-99 not found", provider="openai", status_code=404
+        )
         assert str(err) == "Model gpt-99 not found"
         assert err.provider == "openai"
         assert err.status_code == 404

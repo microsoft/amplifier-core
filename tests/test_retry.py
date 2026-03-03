@@ -290,9 +290,7 @@ class TestRetryWithBackoff:
             delays.append(delay)
 
         # ProviderUnavailableError with retry_after (not RateLimitError)
-        error = ProviderUnavailableError(
-            "overloaded", retryable=True, retry_after=0.05
-        )
+        error = ProviderUnavailableError("overloaded", retryable=True, retry_after=0.05)
         operation = AsyncMock(side_effect=[error, "ok"])
         config = RetryConfig(
             max_retries=3,

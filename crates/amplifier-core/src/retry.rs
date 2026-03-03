@@ -124,9 +124,13 @@ pub fn compute_delay(
     // (2) Cap at max_delay
     delay = delay.min(config.max_delay);
 
-    // (3) Apply delay_multiplier — intentionally can exceed max_delay
+    // (3) Apply delay_multiplier — intentionally can exceed max_delay.
+    // Ignore non-finite (NaN, inf) and non-positive values to prevent
+    // downstream sleep() receiving NaN or a negative duration.
     if let Some(mult) = delay_multiplier {
-        delay *= mult;
+        if mult.is_finite() && mult > 0.0 {
+            delay *= mult;
+        }
     }
 
     // (4) Respect retry_after (floor)
@@ -389,5 +393,56 @@ mod tests {
         // attempt 2: base = 1.0 * 2^2 = 4.0, *10.0 = 40.0, retry_after = 5.0 → max(40.0, 5.0) = 40.0
         let d = compute_delay(&config, 2, Some(5.0), Some(10.0));
         assert!((d - 40.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_compute_delay_nan_multiplier_ignored() {
+        let config = RetryConfig {
+            jitter: false,
+            ..RetryConfig::default()
+        };
+        // NaN multiplier should be treated as None (no multiplier applied)
+        let d_nan = compute_delay(&config, 1, None, Some(f64::NAN));
+        let d_none = compute_delay(&config, 1, None, None);
+        assert!(
+            (d_nan - d_none).abs() < f64::EPSILON,
+            "NaN multiplier should give same result as None: {d_nan} vs {d_none}"
+        );
+    }
+
+    #[test]
+    fn test_compute_delay_nonpositive_multiplier_ignored() {
+        let config = RetryConfig {
+            jitter: false,
+            ..RetryConfig::default()
+        };
+        let d_none = compute_delay(&config, 1, None, None);
+        // Zero multiplier should be ignored
+        let d_zero = compute_delay(&config, 1, None, Some(0.0));
+        assert!(
+            (d_zero - d_none).abs() < f64::EPSILON,
+            "Zero multiplier should be ignored: {d_zero} vs {d_none}"
+        );
+        // Negative multiplier should be ignored
+        let d_neg = compute_delay(&config, 1, None, Some(-2.0));
+        assert!(
+            (d_neg - d_none).abs() < f64::EPSILON,
+            "Negative multiplier should be ignored: {d_neg} vs {d_none}"
+        );
+    }
+
+    #[test]
+    fn test_compute_delay_infinite_multiplier_ignored() {
+        let config = RetryConfig {
+            jitter: false,
+            ..RetryConfig::default()
+        };
+        let d_none = compute_delay(&config, 1, None, None);
+        // Infinite multiplier should be ignored
+        let d_inf = compute_delay(&config, 1, None, Some(f64::INFINITY));
+        assert!(
+            (d_inf - d_none).abs() < f64::EPSILON,
+            "Infinite multiplier should be ignored: {d_inf} vs {d_none}"
+        );
     }
 }
