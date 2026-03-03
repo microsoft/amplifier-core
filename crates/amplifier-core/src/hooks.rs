@@ -1006,4 +1006,17 @@ mod tests {
         registry.emit("tool:pre", serde_json::json!({})).await;
         assert_eq!(counter.call_count(), 1);
     }
+
+    /// Verify that the `log` crate is available and usable from amplifier-core.
+    /// This ensures Rust code can emit structured log messages that will be
+    /// routed through Python's logging module via pyo3-log in the bindings.
+    #[test]
+    fn log_crate_is_available() {
+        // These should compile and not panic — they are no-ops without a logger installed
+        log::trace!("trace from amplifier_core::hooks test");
+        log::debug!("debug from amplifier_core::hooks test");
+        log::info!("info from amplifier_core::hooks test");
+        log::warn!("warn from amplifier_core::hooks test");
+        log::error!("error from amplifier_core::hooks test");
+    }
 }
