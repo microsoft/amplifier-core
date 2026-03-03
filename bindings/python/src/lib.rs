@@ -743,29 +743,11 @@ impl PySession {
                             });
                             if let Some(Ok(future)) = future_result {
                                 if let Err(e) = future.await {
-                                    let _ = Python::try_attach(|py| -> PyResult<()> {
-                                        let logging = py.import("logging")?;
-                                        let logger = logging.call_method1(
-                                            "getLogger",
-                                            ("amplifier_core.session",),
-                                        )?;
-                                        let _ = logger.call_method1(
-                                            "error",
-                                            (format!("Error during cleanup: {e}"),),
-                                        );
-                                        Ok(())
-                                    });
+                                    log::error!("Error during cleanup: {e}");
                                 }
                             }
                         } else if let Some(Err(e)) = coro_result {
-                            let _ = Python::try_attach(|py| -> PyResult<()> {
-                                let logging = py.import("logging")?;
-                                let logger = logging
-                                    .call_method1("getLogger", ("amplifier_core.session",))?;
-                                let _ = logger
-                                    .call_method1("error", (format!("Error during cleanup: {e}"),));
-                                Ok(())
-                            });
+                            log::error!("Error during cleanup: {e}");
                         }
                     } else {
                         // Sync cleanup: call and check if result is a coroutine
@@ -791,18 +773,7 @@ impl PySession {
                                 });
                                 if let Some(Ok(future)) = future_result {
                                     if let Err(e) = future.await {
-                                        let _ = Python::try_attach(|py| -> PyResult<()> {
-                                            let logging = py.import("logging")?;
-                                            let logger = logging.call_method1(
-                                                "getLogger",
-                                                ("amplifier_core.session",),
-                                            )?;
-                                            let _ = logger.call_method1(
-                                                "error",
-                                                (format!("Error during cleanup: {e}"),),
-                                            );
-                                            Ok(())
-                                        });
+                                        log::error!("Error during cleanup: {e}");
                                     }
                                 }
                             }
@@ -810,16 +781,7 @@ impl PySession {
                                 // Sync call completed successfully
                             }
                             Some(Err(e)) => {
-                                let _ = Python::try_attach(|py| -> PyResult<()> {
-                                    let logging = py.import("logging")?;
-                                    let logger = logging
-                                        .call_method1("getLogger", ("amplifier_core.session",))?;
-                                    let _ = logger.call_method1(
-                                        "error",
-                                        (format!("Error during cleanup: {e}"),),
-                                    );
-                                    Ok(())
-                                });
+                                log::error!("Error during cleanup: {e}");
                             }
                             None => {
                                 // Failed to attach to Python runtime — skip
@@ -1779,29 +1741,11 @@ impl PyCoordinator {
                             });
                             if let Some(Ok(future)) = future_result {
                                 if let Err(e) = future.await {
-                                    let _ = Python::try_attach(|py| -> PyResult<()> {
-                                        let logging = py.import("logging")?;
-                                        let logger = logging.call_method1(
-                                            "getLogger",
-                                            ("amplifier_core.coordinator",),
-                                        )?;
-                                        let _ = logger.call_method1(
-                                            "error",
-                                            (format!("Error during cleanup: {e}"),),
-                                        );
-                                        Ok(())
-                                    });
+                                    log::error!("Error during cleanup: {e}");
                                 }
                             }
                         } else if let Some(Err(e)) = coro_result {
-                            let _ = Python::try_attach(|py| -> PyResult<()> {
-                                let logging = py.import("logging")?;
-                                let logger = logging
-                                    .call_method1("getLogger", ("amplifier_core.coordinator",))?;
-                                let _ = logger
-                                    .call_method1("error", (format!("Error during cleanup: {e}"),));
-                                Ok(())
-                            });
+                            log::error!("Error during cleanup: {e}");
                         }
                     } else {
                         // Sync cleanup: call and check if result is a coroutine
@@ -1826,18 +1770,7 @@ impl PyCoordinator {
                                 });
                                 if let Some(Ok(future)) = future_result {
                                     if let Err(e) = future.await {
-                                        let _ = Python::try_attach(|py| -> PyResult<()> {
-                                            let logging = py.import("logging")?;
-                                            let logger = logging.call_method1(
-                                                "getLogger",
-                                                ("amplifier_core.coordinator",),
-                                            )?;
-                                            let _ = logger.call_method1(
-                                                "error",
-                                                (format!("Error during cleanup: {e}"),),
-                                            );
-                                            Ok(())
-                                        });
+                                        log::error!("Error during cleanup: {e}");
                                     }
                                 }
                             }
@@ -1845,18 +1778,7 @@ impl PyCoordinator {
                                 // Sync call completed successfully
                             }
                             Some(Err(e)) => {
-                                let _ = Python::try_attach(|py| -> PyResult<()> {
-                                    let logging = py.import("logging")?;
-                                    let logger = logging.call_method1(
-                                        "getLogger",
-                                        ("amplifier_core.coordinator",),
-                                    )?;
-                                    let _ = logger.call_method1(
-                                        "error",
-                                        (format!("Error during cleanup: {e}"),),
-                                    );
-                                    Ok(())
-                                });
+                                log::error!("Error during cleanup: {e}");
                             }
                             None => {}
                         }
