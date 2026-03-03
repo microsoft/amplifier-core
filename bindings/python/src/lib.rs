@@ -41,6 +41,15 @@ fn wrap_future_as_coroutine<'py>(
     wrapper.call1((&future,))
 }
 
+/// Try `model_dump()` on a Python object (Pydantic BaseModel → dict).
+/// Falls back to the original object reference if not a Pydantic model.
+fn try_model_dump<'py>(obj: &Bound<'py, PyAny>) -> Bound<'py, PyAny> {
+    match obj.call_method0("model_dump") {
+        Ok(dict) => dict,
+        Err(_) => obj.clone(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // PyHookHandlerBridge — wraps a Python callable as a Rust HookHandler
 // ---------------------------------------------------------------------------
@@ -140,11 +149,7 @@ impl HookHandler for PyHookHandlerBridge {
                     return Ok("{}".to_string());
                 }
                 let json_mod = py.import("json")?;
-                // Try model_dump() first (Pydantic BaseModel → dict), then json.dumps
-                let serializable = match bound.call_method0("model_dump") {
-                    Ok(dict) => dict,
-                    Err(_) => bound.clone(), // Not a Pydantic model — pass through
-                };
+                let serializable = try_model_dump(bound);
                 let json_str: String = json_mod
                     .call_method1("dumps", (&serializable,))?
                     .extract()
@@ -956,11 +961,7 @@ impl PyHookRegistry {
         let inner = self.inner.clone();
         // Convert Python data to serde_json::Value
         let json_mod = py.import("json")?;
-        // Try model_dump() first (Pydantic BaseModel → dict), then json.dumps
-        let serializable = match data.call_method0("model_dump") {
-            Ok(dict) => dict,
-            Err(_) => data.clone(), // Not a Pydantic model — pass through
-        };
+        let serializable = try_model_dump(&data);
         let json_str: String = json_mod.call_method1("dumps", (&serializable,))?.extract()?;
         let value: Value = serde_json::from_str(&json_str)
             .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}")))?;
@@ -1064,11 +1065,7 @@ impl PyHookRegistry {
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner.clone();
         let json_mod = py.import("json")?;
-        // Try model_dump() first (Pydantic BaseModel → dict), then json.dumps
-        let serializable = match data.call_method0("model_dump") {
-            Ok(dict) => dict,
-            Err(_) => data.clone(), // Not a Pydantic model — pass through
-        };
+        let serializable = try_model_dump(&data);
         let json_str: String = json_mod.call_method1("dumps", (&serializable,))?.extract()?;
         let value: Value = serde_json::from_str(&json_str)
             .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}")))?;
@@ -1378,11 +1375,7 @@ impl PyCoordinator {
                 let cfg = sess.getattr("config")?;
                 let rc: HashMap<String, Value> = {
                     let json_mod = py.import("json")?;
-                    // Try model_dump() first (Pydantic BaseModel → dict), then json.dumps
-                    let serializable = match cfg.call_method0("model_dump") {
-                        Ok(dict) => dict,
-                        Err(_) => cfg.clone(), // Not a Pydantic model — pass through
-                    };
+                    let serializable = try_model_dump(&cfg);
                     let json_str: String = json_mod.call_method1("dumps", (&serializable,))?.extract()?;
                     serde_json::from_str(&json_str).unwrap_or_default()
                 };
