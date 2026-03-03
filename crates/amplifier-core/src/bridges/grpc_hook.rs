@@ -90,28 +90,27 @@ impl GrpcHookBridge {
             Some(proto.context_injection)
         };
 
-        let context_injection_role = match amplifier_module::ContextInjectionRole::try_from(
-            proto.context_injection_role,
-        ) {
-            Ok(amplifier_module::ContextInjectionRole::System) => {
-                models::ContextInjectionRole::System
-            }
-            Ok(amplifier_module::ContextInjectionRole::User) => {
-                models::ContextInjectionRole::User
-            }
-            Ok(amplifier_module::ContextInjectionRole::Assistant) => {
-                models::ContextInjectionRole::Assistant
-            }
-            Ok(amplifier_module::ContextInjectionRole::Unspecified) | Err(_) => {
-                if proto.context_injection_role != 0 {
-                    log::warn!(
-                        "Unknown context injection role variant {}, defaulting to System",
-                        proto.context_injection_role
-                    );
+        let context_injection_role =
+            match amplifier_module::ContextInjectionRole::try_from(proto.context_injection_role) {
+                Ok(amplifier_module::ContextInjectionRole::System) => {
+                    models::ContextInjectionRole::System
                 }
-                models::ContextInjectionRole::System
-            }
-        };
+                Ok(amplifier_module::ContextInjectionRole::User) => {
+                    models::ContextInjectionRole::User
+                }
+                Ok(amplifier_module::ContextInjectionRole::Assistant) => {
+                    models::ContextInjectionRole::Assistant
+                }
+                Ok(amplifier_module::ContextInjectionRole::Unspecified) | Err(_) => {
+                    if proto.context_injection_role != 0 {
+                        log::warn!(
+                            "Unknown context injection role variant {}, defaulting to System",
+                            proto.context_injection_role
+                        );
+                    }
+                    models::ContextInjectionRole::System
+                }
+            };
 
         let approval_prompt = if proto.approval_prompt.is_empty() {
             None
@@ -125,21 +124,20 @@ impl GrpcHookBridge {
             Some(proto.approval_options)
         };
 
-        let approval_default = match amplifier_module::ApprovalDefault::try_from(
-            proto.approval_default,
-        ) {
-            Ok(amplifier_module::ApprovalDefault::Approve) => models::ApprovalDefault::Allow,
-            Ok(amplifier_module::ApprovalDefault::Deny) => models::ApprovalDefault::Deny,
-            Ok(amplifier_module::ApprovalDefault::Unspecified) | Err(_) => {
-                if proto.approval_default != 0 {
-                    log::warn!(
-                        "Unknown approval default variant {}, defaulting to Deny",
-                        proto.approval_default
-                    );
+        let approval_default =
+            match amplifier_module::ApprovalDefault::try_from(proto.approval_default) {
+                Ok(amplifier_module::ApprovalDefault::Approve) => models::ApprovalDefault::Allow,
+                Ok(amplifier_module::ApprovalDefault::Deny) => models::ApprovalDefault::Deny,
+                Ok(amplifier_module::ApprovalDefault::Unspecified) | Err(_) => {
+                    if proto.approval_default != 0 {
+                        log::warn!(
+                            "Unknown approval default variant {}, defaulting to Deny",
+                            proto.approval_default
+                        );
+                    }
+                    models::ApprovalDefault::Deny
                 }
-                models::ApprovalDefault::Deny
-            }
-        };
+            };
 
         let user_message = if proto.user_message.is_empty() {
             None
@@ -147,22 +145,23 @@ impl GrpcHookBridge {
             Some(proto.user_message)
         };
 
-        let user_message_level = match amplifier_module::UserMessageLevel::try_from(
-            proto.user_message_level,
-        ) {
-            Ok(amplifier_module::UserMessageLevel::Info) => models::UserMessageLevel::Info,
-            Ok(amplifier_module::UserMessageLevel::Warning) => models::UserMessageLevel::Warning,
-            Ok(amplifier_module::UserMessageLevel::Error) => models::UserMessageLevel::Error,
-            Ok(amplifier_module::UserMessageLevel::Unspecified) | Err(_) => {
-                if proto.user_message_level != 0 {
-                    log::warn!(
-                        "Unknown user message level variant {}, defaulting to Info",
-                        proto.user_message_level
-                    );
+        let user_message_level =
+            match amplifier_module::UserMessageLevel::try_from(proto.user_message_level) {
+                Ok(amplifier_module::UserMessageLevel::Info) => models::UserMessageLevel::Info,
+                Ok(amplifier_module::UserMessageLevel::Warning) => {
+                    models::UserMessageLevel::Warning
                 }
-                models::UserMessageLevel::Info
-            }
-        };
+                Ok(amplifier_module::UserMessageLevel::Error) => models::UserMessageLevel::Error,
+                Ok(amplifier_module::UserMessageLevel::Unspecified) | Err(_) => {
+                    if proto.user_message_level != 0 {
+                        log::warn!(
+                            "Unknown user message level variant {}, defaulting to Info",
+                            proto.user_message_level
+                        );
+                    }
+                    models::UserMessageLevel::Info
+                }
+            };
 
         let user_message_source = if proto.user_message_source.is_empty() {
             None
@@ -312,17 +311,26 @@ mod tests {
         let mut proto = default_proto_hook_result();
         proto.context_injection_role = amplifier_module::ContextInjectionRole::System as i32;
         let result = GrpcHookBridge::proto_to_native_hook_result(proto);
-        assert_eq!(result.context_injection_role, models::ContextInjectionRole::System);
+        assert_eq!(
+            result.context_injection_role,
+            models::ContextInjectionRole::System
+        );
 
         let mut proto = default_proto_hook_result();
         proto.context_injection_role = amplifier_module::ContextInjectionRole::User as i32;
         let result = GrpcHookBridge::proto_to_native_hook_result(proto);
-        assert_eq!(result.context_injection_role, models::ContextInjectionRole::User);
+        assert_eq!(
+            result.context_injection_role,
+            models::ContextInjectionRole::User
+        );
 
         let mut proto = default_proto_hook_result();
         proto.context_injection_role = amplifier_module::ContextInjectionRole::Assistant as i32;
         let result = GrpcHookBridge::proto_to_native_hook_result(proto);
-        assert_eq!(result.context_injection_role, models::ContextInjectionRole::Assistant);
+        assert_eq!(
+            result.context_injection_role,
+            models::ContextInjectionRole::Assistant
+        );
     }
 
     #[test]
@@ -330,7 +338,10 @@ mod tests {
         let mut proto = default_proto_hook_result();
         proto.context_injection_role = 99;
         let result = GrpcHookBridge::proto_to_native_hook_result(proto);
-        assert_eq!(result.context_injection_role, models::ContextInjectionRole::System);
+        assert_eq!(
+            result.context_injection_role,
+            models::ContextInjectionRole::System
+        );
     }
 
     #[test]
@@ -387,8 +398,7 @@ mod tests {
         let mut proto = default_proto_hook_result();
         proto.data_json = r#"{"key": "value"}"#.to_string();
         let result = GrpcHookBridge::proto_to_native_hook_result(proto);
-        let expected: HashMap<String, Value> =
-            serde_json::from_str(r#"{"key": "value"}"#).unwrap();
+        let expected: HashMap<String, Value> = serde_json::from_str(r#"{"key": "value"}"#).unwrap();
         assert_eq!(result.data, Some(expected));
     }
 

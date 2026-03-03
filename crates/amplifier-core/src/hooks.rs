@@ -1205,10 +1205,7 @@ mod tests {
         );
 
         let result = registry
-            .emit(
-                "test:modify_no_warn",
-                serde_json::json!({"original": true}),
-            )
+            .emit("test:modify_no_warn", serde_json::json!({"original": true}))
             .await;
 
         // Modification must still work

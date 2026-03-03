@@ -44,9 +44,7 @@ impl ToolService for EchoToolService {
 }
 
 /// Helper: bind to random port, spawn gRPC server, return address string.
-async fn spawn_tool_server(
-    svc: ToolServiceServer<impl ToolService>,
-) -> String {
+async fn spawn_tool_server(svc: ToolServiceServer<impl ToolService>) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
@@ -189,7 +187,8 @@ async fn grpc_tool_round_trip() -> Result<(), Box<dyn std::error::Error + Send +
 /// P1-13: Connect succeeds with invalid (non-empty) parameters_json — parameters
 /// fall back to empty map and a warning is logged (logging verified by code review).
 #[tokio::test]
-async fn grpc_tool_invalid_parameters_json_falls_back_to_empty() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn grpc_tool_invalid_parameters_json_falls_back_to_empty(
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let endpoint = spawn_tool_server(ToolServiceServer::new(InvalidParamsToolService)).await;
 
     let bridge = GrpcToolBridge::connect(&endpoint).await?;
@@ -197,7 +196,10 @@ async fn grpc_tool_invalid_parameters_json_falls_back_to_empty() -> Result<(), B
     assert_eq!(bridge.name(), "bad_params");
     // Parameters should be empty despite invalid JSON.
     let spec = bridge.get_spec();
-    assert!(spec.parameters.is_empty(), "invalid parameters_json should fall back to empty map");
+    assert!(
+        spec.parameters.is_empty(),
+        "invalid parameters_json should fall back to empty map"
+    );
 
     Ok(())
 }
@@ -205,7 +207,8 @@ async fn grpc_tool_invalid_parameters_json_falls_back_to_empty() -> Result<(), B
 /// P1-12: Execute gracefully handles non-JSON output bytes — output is None
 /// and a warning is logged (logging verified by code review).
 #[tokio::test]
-async fn grpc_tool_binary_output_returns_none() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn grpc_tool_binary_output_returns_none(
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let endpoint = spawn_tool_server(ToolServiceServer::new(BinaryOutputToolService)).await;
 
     let bridge = GrpcToolBridge::connect(&endpoint).await?;
@@ -214,7 +217,10 @@ async fn grpc_tool_binary_output_returns_none() -> Result<(), Box<dyn std::error
     let result = bridge.execute(input).await?;
 
     assert!(result.success);
-    assert_eq!(result.output, None, "non-JSON output bytes should result in None");
+    assert_eq!(
+        result.output, None,
+        "non-JSON output bytes should result in None"
+    );
 
     Ok(())
 }
@@ -222,7 +228,8 @@ async fn grpc_tool_binary_output_returns_none() -> Result<(), Box<dyn std::error
 /// P1-14: Execute succeeds when tool returns non-JSON content_type with valid JSON
 /// output — a warning is logged but parsing proceeds.
 #[tokio::test]
-async fn grpc_tool_non_json_content_type_still_parses() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn grpc_tool_non_json_content_type_still_parses(
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let endpoint = spawn_tool_server(ToolServiceServer::new(NonJsonContentTypeToolService)).await;
 
     let bridge = GrpcToolBridge::connect(&endpoint).await?;
