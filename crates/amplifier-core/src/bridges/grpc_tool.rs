@@ -132,8 +132,8 @@ impl Tool for GrpcToolBridge {
 
             if !resp.content_type.is_empty() && resp.content_type != CONTENT_TYPE_JSON {
                 log::warn!(
-                    "Tool response has content_type '{}' but only 'application/json' is supported — parsing as JSON anyway",
-                    resp.content_type
+                    "Tool response has content_type '{}' but only '{}' is supported — parsing as JSON anyway",
+                    resp.content_type, CONTENT_TYPE_JSON
                 );
             }
 
