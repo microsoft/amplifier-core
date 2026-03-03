@@ -215,6 +215,32 @@ impl Coordinator {
         self.capabilities.lock().unwrap().keys().cloned().collect()
     }
 
+    /// Return a JSON-compatible dict of all coordinator state for serialization/introspection.
+    ///
+    /// Returns a `HashMap` with keys: `tools`, `providers`, `has_orchestrator`,
+    /// `has_context`, `capabilities` — matching the universal Coordinator API.
+    pub fn to_dict(&self) -> HashMap<String, serde_json::Value> {
+        let mut dict = HashMap::new();
+        dict.insert("tools".to_string(), serde_json::json!(self.tool_names()));
+        dict.insert(
+            "providers".to_string(),
+            serde_json::json!(self.provider_names()),
+        );
+        dict.insert(
+            "has_orchestrator".to_string(),
+            serde_json::json!(self.has_orchestrator()),
+        );
+        dict.insert(
+            "has_context".to_string(),
+            serde_json::json!(self.has_context()),
+        );
+        dict.insert(
+            "capabilities".to_string(),
+            serde_json::json!(self.capability_names()),
+        );
+        dict
+    }
+
     // -- Subsystem accessors --
 
     /// Reference to the hook registry.
@@ -629,5 +655,29 @@ mod tests {
         assert!(!coord.cancellation().is_cancelled());
         coord.cancellation().request_graceful();
         assert!(coord.cancellation().is_graceful());
+    }
+
+    #[test]
+    fn to_dict_includes_all_mount_points() {
+        let coord = Coordinator::new_for_test();
+        let dict = coord.to_dict();
+        assert!(dict.contains_key("tools"));
+        assert!(dict.contains_key("providers"));
+        assert!(dict.contains_key("has_orchestrator"));
+        assert!(dict.contains_key("has_context"));
+        assert!(dict.contains_key("capabilities"));
+    }
+
+    #[test]
+    fn to_dict_reflects_mounted_state() {
+        let coord = Coordinator::new_for_test();
+        let tool = Arc::new(FakeTool::new("echo", "echoes"));
+        coord.mount_tool("echo", tool);
+        coord.register_capability("streaming", serde_json::json!(true));
+        let dict = coord.to_dict();
+        let tools = dict["tools"].as_array().unwrap();
+        assert!(tools.contains(&serde_json::json!("echo")));
+        let caps = dict["capabilities"].as_array().unwrap();
+        assert!(caps.contains(&serde_json::json!("streaming")));
     }
 }
