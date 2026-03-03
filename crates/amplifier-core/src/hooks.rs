@@ -213,7 +213,7 @@ impl HookRegistry {
                 Ok(r) => r,
                 Err(e) => {
                     // Error in handler -- log and continue (matches Python behaviour).
-                    eprintln!(
+                    log::error!(
                         "Hook handler error for event '{}' (handler '{}'): {e}",
                         event, name
                     );
@@ -1018,5 +1018,82 @@ mod tests {
         log::info!("info from amplifier_core::hooks test");
         log::warn!("warn from amplifier_core::hooks test");
         log::error!("error from amplifier_core::hooks test");
+    }
+
+    // ---------------------------------------------------------------
+    // Handler error logging via `log` crate (not eprintln!)
+    // ---------------------------------------------------------------
+
+    use std::sync::OnceLock;
+
+    /// A simple test logger that captures log messages for assertion.
+    struct TestLogger;
+
+    static LOG_MESSAGES: OnceLock<Mutex<Vec<(log::Level, String)>>> = OnceLock::new();
+
+    impl log::Log for TestLogger {
+        fn enabled(&self, _metadata: &log::Metadata) -> bool {
+            true
+        }
+        fn log(&self, record: &log::Record) {
+            let messages = LOG_MESSAGES.get_or_init(|| Mutex::new(Vec::new()));
+            messages
+                .lock()
+                .unwrap()
+                .push((record.level(), format!("{}", record.args())));
+        }
+        fn flush(&self) {}
+    }
+
+    static TEST_LOGGER: TestLogger = TestLogger;
+
+    fn install_test_logger() {
+        // set_logger is one-shot per process; ignore AlreadySet errors
+        let _ = log::set_logger(&TEST_LOGGER).map(|()| log::set_max_level(log::LevelFilter::Trace));
+    }
+
+    fn clear_captured_logs() {
+        if let Some(msgs) = LOG_MESSAGES.get() {
+            msgs.lock().unwrap().clear();
+        }
+    }
+
+    fn get_captured_logs() -> Vec<(log::Level, String)> {
+        LOG_MESSAGES
+            .get_or_init(|| Mutex::new(Vec::new()))
+            .lock()
+            .unwrap()
+            .clone()
+    }
+
+    #[tokio::test]
+    async fn handler_error_logs_via_log_error() {
+        install_test_logger();
+        clear_captured_logs();
+
+        let registry = HookRegistry::new();
+        let failing = Arc::new(FailingHandler);
+        registry.register(
+            "test:log_error_event",
+            failing,
+            0,
+            Some("failing-handler".into()),
+        );
+
+        registry
+            .emit("test:log_error_event", serde_json::json!({}))
+            .await;
+
+        let logs = get_captured_logs();
+        // The error message must go through log::error!, not eprintln!
+        assert!(
+            logs.iter().any(|(level, msg)| {
+                *level == log::Level::Error
+                    && msg.contains("Hook handler error")
+                    && msg.contains("failing-handler")
+            }),
+            "Expected log::error! message about hook handler error, got: {:?}",
+            logs
+        );
     }
 }

@@ -161,7 +161,7 @@ impl HookHandler for PyHookHandlerBridge {
             })?;
 
             let hook_result: HookResult = serde_json::from_str(&result_json).unwrap_or_else(|e| {
-                eprintln!(
+                log::warn!(
                     "Failed to parse hook handler result JSON (defaulting to Continue): {e} — json: {result_json}"
                 );
                 HookResult::default()
@@ -1303,7 +1303,7 @@ impl PyCancellationToken {
                             // Sync callback completed successfully
                         }
                         Some(Err(e)) => {
-                            eprintln!("Error in cancellation callback: {e}");
+                            log::error!("Error in cancellation callback: {e}");
                         }
                         None => {
                             // Failed to attach to Python runtime — skip
