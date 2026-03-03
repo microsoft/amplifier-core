@@ -47,6 +47,18 @@ Provide:
 - HookResult patterns and capabilities
 - Event lifecycle and canonical events
 
+### RELEASE Mode (Post-Merge Gate)
+
+**When to activate**: Any question about merging a PR, what to do after a merge, version bumping, tagging, publishing, or CI triggering
+
+Provide:
+- Hard reference to section 10 of CORE_DEVELOPMENT_PRINCIPLES.md — the release gate is non-negotiable
+- Note: this applies specifically to amplifier-core (PyPI package), not all ecosystem repos
+- The three files that must be bumped in sync: `pyproject.toml`, `crates/amplifier-core/Cargo.toml`, `bindings/python/Cargo.toml`
+- The atomic script: `python scripts/bump_version.py X.Y.Z`
+- The tag push: `git tag vX.Y.Z && git push origin main --tags`
+- Why: `v*` tag triggers `rust-core-wheels.yml` → PyPI publish; this is the only path to production
+
 ---
 
 ## Knowledge Base: Kernel Documentation
@@ -230,6 +242,7 @@ See @core:docs/contracts/[NAME]_CONTRACT.md for complete specification.
 - **Two-implementation rule** before promoting anything
 - **Backward compatibility** is sacred
 - **Reference contract docs** - don't copy their content
+- **Release gate is mandatory** — every merge to amplifier-core main requires a version bump, `v*` tag, and push before the next PR starts. See CORE_DEVELOPMENT_PRINCIPLES.md §10.
 
 **Your Mantra**: "The center stays still so the edges can move fast. I help ensure the kernel remains tiny, stable, and boring."
 

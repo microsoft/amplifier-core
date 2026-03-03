@@ -159,10 +159,60 @@ This guarantee does NOT mean we can't evolve. It means evolution is additive —
 
 ---
 
-## 10. What NOT to Do
+## 10. The Release Gate: Every Merge Gets a Release
+
+**Every PR merged to `amplifier-core` main MUST be immediately followed by a version bump, release commit, `v{version}` tag, and tag push. No exceptions.**
+
+This rule exists because `amplifier-core` occupies a unique position in the ecosystem: it is the **only repo published to PyPI**. The failure mode is concrete and was observed in production:
+
+- Users install `amplifier-core` from PyPI and get a pinned version (e.g., v1.0.7).
+- Downstream modules (`amplifier-module-*`, provider repos) install from git and track `main` directly.
+- A PR merges to `main` that changes the API. No release is cut. PyPI still serves v1.0.7.
+- Any user who installs or updates a module that tracks the new API now has a version skew. It breaks silently or with a confusing error.
+
+**This happened.** Commit `580ecc0` ("eliminate Python RetryConfig") merged on March 3, 2026 without a release. `provider-anthropic` was updated to use `initial_delay` instead of `min_delay`. All v1.0.7 PyPI users broke immediately. An emergency v1.0.8 hotfix was required.
+
+### Scope: amplifier-core Only
+
+This rule applies **specifically to amplifier-core** because of its PyPI distribution. Other ecosystem repos — `amplifier-module-*`, `amplifier-bundle-*`, `amplifier-app-*`, provider repos — currently use `git+https` references for Python. Individual repo authors choose their own release process for those repos. Do not apply this mandate to them.
+
+### The Release Checklist (Every Merge)
+
+1. **Determine the version increment** (semver rules):
+   - PATCH (`X.Y.Z+1`) — bug fixes, no API changes
+   - MINOR (`X.Y+1.0`) — additive API additions (new fields, new methods, backward compatible)
+   - MAJOR (`X+1.0.0`) — breaking API changes (removed fields, changed signatures)
+
+2. **Bump all three version files atomically** using the script:
+   ```bash
+   python scripts/bump_version.py X.Y.Z
+   ```
+   This updates in sync:
+   - `pyproject.toml` (line 3)
+   - `crates/amplifier-core/Cargo.toml` (line 3)
+   - `bindings/python/Cargo.toml` (line 3)
+
+3. **Commit, tag, and push:**
+   ```bash
+   git commit -am "chore: bump version to X.Y.Z"
+   git tag vX.Y.Z
+   git push origin main --tags
+   ```
+
+4. **Verify CI triggers.** The `v*` tag triggers `rust-core-wheels.yml`, which builds wheels for all platforms (Linux x86/aarch64, macOS, Windows) and publishes to PyPI. The next PR does not start until PyPI publish is confirmed.
+
+### Why the Script Exists
+
+The three version files must stay in sync. Manual edits to individual files are error-prone and caused divergence in the past. `scripts/bump_version.py` reads all three, warns if they are already out of sync (canary for prior manual edits), and writes all three atomically.
+
+---
+
+## 11. What NOT to Do
 
 | Anti-pattern | Why |
 |-------------|-----|
+| Merge to main without cutting a release | amplifier-core is on PyPI. git HEAD and PyPI diverge immediately. Any module that tracks main and uses the new API will break all PyPI users until a release is cut. See §10. |
+| Bump version files individually by hand | The three version files must stay in sync. Manual edits drift. Use `python scripts/bump_version.py X.Y.Z`. |
 | Add Python-only features to the kernel | The kernel is Rust. Python-specific behavior belongs in the PyO3 bridge or in Python wrapper classes. |
 | Use `unsafe` without a justifying comment | `unsafe` exists for FFI boundaries (PyO3). Every other use requires explicit justification. |
 | Add dependencies without measuring compile-time impact | Run `cargo build --timings` before and after. Every dependency adds to CI and contributor build times. |
