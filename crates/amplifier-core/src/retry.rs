@@ -102,21 +102,45 @@ pub fn classify_error_message(message: &str) -> &'static str {
 /// * `config` — Retry configuration.
 /// * `attempt` — Zero-based attempt number (0 = first retry).
 /// * `retry_after` — Optional server-provided retry-after hint in seconds.
-pub fn compute_delay(config: &RetryConfig, attempt: u32, retry_after: Option<f64>) -> f64 {
-    // Exponential backoff: initial_delay * backoff_factor^attempt
+/// * `delay_multiplier` — Optional per-error multiplier (e.g. 10.0 for overloaded servers).
+///   Applied after the max_delay cap so it can intentionally exceed it.
+///
+/// # Order of operations
+///
+/// 1. **Base delay**: `initial_delay * backoff_factor^attempt`
+/// 2. **Cap**: `min(delay, max_delay)`
+/// 3. **Multiplier**: `delay * delay_multiplier` (can intentionally exceed `max_delay`)
+/// 4. **Server hint**: `max(delay, retry_after)` used as a floor when `honor_retry_after` is true
+/// 5. **Jitter**: `delay * random[0.5, 1.5)` when `jitter` is true
+pub fn compute_delay(
+    config: &RetryConfig,
+    attempt: u32,
+    retry_after: Option<f64>,
+    delay_multiplier: Option<f64>,
+) -> f64 {
+    // (1) Exponential backoff: initial_delay * backoff_factor^attempt
     let mut delay = config.initial_delay * config.backoff_factor.powi(attempt as i32);
 
-    // Cap at max_delay
+    // (2) Cap at max_delay
     delay = delay.min(config.max_delay);
 
-    // Respect retry_after (floor)
+    // (3) Apply delay_multiplier — intentionally can exceed max_delay.
+    // Ignore non-finite (NaN, inf) and non-positive values to prevent
+    // downstream sleep() receiving NaN or a negative duration.
+    if let Some(mult) = delay_multiplier {
+        if mult.is_finite() && mult > 0.0 {
+            delay *= mult;
+        }
+    }
+
+    // (4) Respect retry_after (floor)
     if config.honor_retry_after {
         if let Some(ra) = retry_after {
             delay = delay.max(ra);
         }
     }
 
-    // Add jitter: multiply by random factor in [0.5, 1.5)
+    // (5) Add jitter: multiply by random factor in [0.5, 1.5)
     if config.jitter {
         use rand::Rng;
         let mut rng = rand::thread_rng();
@@ -244,15 +268,15 @@ mod tests {
         };
 
         // attempt 0: initial_delay * 2^0 = 1.0
-        let d0 = compute_delay(&config, 0, None);
+        let d0 = compute_delay(&config, 0, None, None);
         assert!((d0 - 1.0).abs() < f64::EPSILON);
 
         // attempt 1: initial_delay * 2^1 = 2.0
-        let d1 = compute_delay(&config, 1, None);
+        let d1 = compute_delay(&config, 1, None, None);
         assert!((d1 - 2.0).abs() < f64::EPSILON);
 
         // attempt 2: initial_delay * 2^2 = 4.0
-        let d2 = compute_delay(&config, 2, None);
+        let d2 = compute_delay(&config, 2, None, None);
         assert!((d2 - 4.0).abs() < f64::EPSILON);
     }
 
@@ -265,7 +289,7 @@ mod tests {
         };
 
         // attempt 5: 1.0 * 2^5 = 32.0, but capped at 10.0
-        let d = compute_delay(&config, 5, None);
+        let d = compute_delay(&config, 5, None, None);
         assert!((d - 10.0).abs() < f64::EPSILON);
     }
 
@@ -277,7 +301,7 @@ mod tests {
         };
 
         // attempt 0: base delay = 1.0, retry_after = 5.0 → max(1.0, 5.0) = 5.0
-        let d = compute_delay(&config, 0, Some(5.0));
+        let d = compute_delay(&config, 0, Some(5.0), None);
         assert!((d - 5.0).abs() < f64::EPSILON);
     }
 
@@ -290,7 +314,7 @@ mod tests {
         };
 
         // retry_after should be ignored
-        let d = compute_delay(&config, 0, Some(5.0));
+        let d = compute_delay(&config, 0, Some(5.0), None);
         assert!((d - 1.0).abs() < f64::EPSILON);
     }
 
@@ -304,9 +328,121 @@ mod tests {
         // With jitter, delay should be in [0.5 * base, 1.5 * base]
         // attempt 0: base = 1.0, so jittered ∈ [0.5, 1.5]
         for _ in 0..100 {
-            let d = compute_delay(&config, 0, None);
+            let d = compute_delay(&config, 0, None, None);
             assert!(d >= 0.5, "delay {d} below 0.5");
             assert!(d <= 1.5, "delay {d} above 1.5");
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // compute_delay with delay_multiplier
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_compute_delay_multiplier_scales_delay() {
+        let config = RetryConfig {
+            jitter: false,
+            ..RetryConfig::default()
+        };
+        // attempt 1: base = 1.0 * 2^1 = 2.0, mult 3.0 → 6.0
+        let d = compute_delay(&config, 1, None, Some(3.0));
+        assert!((d - 6.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_compute_delay_multiplier_after_cap() {
+        let config = RetryConfig {
+            max_delay: 10.0,
+            jitter: false,
+            ..RetryConfig::default()
+        };
+        // attempt 5: base = 1.0 * 2^5 = 32.0, capped at 10.0, then *10.0 = 100.0
+        let d = compute_delay(&config, 5, None, Some(10.0));
+        assert!((d - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_compute_delay_multiplier_identity() {
+        let config = RetryConfig {
+            jitter: false,
+            ..RetryConfig::default()
+        };
+        // multiplier 1.0 should equal None
+        let d_none = compute_delay(&config, 2, None, None);
+        let d_one = compute_delay(&config, 2, None, Some(1.0));
+        assert!((d_none - d_one).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_compute_delay_multiplier_with_retry_after() {
+        let config = RetryConfig {
+            jitter: false,
+            ..RetryConfig::default()
+        };
+        // attempt 0: base = 1.0, *2.0 = 2.0, retry_after = 5.0 → max(2.0, 5.0) = 5.0
+        let d = compute_delay(&config, 0, Some(5.0), Some(2.0));
+        assert!((d - 5.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_compute_delay_multiplier_beats_retry_after() {
+        let config = RetryConfig {
+            jitter: false,
+            ..RetryConfig::default()
+        };
+        // attempt 2: base = 1.0 * 2^2 = 4.0, *10.0 = 40.0, retry_after = 5.0 → max(40.0, 5.0) = 40.0
+        let d = compute_delay(&config, 2, Some(5.0), Some(10.0));
+        assert!((d - 40.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_compute_delay_nan_multiplier_ignored() {
+        let config = RetryConfig {
+            jitter: false,
+            ..RetryConfig::default()
+        };
+        // NaN multiplier should be treated as None (no multiplier applied)
+        let d_nan = compute_delay(&config, 1, None, Some(f64::NAN));
+        let d_none = compute_delay(&config, 1, None, None);
+        assert!(
+            (d_nan - d_none).abs() < f64::EPSILON,
+            "NaN multiplier should give same result as None: {d_nan} vs {d_none}"
+        );
+    }
+
+    #[test]
+    fn test_compute_delay_nonpositive_multiplier_ignored() {
+        let config = RetryConfig {
+            jitter: false,
+            ..RetryConfig::default()
+        };
+        let d_none = compute_delay(&config, 1, None, None);
+        // Zero multiplier should be ignored
+        let d_zero = compute_delay(&config, 1, None, Some(0.0));
+        assert!(
+            (d_zero - d_none).abs() < f64::EPSILON,
+            "Zero multiplier should be ignored: {d_zero} vs {d_none}"
+        );
+        // Negative multiplier should be ignored
+        let d_neg = compute_delay(&config, 1, None, Some(-2.0));
+        assert!(
+            (d_neg - d_none).abs() < f64::EPSILON,
+            "Negative multiplier should be ignored: {d_neg} vs {d_none}"
+        );
+    }
+
+    #[test]
+    fn test_compute_delay_infinite_multiplier_ignored() {
+        let config = RetryConfig {
+            jitter: false,
+            ..RetryConfig::default()
+        };
+        let d_none = compute_delay(&config, 1, None, None);
+        // Infinite multiplier should be ignored
+        let d_inf = compute_delay(&config, 1, None, Some(f64::INFINITY));
+        assert!(
+            (d_inf - d_none).abs() < f64::EPSILON,
+            "Infinite multiplier should be ignored: {d_inf} vs {d_none}"
+        );
     }
 }

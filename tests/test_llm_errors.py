@@ -269,7 +269,9 @@ class TestNotFoundError:
     """Tests for NotFoundError."""
 
     def test_instantiation(self) -> None:
-        err = NotFoundError("Model gpt-99 not found", provider="openai", status_code=404)
+        err = NotFoundError(
+            "Model gpt-99 not found", provider="openai", status_code=404
+        )
         assert str(err) == "Model gpt-99 not found"
         assert err.provider == "openai"
         assert err.status_code == 404
@@ -493,6 +495,23 @@ class TestNewErrorsInAllSubtypesCheck:
         for err in errors:
             assert isinstance(err, LLMError), f"{type(err).__name__} is not an LLMError"
             assert isinstance(err, Exception)
+
+
+class TestDelayMultiplierDocstring:
+    """Verify delay_multiplier docstring reflects Rust kernel usage."""
+
+    def test_docstring_mentions_rust_kernel_compute_delay(self) -> None:
+        """delay_multiplier docstring should reference Rust kernel's compute_delay()."""
+        docstring = LLMError.__doc__
+        assert docstring is not None
+        assert "compute_delay()" in docstring
+        assert "applied after the max_delay cap" in docstring
+
+    def test_docstring_no_longer_says_not_used(self) -> None:
+        """delay_multiplier docstring should NOT say 'not used by the Rust kernel'."""
+        docstring = LLMError.__doc__
+        assert docstring is not None
+        assert "not used by the Rust kernel" not in docstring
 
 
 class TestNewErrorsImportFromCore:

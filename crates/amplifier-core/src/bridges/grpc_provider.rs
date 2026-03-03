@@ -102,6 +102,7 @@ impl Provider for GrpcProviderBridge {
                         retry_after: None,
                         status_code: None,
                         retryable: false,
+                        delay_multiplier: None,
                     })?
             };
 
@@ -145,6 +146,7 @@ impl Provider for GrpcProviderBridge {
                 retry_after: None,
                 status_code: None,
                 retryable: false,
+                delay_multiplier: None,
             })
         })
     }
