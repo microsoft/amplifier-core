@@ -466,7 +466,7 @@ impl PySession {
 
                 // Step 5: Mark session as initialized in Rust kernel
                 {
-                    let mut session = inner.lock().await;
+                    let session = inner.lock().await;
                     session.set_initialized();
                 }
 
@@ -841,7 +841,7 @@ impl PySession {
                 // Step 3: Reset the initialized flag
                 // ----------------------------------------------------------
                 {
-                    let mut session = inner.lock().await;
+                    let session = inner.lock().await;
                     session.clear_initialized();
                 }
 

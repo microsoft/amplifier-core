@@ -18,6 +18,7 @@
 //! - Tracks status via [`SessionState`](crate::models::SessionState).
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::Value;
 
@@ -121,7 +122,7 @@ pub struct Session {
     session_id: String,
     parent_id: Option<String>,
     coordinator: Coordinator,
-    initialized: bool,
+    initialized: AtomicBool,
     status: SessionState,
     is_resumed: bool,
 }
@@ -152,7 +153,7 @@ impl Session {
             session_id: id,
             parent_id,
             coordinator,
-            initialized: false,
+            initialized: AtomicBool::new(false),
             status: SessionState::Running,
             is_resumed: false,
         }
@@ -196,7 +197,7 @@ impl Session {
 
     /// Whether the session has been initialized.
     pub fn is_initialized(&self) -> bool {
-        self.initialized
+        self.initialized.load(Ordering::Relaxed)
     }
 
     /// Immutable reference to the coordinator.
@@ -214,15 +215,15 @@ impl Session {
     /// In the Rust kernel, module loading is done externally (by the Python
     /// bridge or test harness). This method marks the session ready for
     /// execution after modules have been mounted.
-    pub fn set_initialized(&mut self) {
-        self.initialized = true;
+    pub fn set_initialized(&self) {
+        self.initialized.store(true, Ordering::Relaxed);
     }
 
     /// Clear the initialized flag (used during cleanup).
     ///
     /// After cleanup, the session is no longer ready for execution.
-    pub fn clear_initialized(&mut self) {
-        self.initialized = false;
+    pub fn clear_initialized(&self) {
+        self.initialized.store(false, Ordering::Relaxed);
     }
 
     /// Execute a prompt using the mounted orchestrator.
@@ -239,7 +240,7 @@ impl Session {
     /// - `SessionError::Other("No providers mounted")` if providers map is empty
     /// - Any `AmplifierError` from the orchestrator
     pub async fn execute(&mut self, prompt: &str) -> Result<String, AmplifierError> {
-        if !self.initialized {
+        if !self.is_initialized() {
             return Err(AmplifierError::Session(SessionError::NotInitialized));
         }
 
@@ -339,6 +340,9 @@ impl Session {
 
         // Run coordinator cleanup
         self.coordinator.cleanup().await;
+
+        // Clear initialized flag so session cannot be re-executed
+        self.clear_initialized();
     }
 }
 
@@ -699,5 +703,18 @@ mod tests {
         let tools = session.coordinator().tools();
         assert_eq!(tools.len(), 1);
         assert!(tools.contains_key("echo"));
+    }
+
+    #[tokio::test]
+    async fn cleanup_clears_initialized_flag() {
+        let config = SessionConfig::minimal("test-orch", "test-ctx");
+        let session = Session::new(config, None, None);
+        session.set_initialized();
+        assert!(session.is_initialized());
+        session.cleanup().await;
+        assert!(
+            !session.is_initialized(),
+            "cleanup should clear initialized flag"
+        );
     }
 }
