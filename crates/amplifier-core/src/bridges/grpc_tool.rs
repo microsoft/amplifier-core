@@ -60,8 +60,8 @@ impl GrpcToolBridge {
         let name = proto_spec.name.clone();
         let description = proto_spec.description.clone();
 
-        let parameters: HashMap<String, Value> =
-            serde_json::from_str(&proto_spec.parameters_json).unwrap_or_else(|e| {
+        let parameters: HashMap<String, Value> = serde_json::from_str(&proto_spec.parameters_json)
+            .unwrap_or_else(|e| {
                 if !proto_spec.parameters_json.is_empty() {
                     log::warn!(
                         "Failed to parse tool '{}' parameters_json: {e} — using empty schema",
