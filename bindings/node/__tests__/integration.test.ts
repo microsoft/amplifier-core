@@ -26,7 +26,7 @@ describe('Full session lifecycle', () => {
     coord.registerCapability('streaming', JSON.stringify({ enabled: true, format: 'sse' }))
     const cap = coord.getCapability('streaming')
     expect(cap).not.toBeNull()
-    const parsed = JSON.parse(cap!)
+    const parsed = JSON.parse(cap as string)
     expect(parsed).toEqual({ enabled: true, format: 'sse' })
 
     // Use cancellation: graceful
