@@ -505,10 +505,13 @@ impl JsCoordinator {
     }
 
     #[napi]
-    pub fn get_capability(&self, name: String) -> Option<String> {
-        self.inner
-            .get_capability(&name)
-            .map(|v| serde_json::to_string(&v).unwrap_or_else(|_| "null".to_string()))
+    pub fn get_capability(&self, name: String) -> Result<Option<String>> {
+        match self.inner.get_capability(&name) {
+            Some(v) => serde_json::to_string(&v)
+                .map(Some)
+                .map_err(|e| Error::from_reason(e.to_string())),
+            None => Ok(None),
+        }
     }
 
     /// Returns a JsHookRegistry wrapper.
