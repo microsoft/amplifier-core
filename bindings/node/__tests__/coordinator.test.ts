@@ -59,7 +59,7 @@ describe('JsCoordinator', () => {
     const config = coord.config
     expect(config).toBeDefined()
     const parsed = JSON.parse(config)
-    expect(parsed).toHaveProperty('key', 'value')
+    expect(parsed).toEqual({ key: 'value' })
   })
 
   it('cleanup completes without error', async () => {
