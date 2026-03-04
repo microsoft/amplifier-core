@@ -337,8 +337,12 @@ impl HookHandler for JsHookHandlerBridge {
                     message: e.to_string(),
                     handler_name: None,
                 })?;
-            let hook_result: HookResult =
-                serde_json::from_str(&result_str).unwrap_or_default();
+            let hook_result: HookResult = serde_json::from_str(&result_str).unwrap_or_else(|e| {
+                eprintln!(
+                    "amplifier-core-node: failed to parse HookResult from JS handler: {e}. Defaulting to Continue."
+                );
+                HookResult::default()
+            });
             Ok(hook_result)
         })
     }
