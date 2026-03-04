@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { JsAmplifierSession } from '../index.js'
-
-const validConfig = JSON.stringify({
-  session: { orchestrator: 'loop-basic', context: 'context-simple' },
-})
+import { validConfig } from './fixtures'
 
 describe('JsAmplifierSession', () => {
   it('creates with valid config and generates session ID', () => {
