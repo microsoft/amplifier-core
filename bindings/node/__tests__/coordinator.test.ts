@@ -20,7 +20,7 @@ describe('JsCoordinator', () => {
     coord.registerCapability('streaming', JSON.stringify({ enabled: true }))
     const result = coord.getCapability('streaming')
     expect(result).not.toBeNull()
-    const parsed = JSON.parse(result!)
+    const parsed = JSON.parse(result as string)
     expect(parsed).toEqual({ enabled: true })
   })
 
