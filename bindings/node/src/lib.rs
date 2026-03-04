@@ -803,6 +803,7 @@ pub fn amplifier_error_to_js(variant: String, message: String) -> JsAmplifierErr
 
 /// Internal helper: converts an `AmplifierError` into a `napi::Error` with a
 /// `[Code] message` format suitable for crossing the FFI boundary.
+#[allow(dead_code)] // Used when async methods expose Result<T, AmplifierError> across FFI
 fn amplifier_error_to_napi(err: amplifier_core::errors::AmplifierError) -> napi::Error {
     let (code, msg) = match &err {
         amplifier_core::errors::AmplifierError::Session(e) => ("SessionError", e.to_string()),
