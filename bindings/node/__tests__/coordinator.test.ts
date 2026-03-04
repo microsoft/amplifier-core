@@ -10,6 +10,10 @@ describe('JsCoordinator', () => {
     expect(coord.hasContext).toBe(false)
   })
 
+  it('throws on invalid JSON config', () => {
+    expect(() => new JsCoordinator('invalid json')).toThrow()
+  })
+
   it('registers and retrieves capabilities (registerCapability + getCapability roundtrip)', () => {
     const coord = new JsCoordinator('{}')
     coord.registerCapability('streaming', JSON.stringify({ enabled: true }))
@@ -25,6 +29,9 @@ describe('JsCoordinator', () => {
     expect(result).toBeNull()
   })
 
+  // Note: each access to coord.hooks creates a new JsHookRegistry instance
+  // (referential equality coord.hooks === coord.hooks is false). This is a
+  // known limitation resolved in Task 6 when Session wires shared state.
   it('provides access to hooks subsystem (coord.hooks has listHandlers function)', () => {
     const coord = new JsCoordinator('{}')
     const hooks = coord.hooks
@@ -64,6 +71,6 @@ describe('JsCoordinator', () => {
 
   it('cleanup completes without error', async () => {
     const coord = new JsCoordinator('{}')
-    await expect(coord.cleanup()).resolves.not.toThrow()
+    await coord.cleanup()
   })
 })
