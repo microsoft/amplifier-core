@@ -40,7 +40,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "amplifier-core"
-version = "1.0.7"
+version = "1.0.9"
 dependencies = [
  "chrono",
  "log",
@@ -59,7 +59,7 @@ dependencies = [
 
 [[package]]
 name = "amplifier-core-py"
-version = "1.0.7"
+version = "1.0.9"
 dependencies = [
  "amplifier-core",
  "log",
