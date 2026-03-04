@@ -43,4 +43,10 @@ describe('amplifierErrorToJs — variant to typed error object', () => {
     const err = amplifierErrorToJs('context', 'compaction failed')
     expect(err.code).toBe('ContextError')
   })
+
+  it('converts unknown variant to AmplifierError fallback code', () => {
+    const err = amplifierErrorToJs('unknown', 'something went wrong')
+    expect(err.code).toBe('AmplifierError')
+    expect(err.message).toBe('something went wrong')
+  })
 })
