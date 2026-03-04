@@ -637,6 +637,9 @@ impl JsAmplifierSession {
     /// Known limitation: creates a separate Coordinator instance from cached config
     /// because the kernel Session owns its Coordinator by value. Sharing requires
     /// restructuring the Rust kernel to use Arc<Coordinator> — Future TODO #1.
+    ///
+    /// Note: each call clones `cached_config` and allocates a new Coordinator.
+    /// Callers should cache the result rather than calling this in a loop.
     #[napi(getter)]
     pub fn coordinator(&self) -> JsCoordinator {
         JsCoordinator {
