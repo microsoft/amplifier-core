@@ -47,10 +47,10 @@ describe('JsCoordinator', () => {
   it('toDict returns coordinator state (has tools, providers, has_orchestrator, has_context, capabilities)', () => {
     const coord = new JsCoordinator('{}')
     const dict = coord.toDict()
-    expect(dict).toHaveProperty('tools')
-    expect(dict).toHaveProperty('providers')
-    expect(dict).toHaveProperty('has_orchestrator')
-    expect(dict).toHaveProperty('has_context')
+    expect(dict.tools).toEqual([])
+    expect(dict.providers).toEqual([])
+    expect(dict.has_orchestrator).toBe(false)
+    expect(dict.has_context).toBe(false)
     expect(dict).toHaveProperty('capabilities')
   })
 
