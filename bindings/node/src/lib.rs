@@ -517,10 +517,9 @@ impl JsCoordinator {
 
     /// Returns a JsHookRegistry wrapper.
     ///
-    /// TODO(task-6): This creates a separate (detached) HookRegistry because
-    /// Coordinator owns HookRegistry by value, not behind Arc. When Session
-    /// wires everything together in Task 6, this should share the coordinator's
-    /// actual hook registry.
+    /// TODO: Share hook registry via Arc — currently creates a separate (detached)
+    /// HookRegistry because Coordinator owns HookRegistry by value, not behind Arc.
+    /// See JsAmplifierSession known limitation (Future TODO #1).
     #[napi(getter)]
     pub fn hooks(&self) -> JsHookRegistry {
         JsHookRegistry::new_detached()
@@ -585,11 +584,11 @@ impl JsAmplifierSession {
         let value: serde_json::Value = serde_json::from_str(&config_json)
             .map_err(|e| Error::from_reason(format!("invalid JSON: {e}")))?;
 
-        let config = amplifier_core::SessionConfig::from_value(value)
+        let config = amplifier_core::SessionConfig::from_value(value.clone())
             .map_err(|e| Error::from_reason(e.to_string()))?;
 
         let cached_config: HashMap<String, serde_json::Value> =
-            serde_json::from_str(&config_json)
+            serde_json::from_value(value)
                 .map_err(|e| Error::from_reason(format!("invalid JSON: {e}")))?;
 
         let session = amplifier_core::Session::new(config, session_id.clone(), parent_id.clone());

@@ -39,7 +39,11 @@ describe('JsAmplifierSession', () => {
 
   it('provides access to coordinator', () => {
     const session = new JsAmplifierSession(validConfig)
-    expect(session.coordinator).toBeDefined()
+    const coord = session.coordinator
+    expect(coord).toBeDefined()
+    // Verify coordinator was constructed from the session's config, not a default
+    const coordConfig = JSON.parse(coord.config)
+    expect(coordConfig).toHaveProperty('session')
   })
 
   it('rejects empty config', () => {
