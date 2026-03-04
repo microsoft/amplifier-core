@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 use napi::bindgen_prelude::*;
 use napi::threadsafe_function::{ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction};
+use tokio::sync::Mutex;
 
 use amplifier_core::errors::HookError;
 use amplifier_core::models as core_models;
@@ -549,6 +550,106 @@ impl JsCoordinator {
     #[napi]
     pub async fn cleanup(&self) -> Result<()> {
         self.inner.cleanup().await;
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// JsAmplifierSession — wraps amplifier_core::Session for Node.js
+// ---------------------------------------------------------------------------
+
+/// Wraps `amplifier_core::Session` for Node.js — the top-level entry point.
+///
+/// Lifecycle: `new AmplifierSession(config) → initialize() → execute(prompt) → cleanup()`.
+/// Wires together Coordinator, HookRegistry, and CancellationToken.
+///
+/// Known limitation: `coordinator` getter creates a separate Coordinator instance
+/// because the kernel Session owns its Coordinator by value, not behind Arc.
+/// Sharing requires restructuring the Rust kernel — tracked as Future TODO #1.
+#[napi]
+pub struct JsAmplifierSession {
+    inner: Arc<Mutex<amplifier_core::Session>>,
+    cached_session_id: String,
+    cached_parent_id: Option<String>,
+    config_json: String,
+}
+
+#[napi]
+impl JsAmplifierSession {
+    #[napi(constructor)]
+    pub fn new(
+        config_json: String,
+        session_id: Option<String>,
+        parent_id: Option<String>,
+    ) -> Result<Self> {
+        let value: serde_json::Value = serde_json::from_str(&config_json)
+            .map_err(|e| Error::from_reason(format!("invalid JSON: {e}")))?;
+
+        let config = amplifier_core::SessionConfig::from_value(value)
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+
+        let session = amplifier_core::Session::new(config, session_id.clone(), parent_id.clone());
+        let cached_session_id = session.session_id().to_string();
+
+        Ok(Self {
+            inner: Arc::new(Mutex::new(session)),
+            cached_session_id,
+            cached_parent_id: parent_id,
+            config_json,
+        })
+    }
+
+    #[napi(getter)]
+    pub fn session_id(&self) -> &str {
+        &self.cached_session_id
+    }
+
+    #[napi(getter)]
+    pub fn parent_id(&self) -> Option<String> {
+        self.cached_parent_id.clone()
+    }
+
+    #[napi(getter)]
+    pub fn is_initialized(&self) -> bool {
+        match self.inner.try_lock() {
+            Ok(session) => session.is_initialized(),
+            Err(_) => false,
+        }
+    }
+
+    #[napi(getter)]
+    pub fn status(&self) -> String {
+        match self.inner.try_lock() {
+            Ok(session) => session.status().to_string(),
+            Err(_) => "running".to_string(),
+        }
+    }
+
+    /// Returns a JsCoordinator wrapper.
+    ///
+    /// Known limitation: creates a separate Coordinator instance from config_json
+    /// because the kernel Session owns its Coordinator by value. Sharing requires
+    /// restructuring the Rust kernel to use Arc<Coordinator> — Future TODO #1.
+    #[napi(getter)]
+    pub fn coordinator(&self) -> Result<JsCoordinator> {
+        let config: HashMap<String, serde_json::Value> = serde_json::from_str(&self.config_json)
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+        Ok(JsCoordinator {
+            inner: Arc::new(amplifier_core::Coordinator::new(config)),
+        })
+    }
+
+    #[napi]
+    pub fn set_initialized(&self) {
+        if let Ok(session) = self.inner.try_lock() {
+            session.set_initialized();
+        }
+    }
+
+    #[napi]
+    pub async fn cleanup(&self) -> Result<()> {
+        let session = self.inner.lock().await;
+        session.cleanup().await;
         Ok(())
     }
 }
