@@ -27,8 +27,10 @@ describe('JsCancellationToken', () => {
   it('graceful then immediate escalates', () => {
     const token = new JsCancellationToken()
     token.requestGraceful()
+    expect(token.isCancelled).toBe(true)
     expect(token.isGraceful).toBe(true)
     token.requestImmediate()
+    expect(token.isCancelled).toBe(true)
     expect(token.isImmediate).toBe(true)
   })
 
