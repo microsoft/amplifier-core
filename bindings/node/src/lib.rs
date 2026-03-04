@@ -597,7 +597,7 @@ impl JsAmplifierSession {
         parent_id: Option<String>,
     ) -> Result<Self> {
         let value: serde_json::Value = serde_json::from_str(&config_json)
-            .map_err(|e| Error::from_reason(format!("invalid JSON: {e}")))?;
+            .map_err(|e| Error::from_reason(format!("Invalid config JSON: {e}")))?;
 
         let config = amplifier_core::SessionConfig::from_value(value.clone())
             .map_err(|e| Error::from_reason(e.to_string()))?;
@@ -764,4 +764,52 @@ impl JsToolBridge {
         })
         .to_string()
     }
+}
+
+// ---------------------------------------------------------------------------
+// Error bridging — Rust errors → typed JS error objects
+// ---------------------------------------------------------------------------
+
+/// Structured error object returned to JS with a typed `code` property.
+#[napi(object)]
+pub struct JsAmplifierError {
+    pub code: String,
+    pub message: String,
+}
+
+/// Converts an error variant name and message into a typed `JsAmplifierError`.
+///
+/// Variant mapping:
+/// - `"session"` → `SessionError`
+/// - `"tool"` → `ToolError`
+/// - `"provider"` → `ProviderError`
+/// - `"hook"` → `HookError`
+/// - `"context"` → `ContextError`
+/// - anything else → `AmplifierError`
+#[napi]
+pub fn amplifier_error_to_js(variant: String, message: String) -> JsAmplifierError {
+    let code = match variant.as_str() {
+        "session" => "SessionError",
+        "tool" => "ToolError",
+        "provider" => "ProviderError",
+        "hook" => "HookError",
+        "context" => "ContextError",
+        _ => "AmplifierError",
+    }
+    .to_string();
+
+    JsAmplifierError { code, message }
+}
+
+/// Internal helper: converts an `AmplifierError` into a `napi::Error` with a
+/// `[Code] message` format suitable for crossing the FFI boundary.
+fn amplifier_error_to_napi(err: amplifier_core::errors::AmplifierError) -> napi::Error {
+    let (code, msg) = match &err {
+        amplifier_core::errors::AmplifierError::Session(e) => ("SessionError", e.to_string()),
+        amplifier_core::errors::AmplifierError::Tool(e) => ("ToolError", e.to_string()),
+        amplifier_core::errors::AmplifierError::Provider(e) => ("ProviderError", e.to_string()),
+        amplifier_core::errors::AmplifierError::Hook(e) => ("HookError", e.to_string()),
+        amplifier_core::errors::AmplifierError::Context(e) => ("ContextError", e.to_string()),
+    };
+    Error::from_reason(format!("[{code}] {msg}"))
 }
