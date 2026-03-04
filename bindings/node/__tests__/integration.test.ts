@@ -9,10 +9,7 @@ import {
   ContextInjectionRole,
   UserMessageLevel,
 } from '../index.js'
-
-const validConfig = JSON.stringify({
-  session: { orchestrator: 'loop-basic', context: 'context-simple' },
-})
+import { validConfig } from './fixtures'
 
 describe('Full session lifecycle', () => {
   it('session -> coordinator -> hooks -> cancel lifecycle', async () => {
@@ -54,7 +51,7 @@ describe('Hook handler roundtrip', () => {
   it('JS handler receives event data and returns HookResult', async () => {
     const registry = new JsHookRegistry()
     let receivedEvent = ''
-    let receivedData: any = null
+    let receivedData: Record<string, unknown> | null = null
 
     registry.register('tool:pre', (event: string, data: string) => {
       receivedEvent = event
@@ -204,7 +201,8 @@ describe('Type fidelity', () => {
     // Arrays
     expect(Array.isArray(dict.tools)).toBe(true)
     expect(Array.isArray(dict.providers)).toBe(true)
-    expect(Array.isArray(dict.capabilities) || typeof dict.capabilities === 'object').toBe(true)
+    expect(dict.capabilities).toBeDefined()
+    expect(typeof dict.capabilities).toBe('object')
 
     // Booleans
     expect(typeof dict.has_orchestrator).toBe('boolean')
