@@ -67,4 +67,19 @@ describe('JsToolBridge', () => {
     expect(spec.description).toBe('A calculator tool')
     expect(spec.parameters).toEqual(JSON.parse(params))
   })
+
+  it('getSpec falls back to empty object for malformed parametersJson', () => {
+    const tool = new JsToolBridge(
+      'broken',
+      'Tool with bad params',
+      'not valid json{{{',
+      async (_inputJson: string) => '{}'
+    )
+
+    const spec = JSON.parse(tool.getSpec())
+
+    expect(spec.name).toBe('broken')
+    expect(spec.description).toBe('Tool with bad params')
+    expect(spec.parameters).toEqual({})
+  })
 })

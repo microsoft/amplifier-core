@@ -737,9 +737,12 @@ impl JsToolBridge {
     #[napi]
     pub fn get_spec(&self) -> String {
         let params: serde_json::Value =
-            serde_json::from_str(&self.parameters_json).unwrap_or(serde_json::Value::Object(
-                serde_json::Map::new(),
-            ));
+            serde_json::from_str(&self.parameters_json).unwrap_or_else(|e| {
+                eprintln!(
+                    "amplifier-core-node: JsToolBridge::get_spec() failed to parse parameters_json: {e}. Defaulting to empty object."
+                );
+                serde_json::Value::Object(serde_json::Map::new())
+            });
         serde_json::json!({
             "name": self.tool_name,
             "description": self.tool_description,
