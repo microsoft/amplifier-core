@@ -387,9 +387,13 @@ impl JsHookRegistry {
         }
     }
 
-    /// Internal factory for wrapping an existing kernel HookRegistry.
-    pub fn from_inner(inner: &amplifier_core::HookRegistry) -> Self {
-        // Cannot share a reference across the FFI boundary, so create new.
+    /// Creates a new **detached** registry — the passed reference is not shared.
+    ///
+    /// Unlike `JsCancellationToken::from_inner`, HookRegistry cannot be cheaply
+    /// cloned or wrapped from a reference. This constructor exists to satisfy
+    /// the factory pattern but always creates an empty registry.
+    // TODO: accept Arc<HookRegistry> to share state when Coordinator manages ownership
+    pub fn from_inner(_inner: &amplifier_core::HookRegistry) -> Self {
         Self {
             inner: Arc::new(amplifier_core::HookRegistry::new()),
         }
