@@ -327,7 +327,12 @@ impl HookHandler for JsHookHandlerBridge {
         data: serde_json::Value,
     ) -> Pin<Box<dyn Future<Output = std::result::Result<HookResult, HookError>> + Send + '_>> {
         let event = event.to_string();
-        let data_str = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
+        let data_str = serde_json::to_string(&data).unwrap_or_else(|e| {
+            eprintln!(
+                "amplifier-core-node: failed to serialize hook data to JSON: {e}. Defaulting to empty object."
+            );
+            "{}".to_string()
+        });
         Box::pin(async move {
             let result_str: String = self
                 .callback
@@ -391,13 +396,13 @@ impl JsHookRegistry {
         }
     }
 
-    /// Creates a new **detached** registry — the passed reference is not shared.
+    /// Creates a new **detached** (empty) registry.
     ///
     /// Unlike `JsCancellationToken::from_inner`, HookRegistry cannot be cheaply
-    /// cloned or wrapped from a reference. This constructor exists to satisfy
-    /// the factory pattern but always creates an empty registry.
-    // TODO: accept Arc<HookRegistry> to share state when Coordinator manages ownership
-    pub fn from_inner(_inner: &amplifier_core::HookRegistry) -> Self {
+    /// cloned or wrapped from a reference, so this always creates an empty
+    /// registry. When Coordinator manages ownership, this should accept
+    /// `Arc<HookRegistry>` to share state.
+    pub fn new_detached() -> Self {
         Self {
             inner: Arc::new(amplifier_core::HookRegistry::new()),
         }
