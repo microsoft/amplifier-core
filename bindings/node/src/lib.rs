@@ -571,7 +571,7 @@ pub struct JsAmplifierSession {
     inner: Arc<Mutex<amplifier_core::Session>>,
     cached_session_id: String,
     cached_parent_id: Option<String>,
-    config_json: String,
+    cached_config: HashMap<String, serde_json::Value>,
 }
 
 #[napi]
@@ -588,6 +588,10 @@ impl JsAmplifierSession {
         let config = amplifier_core::SessionConfig::from_value(value)
             .map_err(|e| Error::from_reason(e.to_string()))?;
 
+        let cached_config: HashMap<String, serde_json::Value> =
+            serde_json::from_str(&config_json)
+                .map_err(|e| Error::from_reason(format!("invalid JSON: {e}")))?;
+
         let session = amplifier_core::Session::new(config, session_id.clone(), parent_id.clone());
         let cached_session_id = session.session_id().to_string();
 
@@ -595,7 +599,7 @@ impl JsAmplifierSession {
             inner: Arc::new(Mutex::new(session)),
             cached_session_id,
             cached_parent_id: parent_id,
-            config_json,
+            cached_config,
         })
     }
 
@@ -613,6 +617,8 @@ impl JsAmplifierSession {
     pub fn is_initialized(&self) -> bool {
         match self.inner.try_lock() {
             Ok(session) => session.is_initialized(),
+            // Safe default: lock is only held during async cleanup(), which sets
+            // initialized to false — so false is a correct conservative fallback.
             Err(_) => false,
         }
     }
@@ -621,28 +627,34 @@ impl JsAmplifierSession {
     pub fn status(&self) -> String {
         match self.inner.try_lock() {
             Ok(session) => session.status().to_string(),
+            // Safe default: lock is only held during async cleanup(), and sessions
+            // start as "running" — returning "running" during cleanup is tolerable.
             Err(_) => "running".to_string(),
         }
     }
 
     /// Returns a JsCoordinator wrapper.
     ///
-    /// Known limitation: creates a separate Coordinator instance from config_json
+    /// Known limitation: creates a separate Coordinator instance from cached config
     /// because the kernel Session owns its Coordinator by value. Sharing requires
     /// restructuring the Rust kernel to use Arc<Coordinator> — Future TODO #1.
     #[napi(getter)]
-    pub fn coordinator(&self) -> Result<JsCoordinator> {
-        let config: HashMap<String, serde_json::Value> = serde_json::from_str(&self.config_json)
-            .map_err(|e| Error::from_reason(e.to_string()))?;
-        Ok(JsCoordinator {
-            inner: Arc::new(amplifier_core::Coordinator::new(config)),
-        })
+    pub fn coordinator(&self) -> JsCoordinator {
+        JsCoordinator {
+            inner: Arc::new(amplifier_core::Coordinator::new(self.cached_config.clone())),
+        }
     }
 
     #[napi]
     pub fn set_initialized(&self) {
-        if let Ok(session) = self.inner.try_lock() {
-            session.set_initialized();
+        match self.inner.try_lock() {
+            Ok(session) => session.set_initialized(),
+            // State mutation failed — unlike read-only getters, this warrants a warning.
+            // Lock contention only occurs during async cleanup(), so this is unlikely
+            // in practice, but callers should know the mutation didn't happen.
+            Err(_) => eprintln!(
+                "amplifier-core-node: set_initialized() skipped — session lock held (cleanup in progress?)"
+            ),
         }
     }
 
