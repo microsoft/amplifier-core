@@ -262,6 +262,12 @@ pub struct JsCancellationToken {
     inner: amplifier_core::CancellationToken,
 }
 
+impl Default for JsCancellationToken {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[napi]
 impl JsCancellationToken {
     #[napi(constructor)]
@@ -389,6 +395,12 @@ pub struct JsHookRegistry {
     pub(crate) inner: Arc<amplifier_core::HookRegistry>,
 }
 
+impl Default for JsHookRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[napi]
 impl JsHookRegistry {
     #[napi(constructor)]
@@ -426,7 +438,8 @@ impl JsHookRegistry {
             })?;
 
         let bridge = JsHookHandlerBridge { callback: tsfn };
-        self.inner
+        let _ = self
+            .inner
             .register(&event, Arc::new(bridge), priority, Some(name));
         Ok(())
     }
