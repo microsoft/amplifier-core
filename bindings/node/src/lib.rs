@@ -1,5 +1,9 @@
 //! # amplifier-core Node.js bindings (Napi-RS)
 //!
+//! This module defines the FFI type contract between Rust and Node.js.
+//! The enums and structs here are the authoritative boundary types — keep
+//! the `From` impls in sync whenever upstream `amplifier_core::models` changes.
+//!
 //! Planned classes:
 //!
 //! | Rust struct       | JS class             |
@@ -11,6 +15,8 @@
 
 #[macro_use]
 extern crate napi_derive;
+
+use amplifier_core::models as core_models;
 
 #[napi]
 pub fn hello() -> String {
@@ -72,26 +78,26 @@ pub enum Role {
 // Bidirectional From conversions: HookAction <-> amplifier_core::models::HookAction
 // ---------------------------------------------------------------------------
 
-impl From<amplifier_core::models::HookAction> for HookAction {
-    fn from(action: amplifier_core::models::HookAction) -> Self {
+impl From<core_models::HookAction> for HookAction {
+    fn from(action: core_models::HookAction) -> Self {
         match action {
-            amplifier_core::models::HookAction::Continue => HookAction::Continue,
-            amplifier_core::models::HookAction::Deny => HookAction::Deny,
-            amplifier_core::models::HookAction::Modify => HookAction::Modify,
-            amplifier_core::models::HookAction::InjectContext => HookAction::InjectContext,
-            amplifier_core::models::HookAction::AskUser => HookAction::AskUser,
+            core_models::HookAction::Continue => HookAction::Continue,
+            core_models::HookAction::Deny => HookAction::Deny,
+            core_models::HookAction::Modify => HookAction::Modify,
+            core_models::HookAction::InjectContext => HookAction::InjectContext,
+            core_models::HookAction::AskUser => HookAction::AskUser,
         }
     }
 }
 
-impl From<HookAction> for amplifier_core::models::HookAction {
+impl From<HookAction> for core_models::HookAction {
     fn from(action: HookAction) -> Self {
         match action {
-            HookAction::Continue => amplifier_core::models::HookAction::Continue,
-            HookAction::Deny => amplifier_core::models::HookAction::Deny,
-            HookAction::Modify => amplifier_core::models::HookAction::Modify,
-            HookAction::InjectContext => amplifier_core::models::HookAction::InjectContext,
-            HookAction::AskUser => amplifier_core::models::HookAction::AskUser,
+            HookAction::Continue => core_models::HookAction::Continue,
+            HookAction::Deny => core_models::HookAction::Deny,
+            HookAction::Modify => core_models::HookAction::Modify,
+            HookAction::InjectContext => core_models::HookAction::InjectContext,
+            HookAction::AskUser => core_models::HookAction::AskUser,
         }
     }
 }
@@ -100,24 +106,24 @@ impl From<HookAction> for amplifier_core::models::HookAction {
 // Bidirectional From conversions: SessionState <-> amplifier_core::models::SessionState
 // ---------------------------------------------------------------------------
 
-impl From<amplifier_core::models::SessionState> for SessionState {
-    fn from(state: amplifier_core::models::SessionState) -> Self {
+impl From<core_models::SessionState> for SessionState {
+    fn from(state: core_models::SessionState) -> Self {
         match state {
-            amplifier_core::models::SessionState::Running => SessionState::Running,
-            amplifier_core::models::SessionState::Completed => SessionState::Completed,
-            amplifier_core::models::SessionState::Failed => SessionState::Failed,
-            amplifier_core::models::SessionState::Cancelled => SessionState::Cancelled,
+            core_models::SessionState::Running => SessionState::Running,
+            core_models::SessionState::Completed => SessionState::Completed,
+            core_models::SessionState::Failed => SessionState::Failed,
+            core_models::SessionState::Cancelled => SessionState::Cancelled,
         }
     }
 }
 
-impl From<SessionState> for amplifier_core::models::SessionState {
+impl From<SessionState> for core_models::SessionState {
     fn from(state: SessionState) -> Self {
         match state {
-            SessionState::Running => amplifier_core::models::SessionState::Running,
-            SessionState::Completed => amplifier_core::models::SessionState::Completed,
-            SessionState::Failed => amplifier_core::models::SessionState::Failed,
-            SessionState::Cancelled => amplifier_core::models::SessionState::Cancelled,
+            SessionState::Running => core_models::SessionState::Running,
+            SessionState::Completed => core_models::SessionState::Completed,
+            SessionState::Failed => core_models::SessionState::Failed,
+            SessionState::Cancelled => core_models::SessionState::Cancelled,
         }
     }
 }

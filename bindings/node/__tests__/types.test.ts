@@ -54,8 +54,10 @@ describe('enum types', () => {
   describe('Role', () => {
     it('has all expected variants with correct string values', () => {
       expect(Role.System).toBe('System')
+      expect(Role.Developer).toBe('Developer')
       expect(Role.User).toBe('User')
       expect(Role.Assistant).toBe('Assistant')
+      expect(Role.Function).toBe('Function')
       expect(Role.Tool).toBe('Tool')
     })
   })
