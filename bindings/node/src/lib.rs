@@ -21,9 +21,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use napi::bindgen_prelude::Promise;
 use napi::bindgen_prelude::*;
 use napi::threadsafe_function::{ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction};
-use napi::bindgen_prelude::Promise;
 use tokio::sync::Mutex;
 
 use amplifier_core::errors::HookError;
@@ -342,14 +342,14 @@ impl HookHandler for JsHookHandlerBridge {
             "{}".to_string()
         });
         Box::pin(async move {
-            let result_str: String = self
-                .callback
-                .call_async((event, data_str))
-                .await
-                .map_err(|e| HookError::HandlerFailed {
-                    message: e.to_string(),
-                    handler_name: None,
-                })?;
+            let result_str: String =
+                self.callback
+                    .call_async((event, data_str))
+                    .await
+                    .map_err(|e| HookError::HandlerFailed {
+                        message: e.to_string(),
+                        handler_name: None,
+                    })?;
             let hook_result: HookResult = serde_json::from_str(&result_str).unwrap_or_else(|e| {
                 eprintln!(
                     "amplifier-core-node: failed to parse HookResult from JS handler: {e}. Defaulting to Continue."
@@ -460,8 +460,8 @@ impl JsHookRegistry {
 
     #[napi]
     pub fn set_default_fields(&self, defaults_json: String) -> Result<()> {
-        let defaults: serde_json::Value = serde_json::from_str(&defaults_json)
-            .map_err(|e| Error::from_reason(e.to_string()))?;
+        let defaults: serde_json::Value =
+            serde_json::from_str(&defaults_json).map_err(|e| Error::from_reason(e.to_string()))?;
         self.inner.set_default_fields(defaults);
         Ok(())
     }
@@ -514,8 +514,8 @@ impl JsCoordinator {
 
     #[napi]
     pub fn register_capability(&self, name: String, value_json: String) -> Result<()> {
-        let value: serde_json::Value = serde_json::from_str(&value_json)
-            .map_err(|e| Error::from_reason(e.to_string()))?;
+        let value: serde_json::Value =
+            serde_json::from_str(&value_json).map_err(|e| Error::from_reason(e.to_string()))?;
         self.inner.register_capability(&name, value);
         Ok(())
     }
@@ -547,8 +547,7 @@ impl JsCoordinator {
 
     #[napi(getter)]
     pub fn config(&self) -> Result<String> {
-        serde_json::to_string(self.inner.config())
-            .map_err(|e| Error::from_reason(e.to_string()))
+        serde_json::to_string(self.inner.config()).map_err(|e| Error::from_reason(e.to_string()))
     }
 
     #[napi]
@@ -602,9 +601,8 @@ impl JsAmplifierSession {
         let config = amplifier_core::SessionConfig::from_value(value.clone())
             .map_err(|e| Error::from_reason(e.to_string()))?;
 
-        let cached_config: HashMap<String, serde_json::Value> =
-            serde_json::from_value(value)
-                .map_err(|e| Error::from_reason(format!("invalid JSON: {e}")))?;
+        let cached_config: HashMap<String, serde_json::Value> = serde_json::from_value(value)
+            .map_err(|e| Error::from_reason(format!("invalid JSON: {e}")))?;
 
         let session = amplifier_core::Session::new(config, session_id.clone(), parent_id.clone());
         let cached_session_id = session.session_id().to_string();
@@ -743,9 +741,7 @@ impl JsToolBridge {
             .call_async(input_json)
             .await
             .map_err(|e| Error::from_reason(e.to_string()))?;
-        promise
-            .await
-            .map_err(|e| Error::from_reason(e.to_string()))
+        promise.await.map_err(|e| Error::from_reason(e.to_string()))
     }
 
     #[napi]
@@ -777,18 +773,17 @@ pub struct JsAmplifierError {
     pub message: String,
 }
 
-/// Converts an error variant name and message into a typed `JsAmplifierError`.
+/// Maps a lowercase variant name to its error code string.
 ///
 /// Variant mapping:
-/// - `"session"` → `SessionError`
-/// - `"tool"` → `ToolError`
-/// - `"provider"` → `ProviderError`
-/// - `"hook"` → `HookError`
-/// - `"context"` → `ContextError`
-/// - anything else → `AmplifierError`
-#[napi]
-pub fn amplifier_error_to_js(variant: String, message: String) -> JsAmplifierError {
-    let code = match variant.as_str() {
+/// - `"session"` → `"SessionError"`
+/// - `"tool"` → `"ToolError"`
+/// - `"provider"` → `"ProviderError"`
+/// - `"hook"` → `"HookError"`
+/// - `"context"` → `"ContextError"`
+/// - anything else → `"AmplifierError"`
+fn error_code_for_variant(variant: &str) -> &'static str {
+    match variant {
         "session" => "SessionError",
         "tool" => "ToolError",
         "provider" => "ProviderError",
@@ -796,21 +791,30 @@ pub fn amplifier_error_to_js(variant: String, message: String) -> JsAmplifierErr
         "context" => "ContextError",
         _ => "AmplifierError",
     }
-    .to_string();
+}
 
+/// Converts an error variant name and message into a typed `JsAmplifierError`.
+///
+/// See [`error_code_for_variant`] for the variant → code mapping.
+#[napi]
+pub fn amplifier_error_to_js(variant: String, message: String) -> JsAmplifierError {
+    let code = error_code_for_variant(&variant).to_string();
     JsAmplifierError { code, message }
 }
 
 /// Internal helper: converts an `AmplifierError` into a `napi::Error` with a
 /// `[Code] message` format suitable for crossing the FFI boundary.
+///
+/// Uses [`error_code_for_variant`] for consistent code mapping.
 #[allow(dead_code)] // Used when async methods expose Result<T, AmplifierError> across FFI
 fn amplifier_error_to_napi(err: amplifier_core::errors::AmplifierError) -> napi::Error {
-    let (code, msg) = match &err {
-        amplifier_core::errors::AmplifierError::Session(e) => ("SessionError", e.to_string()),
-        amplifier_core::errors::AmplifierError::Tool(e) => ("ToolError", e.to_string()),
-        amplifier_core::errors::AmplifierError::Provider(e) => ("ProviderError", e.to_string()),
-        amplifier_core::errors::AmplifierError::Hook(e) => ("HookError", e.to_string()),
-        amplifier_core::errors::AmplifierError::Context(e) => ("ContextError", e.to_string()),
+    let (variant, msg) = match &err {
+        amplifier_core::errors::AmplifierError::Session(e) => ("session", e.to_string()),
+        amplifier_core::errors::AmplifierError::Tool(e) => ("tool", e.to_string()),
+        amplifier_core::errors::AmplifierError::Provider(e) => ("provider", e.to_string()),
+        amplifier_core::errors::AmplifierError::Hook(e) => ("hook", e.to_string()),
+        amplifier_core::errors::AmplifierError::Context(e) => ("context", e.to_string()),
     };
+    let code = error_code_for_variant(variant);
     Error::from_reason(format!("[{code}] {msg}"))
 }

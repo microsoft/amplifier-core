@@ -27,21 +27,25 @@ describe('amplifierErrorToJs — variant to typed error object', () => {
   it('converts tool variant to ToolError code', () => {
     const err = amplifierErrorToJs('tool', 'tool not found: bash')
     expect(err.code).toBe('ToolError')
+    expect(err.message).toBe('tool not found: bash')
   })
 
   it('converts provider variant to ProviderError code', () => {
     const err = amplifierErrorToJs('provider', 'rate limited')
     expect(err.code).toBe('ProviderError')
+    expect(err.message).toBe('rate limited')
   })
 
   it('converts hook variant to HookError code', () => {
     const err = amplifierErrorToJs('hook', 'handler failed')
     expect(err.code).toBe('HookError')
+    expect(err.message).toBe('handler failed')
   })
 
   it('converts context variant to ContextError code', () => {
     const err = amplifierErrorToJs('context', 'compaction failed')
     expect(err.code).toBe('ContextError')
+    expect(err.message).toBe('compaction failed')
   })
 
   it('converts unknown variant to AmplifierError fallback code', () => {
