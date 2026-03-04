@@ -81,6 +81,8 @@ describe('JsToolBridge', () => {
     await expect(tool.execute('{}')).rejects.toThrow('callback exploded')
   })
 
+  // Expect Rust-side log: "JsToolBridge::get_spec() failed to parse parameters_json"
+  // This is intentional — we're testing the fallback behavior for invalid JSON.
   it('getSpec falls back to empty object for malformed parametersJson', () => {
     const tool = new JsToolBridge(
       'broken',

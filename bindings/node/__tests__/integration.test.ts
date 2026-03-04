@@ -9,7 +9,7 @@ import {
   ContextInjectionRole,
   UserMessageLevel,
 } from '../index.js'
-import { validConfig } from './fixtures'
+import { validConfig, emptyConfig } from './fixtures'
 
 describe('Full session lifecycle', () => {
   it('session -> coordinator -> hooks -> cancel lifecycle', async () => {
@@ -195,7 +195,7 @@ describe('Type fidelity', () => {
   })
 
   it('Coordinator toDict returns all expected fields', () => {
-    const coord = new JsCoordinator('{}')
+    const coord = new JsCoordinator(emptyConfig)
     const dict = coord.toDict()
 
     // Arrays

@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { JsCoordinator } from '../index.js'
+import { emptyConfig } from './fixtures'
 
 describe('JsCoordinator', () => {
   it('creates with empty config (toolNames=[], providerNames=[], hasOrchestrator=false, hasContext=false)', () => {
-    const coord = new JsCoordinator('{}')
+    const coord = new JsCoordinator(emptyConfig)
     expect(coord.toolNames).toEqual([])
     expect(coord.providerNames).toEqual([])
     expect(coord.hasOrchestrator).toBe(false)
@@ -15,7 +16,7 @@ describe('JsCoordinator', () => {
   })
 
   it('registers and retrieves capabilities (registerCapability + getCapability roundtrip)', () => {
-    const coord = new JsCoordinator('{}')
+    const coord = new JsCoordinator(emptyConfig)
     coord.registerCapability('streaming', JSON.stringify({ enabled: true }))
     const result = coord.getCapability('streaming')
     expect(result).not.toBeNull()
@@ -24,7 +25,7 @@ describe('JsCoordinator', () => {
   })
 
   it('getCapability returns null for missing', () => {
-    const coord = new JsCoordinator('{}')
+    const coord = new JsCoordinator(emptyConfig)
     const result = coord.getCapability('nonexistent')
     expect(result).toBeNull()
   })
@@ -33,26 +34,26 @@ describe('JsCoordinator', () => {
   // (referential equality coord.hooks === coord.hooks is false). This is a
   // known limitation resolved in Task 6 when Session wires shared state.
   it('provides access to hooks subsystem (coord.hooks has listHandlers function)', () => {
-    const coord = new JsCoordinator('{}')
+    const coord = new JsCoordinator(emptyConfig)
     const hooks = coord.hooks
     expect(hooks).toBeDefined()
     expect(typeof hooks.listHandlers).toBe('function')
   })
 
   it('provides access to cancellation subsystem (coord.cancellation.isCancelled === false)', () => {
-    const coord = new JsCoordinator('{}')
+    const coord = new JsCoordinator(emptyConfig)
     const cancellation = coord.cancellation
     expect(cancellation).toBeDefined()
     expect(cancellation.isCancelled).toBe(false)
   })
 
   it('resetTurn resets turn tracking (should not throw)', () => {
-    const coord = new JsCoordinator('{}')
+    const coord = new JsCoordinator(emptyConfig)
     expect(() => coord.resetTurn()).not.toThrow()
   })
 
   it('toDict returns coordinator state (has tools, providers, has_orchestrator, has_context, capabilities)', () => {
-    const coord = new JsCoordinator('{}')
+    const coord = new JsCoordinator(emptyConfig)
     const dict = coord.toDict()
     expect(dict.tools).toEqual([])
     expect(dict.providers).toEqual([])
@@ -70,7 +71,7 @@ describe('JsCoordinator', () => {
   })
 
   it('cleanup completes without error', async () => {
-    const coord = new JsCoordinator('{}')
+    const coord = new JsCoordinator(emptyConfig)
     await coord.cleanup()
   })
 })
