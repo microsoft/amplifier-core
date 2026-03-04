@@ -68,6 +68,19 @@ describe('JsToolBridge', () => {
     expect(spec.parameters).toEqual(JSON.parse(params))
   })
 
+  it('rejects when the JS callback throws an exception', async () => {
+    const tool = new JsToolBridge(
+      'thrower',
+      'A tool whose callback throws',
+      '{}',
+      async (_inputJson: string) => {
+        throw new Error('callback exploded')
+      }
+    )
+
+    await expect(tool.execute('{}')).rejects.toThrow('callback exploded')
+  })
+
   it('getSpec falls back to empty object for malformed parametersJson', () => {
     const tool = new JsToolBridge(
       'broken',
