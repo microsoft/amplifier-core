@@ -16,7 +16,18 @@
 #[macro_use]
 extern crate napi_derive;
 
+use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
+use napi::bindgen_prelude::*;
+use napi::threadsafe_function::{ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction};
+
+use amplifier_core::errors::HookError;
 use amplifier_core::models as core_models;
+use amplifier_core::models::HookResult;
+use amplifier_core::traits::HookHandler;
 
 #[napi]
 pub fn hello() -> String {
@@ -129,6 +140,76 @@ impl From<SessionState> for core_models::SessionState {
 }
 
 // ---------------------------------------------------------------------------
+// Bidirectional From conversions: ContextInjectionRole
+// ---------------------------------------------------------------------------
+
+impl From<core_models::ContextInjectionRole> for ContextInjectionRole {
+    fn from(role: core_models::ContextInjectionRole) -> Self {
+        match role {
+            core_models::ContextInjectionRole::System => ContextInjectionRole::System,
+            core_models::ContextInjectionRole::User => ContextInjectionRole::User,
+            core_models::ContextInjectionRole::Assistant => ContextInjectionRole::Assistant,
+        }
+    }
+}
+
+impl From<ContextInjectionRole> for core_models::ContextInjectionRole {
+    fn from(role: ContextInjectionRole) -> Self {
+        match role {
+            ContextInjectionRole::System => core_models::ContextInjectionRole::System,
+            ContextInjectionRole::User => core_models::ContextInjectionRole::User,
+            ContextInjectionRole::Assistant => core_models::ContextInjectionRole::Assistant,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bidirectional From conversions: UserMessageLevel
+// ---------------------------------------------------------------------------
+
+impl From<core_models::UserMessageLevel> for UserMessageLevel {
+    fn from(level: core_models::UserMessageLevel) -> Self {
+        match level {
+            core_models::UserMessageLevel::Info => UserMessageLevel::Info,
+            core_models::UserMessageLevel::Warning => UserMessageLevel::Warning,
+            core_models::UserMessageLevel::Error => UserMessageLevel::Error,
+        }
+    }
+}
+
+impl From<UserMessageLevel> for core_models::UserMessageLevel {
+    fn from(level: UserMessageLevel) -> Self {
+        match level {
+            UserMessageLevel::Info => core_models::UserMessageLevel::Info,
+            UserMessageLevel::Warning => core_models::UserMessageLevel::Warning,
+            UserMessageLevel::Error => core_models::UserMessageLevel::Error,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bidirectional From conversions: ApprovalDefault
+// ---------------------------------------------------------------------------
+
+impl From<core_models::ApprovalDefault> for ApprovalDefault {
+    fn from(default: core_models::ApprovalDefault) -> Self {
+        match default {
+            core_models::ApprovalDefault::Allow => ApprovalDefault::Allow,
+            core_models::ApprovalDefault::Deny => ApprovalDefault::Deny,
+        }
+    }
+}
+
+impl From<ApprovalDefault> for core_models::ApprovalDefault {
+    fn from(default: ApprovalDefault) -> Self {
+        match default {
+            ApprovalDefault::Allow => core_models::ApprovalDefault::Allow,
+            ApprovalDefault::Deny => core_models::ApprovalDefault::Deny,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Structs — exported as TypeScript interfaces via #[napi(object)]
 // ---------------------------------------------------------------------------
 
@@ -221,5 +302,138 @@ impl JsCancellationToken {
     #[napi]
     pub fn reset(&self) {
         self.inner.reset();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// JsHookHandlerBridge — lets JS functions act as Rust HookHandler trait objects
+// ---------------------------------------------------------------------------
+
+/// Bridges a JS callback function to the Rust `HookHandler` trait via
+/// `ThreadsafeFunction`. The callback receives `(event: string, data: string)`
+/// and returns a JSON string representing a `HookResult`.
+struct JsHookHandlerBridge {
+    callback: ThreadsafeFunction<(String, String), ErrorStrategy::Fatal>,
+}
+
+// Safety: ThreadsafeFunction is designed for cross-thread use in napi-rs.
+unsafe impl Send for JsHookHandlerBridge {}
+unsafe impl Sync for JsHookHandlerBridge {}
+
+impl HookHandler for JsHookHandlerBridge {
+    fn handle(
+        &self,
+        event: &str,
+        data: serde_json::Value,
+    ) -> Pin<Box<dyn Future<Output = std::result::Result<HookResult, HookError>> + Send + '_>> {
+        let event = event.to_string();
+        let data_str = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
+        Box::pin(async move {
+            let result_str: String = self
+                .callback
+                .call_async((event, data_str))
+                .await
+                .map_err(|e| HookError::HandlerFailed {
+                    message: e.to_string(),
+                    handler_name: None,
+                })?;
+            let hook_result: HookResult =
+                serde_json::from_str(&result_str).unwrap_or_default();
+            Ok(hook_result)
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HookResult converter
+// ---------------------------------------------------------------------------
+
+fn hook_result_to_js(result: HookResult) -> JsHookResult {
+    JsHookResult {
+        action: result.action.into(),
+        reason: result.reason,
+        context_injection: result.context_injection,
+        context_injection_role: Some(result.context_injection_role.into()),
+        ephemeral: Some(result.ephemeral),
+        suppress_output: Some(result.suppress_output),
+        user_message: result.user_message,
+        user_message_level: Some(result.user_message_level.into()),
+        user_message_source: result.user_message_source,
+        approval_prompt: result.approval_prompt,
+        approval_timeout: Some(result.approval_timeout),
+        approval_default: Some(result.approval_default.into()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// JsHookRegistry — wraps amplifier_core::HookRegistry for Node.js
+// ---------------------------------------------------------------------------
+
+/// Wraps `amplifier_core::HookRegistry` for Node.js.
+///
+/// Provides register/emit/listHandlers/setDefaultFields — the event backbone
+/// of the kernel.
+#[napi]
+pub struct JsHookRegistry {
+    pub(crate) inner: Arc<amplifier_core::HookRegistry>,
+}
+
+#[napi]
+impl JsHookRegistry {
+    #[napi(constructor)]
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(amplifier_core::HookRegistry::new()),
+        }
+    }
+
+    /// Internal factory for wrapping an existing kernel HookRegistry.
+    pub fn from_inner(inner: &amplifier_core::HookRegistry) -> Self {
+        // Cannot share a reference across the FFI boundary, so create new.
+        Self {
+            inner: Arc::new(amplifier_core::HookRegistry::new()),
+        }
+    }
+
+    #[napi]
+    pub fn register(
+        &self,
+        event: String,
+        handler: JsFunction,
+        priority: i32,
+        name: String,
+    ) -> Result<()> {
+        let tsfn: ThreadsafeFunction<(String, String), ErrorStrategy::Fatal> = handler
+            .create_threadsafe_function(0, |ctx: ThreadSafeCallContext<(String, String)>| {
+                let event_str = ctx.env.create_string(&ctx.value.0)?;
+                let data_str = ctx.env.create_string(&ctx.value.1)?;
+                Ok(vec![event_str.into_unknown(), data_str.into_unknown()])
+            })?;
+
+        let bridge = JsHookHandlerBridge { callback: tsfn };
+        self.inner
+            .register(&event, Arc::new(bridge), priority, Some(name));
+        Ok(())
+    }
+
+    #[napi]
+    pub async fn emit(&self, event: String, data_json: String) -> Result<JsHookResult> {
+        let data: serde_json::Value =
+            serde_json::from_str(&data_json).map_err(|e| Error::from_reason(e.to_string()))?;
+        let result = self.inner.emit(&event, data).await;
+        Ok(hook_result_to_js(result))
+    }
+
+    #[napi]
+    pub fn list_handlers(&self) -> HashMap<String, Vec<String>> {
+        self.inner.list_handlers(None)
+    }
+
+    #[napi]
+    pub fn set_default_fields(&self, defaults_json: String) -> Result<()> {
+        let defaults: serde_json::Value = serde_json::from_str(&defaults_json)
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+        self.inner.set_default_fields(defaults);
+        Ok(())
     }
 }
