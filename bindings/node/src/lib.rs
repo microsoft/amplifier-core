@@ -450,3 +450,102 @@ impl JsHookRegistry {
         Ok(())
     }
 }
+
+// ---------------------------------------------------------------------------
+// JsCoordinator — wraps amplifier_core::Coordinator for Node.js
+// ---------------------------------------------------------------------------
+
+/// Wraps `amplifier_core::Coordinator` for Node.js — the central hub holding
+/// module mount points, capabilities, hook registry, cancellation token, and config.
+///
+/// Implements the hybrid coordinator pattern: JS-side storage for TS module
+/// objects, Rust kernel for everything else.
+#[napi]
+pub struct JsCoordinator {
+    pub(crate) inner: Arc<amplifier_core::Coordinator>,
+}
+
+#[napi]
+impl JsCoordinator {
+    #[napi(constructor)]
+    pub fn new(config_json: String) -> Result<Self> {
+        let config: HashMap<String, serde_json::Value> =
+            serde_json::from_str(&config_json).map_err(|e| Error::from_reason(e.to_string()))?;
+        Ok(Self {
+            inner: Arc::new(amplifier_core::Coordinator::new(config)),
+        })
+    }
+
+    #[napi(getter)]
+    pub fn tool_names(&self) -> Vec<String> {
+        self.inner.tool_names()
+    }
+
+    #[napi(getter)]
+    pub fn provider_names(&self) -> Vec<String> {
+        self.inner.provider_names()
+    }
+
+    #[napi(getter)]
+    pub fn has_orchestrator(&self) -> bool {
+        self.inner.has_orchestrator()
+    }
+
+    #[napi(getter)]
+    pub fn has_context(&self) -> bool {
+        self.inner.has_context()
+    }
+
+    #[napi]
+    pub fn register_capability(&self, name: String, value_json: String) -> Result<()> {
+        let value: serde_json::Value = serde_json::from_str(&value_json)
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+        self.inner.register_capability(&name, value);
+        Ok(())
+    }
+
+    #[napi]
+    pub fn get_capability(&self, name: String) -> Option<String> {
+        self.inner
+            .get_capability(&name)
+            .map(|v| serde_json::to_string(&v).unwrap_or_else(|_| "null".to_string()))
+    }
+
+    /// Returns a JsHookRegistry wrapper.
+    ///
+    /// TODO(task-6): This creates a separate (detached) HookRegistry because
+    /// Coordinator owns HookRegistry by value, not behind Arc. When Session
+    /// wires everything together in Task 6, this should share the coordinator's
+    /// actual hook registry.
+    #[napi(getter)]
+    pub fn hooks(&self) -> JsHookRegistry {
+        JsHookRegistry::new_detached()
+    }
+
+    #[napi(getter)]
+    pub fn cancellation(&self) -> JsCancellationToken {
+        JsCancellationToken::from_inner(self.inner.cancellation().clone())
+    }
+
+    #[napi(getter)]
+    pub fn config(&self) -> Result<String> {
+        serde_json::to_string(self.inner.config())
+            .map_err(|e| Error::from_reason(e.to_string()))
+    }
+
+    #[napi]
+    pub fn reset_turn(&self) {
+        self.inner.reset_turn();
+    }
+
+    #[napi]
+    pub fn to_dict(&self) -> HashMap<String, serde_json::Value> {
+        self.inner.to_dict()
+    }
+
+    #[napi]
+    pub async fn cleanup(&self) -> Result<()> {
+        self.inner.cleanup().await;
+        Ok(())
+    }
+}
