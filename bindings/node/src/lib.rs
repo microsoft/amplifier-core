@@ -438,6 +438,7 @@ impl JsHookRegistry {
             })?;
 
         let bridge = JsHookHandlerBridge { callback: tsfn };
+        // HandlerId unused — unregister not yet exposed to JS
         let _ = self
             .inner
             .register(&event, Arc::new(bridge), priority, Some(name));
