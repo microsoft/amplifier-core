@@ -176,6 +176,51 @@ impl From<super::amplifier_module::Usage> for crate::messages::Usage {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Role conversion helpers
+// ---------------------------------------------------------------------------
+
+/// Convert a native [`crate::messages::Role`] to its proto `i32` equivalent.
+pub fn native_role_to_proto(role: crate::messages::Role) -> i32 {
+    use crate::messages::Role;
+    use super::amplifier_module::Role as ProtoRole;
+
+    match role {
+        Role::System => ProtoRole::System as i32,
+        Role::User => ProtoRole::User as i32,
+        Role::Assistant => ProtoRole::Assistant as i32,
+        Role::Tool => ProtoRole::Tool as i32,
+        Role::Function => ProtoRole::Function as i32,
+        Role::Developer => ProtoRole::Developer as i32,
+    }
+}
+
+/// Convert a proto `i32` role value to a native [`crate::messages::Role`].
+///
+/// `Unspecified` (0) and unknown values default to [`crate::messages::Role::User`]
+/// with a warning log.
+pub fn proto_role_to_native(proto_role: i32) -> crate::messages::Role {
+    use crate::messages::Role;
+    use super::amplifier_module::Role as ProtoRole;
+
+    match ProtoRole::try_from(proto_role) {
+        Ok(ProtoRole::System) => Role::System,
+        Ok(ProtoRole::User) => Role::User,
+        Ok(ProtoRole::Assistant) => Role::Assistant,
+        Ok(ProtoRole::Tool) => Role::Tool,
+        Ok(ProtoRole::Function) => Role::Function,
+        Ok(ProtoRole::Developer) => Role::Developer,
+        Ok(ProtoRole::Unspecified) => {
+            log::warn!("Proto role Unspecified (0), defaulting to User");
+            Role::User
+        }
+        Err(_) => {
+            log::warn!("Unknown proto role value {proto_role}, defaulting to User");
+            Role::User
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -361,5 +406,49 @@ mod tests {
         };
         let proto: super::super::amplifier_module::Usage = original.into();
         assert_eq!(proto.total_tokens, i32::MAX);
+    }
+
+    // -- Role conversion helper tests --
+
+    #[test]
+    fn native_role_to_proto_role_all_variants() {
+        use crate::messages::Role;
+        use super::super::amplifier_module::Role as ProtoRole;
+
+        assert_eq!(super::native_role_to_proto(Role::System), ProtoRole::System as i32);
+        assert_eq!(super::native_role_to_proto(Role::User), ProtoRole::User as i32);
+        assert_eq!(super::native_role_to_proto(Role::Assistant), ProtoRole::Assistant as i32);
+        assert_eq!(super::native_role_to_proto(Role::Tool), ProtoRole::Tool as i32);
+        assert_eq!(super::native_role_to_proto(Role::Function), ProtoRole::Function as i32);
+        assert_eq!(super::native_role_to_proto(Role::Developer), ProtoRole::Developer as i32);
+    }
+
+    #[test]
+    fn proto_role_to_native_role_all_variants() {
+        use crate::messages::Role;
+        use super::super::amplifier_module::Role as ProtoRole;
+
+        assert_eq!(super::proto_role_to_native(ProtoRole::System as i32), Role::System);
+        assert_eq!(super::proto_role_to_native(ProtoRole::User as i32), Role::User);
+        assert_eq!(super::proto_role_to_native(ProtoRole::Assistant as i32), Role::Assistant);
+        assert_eq!(super::proto_role_to_native(ProtoRole::Tool as i32), Role::Tool);
+        assert_eq!(super::proto_role_to_native(ProtoRole::Function as i32), Role::Function);
+        assert_eq!(super::proto_role_to_native(ProtoRole::Developer as i32), Role::Developer);
+    }
+
+    #[test]
+    fn proto_role_unspecified_defaults_to_user() {
+        use crate::messages::Role;
+        use super::super::amplifier_module::Role as ProtoRole;
+
+        assert_eq!(super::proto_role_to_native(ProtoRole::Unspecified as i32), Role::User);
+    }
+
+    #[test]
+    fn proto_role_unknown_defaults_to_user() {
+        use crate::messages::Role;
+
+        // 999 is not a valid proto Role value
+        assert_eq!(super::proto_role_to_native(999), Role::User);
     }
 }
