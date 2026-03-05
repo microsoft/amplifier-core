@@ -275,3 +275,34 @@ async def test_cleanup_does_not_emit_session_end_when_not_initialized(minimal_co
     assert len(session_end_events) == 0, (
         f"Expected 0 SESSION_END events for uninitialized session, got {len(session_end_events)}"
     )
+
+
+@pytest.mark.asyncio
+async def test_cleanup_emits_session_end_before_coordinator_cleanup(minimal_config):
+    """Test that SESSION_END is emitted before coordinator.cleanup() runs."""
+    from amplifier_core.events import SESSION_END
+    from amplifier_core.models import HookResult
+
+    session = PyAmplifierSession(minimal_config)
+    session._initialized = True
+
+    # Record the order of operations
+    call_order = []
+
+    async def capture_handler(event, data):
+        call_order.append("session_end_emitted")
+        return HookResult(action="continue")
+
+    session.coordinator.hooks.on(SESSION_END, capture_handler, name="test-capture")
+
+    # Mock coordinator.cleanup to record when it runs
+    async def tracking_cleanup():
+        call_order.append("coordinator_cleanup")
+
+    session.coordinator.cleanup = tracking_cleanup
+
+    await session.cleanup()
+
+    assert call_order == ["session_end_emitted", "coordinator_cleanup"], (
+        f"Expected SESSION_END before coordinator.cleanup(), got: {call_order}"
+    )
