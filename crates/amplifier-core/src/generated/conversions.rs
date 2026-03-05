@@ -877,6 +877,149 @@ mod tests {
         assert_eq!(restored.metadata, original.metadata);
     }
 
+    // -- Individual ContentBlock variant roundtrip tests --
+
+    #[test]
+    fn content_block_thinking_roundtrip() {
+        use crate::messages::{ContentBlock, Message, MessageContent, Visibility};
+
+        let original = Message {
+            role: Role::Assistant,
+            content: MessageContent::Blocks(vec![ContentBlock::Thinking {
+                thinking: "Let me reason about this...".into(),
+                signature: Some("sig_abc123".into()),
+                visibility: Some(Visibility::Internal),
+                content: Some(vec![serde_json::json!({"type": "text", "text": "inner"})]),
+                extensions: HashMap::new(),
+            }]),
+            name: None,
+            tool_call_id: None,
+            metadata: None,
+            extensions: HashMap::new(),
+        };
+        let proto = super::native_message_to_proto(original.clone());
+        let restored = super::proto_message_to_native(proto).expect("should succeed");
+        assert_eq!(restored.content, original.content);
+    }
+
+    #[test]
+    fn content_block_redacted_thinking_roundtrip() {
+        use crate::messages::{ContentBlock, Message, MessageContent};
+
+        let original = Message {
+            role: Role::Assistant,
+            content: MessageContent::Blocks(vec![ContentBlock::RedactedThinking {
+                data: "redacted_data_blob".into(),
+                visibility: None,
+                extensions: HashMap::new(),
+            }]),
+            name: None,
+            tool_call_id: None,
+            metadata: None,
+            extensions: HashMap::new(),
+        };
+        let proto = super::native_message_to_proto(original.clone());
+        let restored = super::proto_message_to_native(proto).expect("should succeed");
+        assert_eq!(restored.content, original.content);
+    }
+
+    #[test]
+    fn content_block_tool_call_roundtrip() {
+        use crate::messages::{ContentBlock, Message, MessageContent, Visibility};
+
+        let original = Message {
+            role: Role::Assistant,
+            content: MessageContent::Blocks(vec![ContentBlock::ToolCall {
+                id: "call_456".into(),
+                name: "read_file".into(),
+                input: HashMap::from([
+                    ("path".to_string(), serde_json::json!("/tmp/test.txt")),
+                ]),
+                visibility: Some(Visibility::Developer),
+                extensions: HashMap::new(),
+            }]),
+            name: None,
+            tool_call_id: None,
+            metadata: None,
+            extensions: HashMap::new(),
+        };
+        let proto = super::native_message_to_proto(original.clone());
+        let restored = super::proto_message_to_native(proto).expect("should succeed");
+        assert_eq!(restored.content, original.content);
+    }
+
+    #[test]
+    fn content_block_tool_result_roundtrip() {
+        use crate::messages::{ContentBlock, Message, MessageContent};
+
+        let original = Message {
+            role: Role::Tool,
+            content: MessageContent::Blocks(vec![ContentBlock::ToolResult {
+                tool_call_id: "call_456".into(),
+                output: serde_json::json!({"status": "ok", "lines": 42}),
+                visibility: None,
+                extensions: HashMap::new(),
+            }]),
+            name: None,
+            tool_call_id: None,
+            metadata: None,
+            extensions: HashMap::new(),
+        };
+        let proto = super::native_message_to_proto(original.clone());
+        let restored = super::proto_message_to_native(proto).expect("should succeed");
+        assert_eq!(restored.content, original.content);
+    }
+
+    #[test]
+    fn content_block_image_roundtrip() {
+        use crate::messages::{ContentBlock, Message, MessageContent, Visibility};
+
+        let source = HashMap::from([
+            ("media_type".to_string(), serde_json::json!("image/png")),
+            ("data".to_string(), serde_json::json!("iVBORw0KGgo=")),
+        ]);
+        let original = Message {
+            role: Role::User,
+            content: MessageContent::Blocks(vec![ContentBlock::Image {
+                source,
+                visibility: Some(Visibility::User),
+                extensions: HashMap::new(),
+            }]),
+            name: None,
+            tool_call_id: None,
+            metadata: None,
+            extensions: HashMap::new(),
+        };
+        let proto = super::native_message_to_proto(original.clone());
+        let restored = super::proto_message_to_native(proto).expect("should succeed");
+        assert_eq!(restored.content, original.content);
+    }
+
+    #[test]
+    fn content_block_reasoning_roundtrip() {
+        use crate::messages::{ContentBlock, Message, MessageContent};
+
+        let original = Message {
+            role: Role::Assistant,
+            content: MessageContent::Blocks(vec![ContentBlock::Reasoning {
+                content: vec![
+                    serde_json::json!({"type": "text", "text": "Step 1"}),
+                    serde_json::json!({"type": "text", "text": "Step 2"}),
+                ],
+                summary: vec![serde_json::json!({"type": "text", "text": "Summary"})],
+                visibility: None,
+                extensions: HashMap::new(),
+            }]),
+            name: None,
+            tool_call_id: None,
+            metadata: None,
+            extensions: HashMap::new(),
+        };
+        let proto = super::native_message_to_proto(original.clone());
+        let restored = super::proto_message_to_native(proto).expect("should succeed");
+        assert_eq!(restored.content, original.content);
+    }
+
     #[test]
     fn message_none_content_returns_error() {
         use super::super::amplifier_module;
