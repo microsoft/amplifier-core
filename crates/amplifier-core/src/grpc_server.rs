@@ -12,7 +12,8 @@ use crate::coordinator::Coordinator;
 use crate::generated::amplifier_module;
 use crate::generated::amplifier_module::kernel_service_server::KernelService;
 use crate::generated::conversions::{
-    native_hook_result_to_proto, native_message_to_proto, proto_message_to_native,
+    native_chat_response_to_proto, native_hook_result_to_proto, native_message_to_proto,
+    proto_chat_request_to_native, proto_message_to_native,
 };
 
 /// Implementation of the KernelService gRPC server.
@@ -34,11 +35,35 @@ impl KernelServiceImpl {
 impl KernelService for KernelServiceImpl {
     async fn complete_with_provider(
         &self,
-        _request: Request<amplifier_module::CompleteWithProviderRequest>,
+        request: Request<amplifier_module::CompleteWithProviderRequest>,
     ) -> Result<Response<amplifier_module::ChatResponse>, Status> {
-        Err(Status::unimplemented(
-            "CompleteWithProvider not yet implemented",
-        ))
+        let req = request.into_inner();
+        let provider_name = &req.provider_name;
+
+        // Look up the provider in the coordinator
+        let provider = self
+            .coordinator
+            .get_provider(provider_name)
+            .ok_or_else(|| {
+                Status::not_found(format!("Provider not mounted: {provider_name}"))
+            })?;
+
+        // Extract the proto ChatRequest (required field)
+        let proto_chat_request = req
+            .request
+            .ok_or_else(|| Status::invalid_argument("Missing required field: request"))?;
+
+        // Convert proto ChatRequest → native ChatRequest
+        let native_request = proto_chat_request_to_native(proto_chat_request);
+
+        // Call the provider
+        match provider.complete(native_request).await {
+            Ok(native_response) => {
+                let proto_response = native_chat_response_to_proto(&native_response);
+                Ok(Response::new(proto_response))
+            }
+            Err(e) => Err(Status::internal(format!("Provider completion failed: {e}"))),
+        }
     }
 
     type CompleteWithProviderStreamingStream =
@@ -924,6 +949,126 @@ mod tests {
             tonic::Code::FailedPrecondition,
             "Should return FailedPrecondition when no context mounted"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // CompleteWithProvider tests
+    // -----------------------------------------------------------------------
+
+    /// Build a minimal proto ChatRequest with a single user message.
+    fn make_chat_request(text: &str) -> amplifier_module::ChatRequest {
+        amplifier_module::ChatRequest {
+            messages: vec![amplifier_module::Message {
+                role: amplifier_module::Role::User as i32,
+                content: Some(amplifier_module::message::Content::TextContent(
+                    text.to_string(),
+                )),
+                name: String::new(),
+                tool_call_id: String::new(),
+                metadata_json: String::new(),
+            }],
+            tools: vec![],
+            response_format: None,
+            temperature: 0.0,
+            top_p: 0.0,
+            max_output_tokens: 0,
+            conversation_id: String::new(),
+            stream: false,
+            metadata_json: String::new(),
+            model: String::new(),
+            tool_choice: String::new(),
+            stop: vec![],
+            reasoning_effort: String::new(),
+            timeout: 0.0,
+        }
+    }
+
+    #[tokio::test]
+    async fn complete_with_provider_returns_response_from_mounted_provider() {
+        use crate::testing::FakeProvider;
+
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.mount_provider("openai", Arc::new(FakeProvider::new("openai", "hello from openai")));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::CompleteWithProviderRequest {
+            provider_name: "openai".to_string(),
+            request: Some(make_chat_request("ping")),
+        });
+
+        let result = service.complete_with_provider(request).await;
+        assert!(result.is_ok(), "Expected Ok, got: {result:?}");
+        let inner = result.unwrap().into_inner();
+        // The content field contains JSON-serialized ContentBlocks
+        assert!(!inner.content.is_empty(), "Expected non-empty content");
+        assert!(
+            inner.content.contains("hello from openai"),
+            "Expected response to contain provider text, got: {}",
+            inner.content
+        );
+    }
+
+    #[tokio::test]
+    async fn complete_with_provider_not_found_returns_not_found_status() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::CompleteWithProviderRequest {
+            provider_name: "nonexistent-provider".to_string(),
+            request: Some(make_chat_request("hello")),
+        });
+
+        let result = service.complete_with_provider(request).await;
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().code(),
+            tonic::Code::NotFound,
+            "Should return NotFound when provider is not mounted"
+        );
+    }
+
+    #[tokio::test]
+    async fn complete_with_provider_missing_request_returns_invalid_argument() {
+        use crate::testing::FakeProvider;
+
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.mount_provider("openai", Arc::new(FakeProvider::new("openai", "response")));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::CompleteWithProviderRequest {
+            provider_name: "openai".to_string(),
+            request: None, // missing request
+        });
+
+        let result = service.complete_with_provider(request).await;
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().code(),
+            tonic::Code::InvalidArgument,
+            "Should return InvalidArgument when request field is missing"
+        );
+    }
+
+    #[tokio::test]
+    async fn complete_with_provider_records_call_in_provider() {
+        use crate::testing::FakeProvider;
+
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let fake_provider = Arc::new(FakeProvider::new("anthropic", "recorded response"));
+        coord.mount_provider("anthropic", fake_provider.clone());
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::CompleteWithProviderRequest {
+            provider_name: "anthropic".to_string(),
+            request: Some(make_chat_request("test message")),
+        });
+
+        let result = service.complete_with_provider(request).await;
+        assert!(result.is_ok(), "Expected Ok, got: {result:?}");
+
+        let calls = fake_provider.recorded_calls();
+        assert_eq!(calls.len(), 1, "Provider should have been called once");
+        assert_eq!(calls[0].messages.len(), 1);
     }
 
     #[tokio::test]
