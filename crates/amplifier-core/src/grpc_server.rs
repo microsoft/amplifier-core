@@ -139,18 +139,34 @@ impl KernelService for KernelServiceImpl {
 
     async fn register_capability(
         &self,
-        _request: Request<amplifier_module::RegisterCapabilityRequest>,
+        request: Request<amplifier_module::RegisterCapabilityRequest>,
     ) -> Result<Response<amplifier_module::Empty>, Status> {
-        Err(Status::unimplemented(
-            "RegisterCapability not yet implemented",
-        ))
+        let req = request.into_inner();
+        let value: serde_json::Value = serde_json::from_str(&req.value_json)
+            .map_err(|e| Status::invalid_argument(format!("Invalid value_json: {e}")))?;
+        self.coordinator.register_capability(&req.name, value);
+        Ok(Response::new(amplifier_module::Empty {}))
     }
 
     async fn get_capability(
         &self,
-        _request: Request<amplifier_module::GetCapabilityRequest>,
+        request: Request<amplifier_module::GetCapabilityRequest>,
     ) -> Result<Response<amplifier_module::GetCapabilityResponse>, Status> {
-        Err(Status::unimplemented("GetCapability not yet implemented"))
+        let req = request.into_inner();
+        match self.coordinator.get_capability(&req.name) {
+            Some(value) => {
+                let value_json = serde_json::to_string(&value)
+                    .map_err(|e| Status::internal(format!("Failed to serialize capability: {e}")))?;
+                Ok(Response::new(amplifier_module::GetCapabilityResponse {
+                    found: true,
+                    value_json,
+                }))
+            }
+            None => Ok(Response::new(amplifier_module::GetCapabilityResponse {
+                found: false,
+                value_json: String::new(),
+            })),
+        }
     }
 }
 
@@ -162,5 +178,102 @@ mod tests {
     fn kernel_service_impl_compiles() {
         let coord = Arc::new(Coordinator::new(Default::default()));
         let _service = KernelServiceImpl::new(coord);
+    }
+
+    // -----------------------------------------------------------------------
+    // RegisterCapability tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn register_capability_stores_value() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord.clone());
+
+        let request = Request::new(amplifier_module::RegisterCapabilityRequest {
+            name: "my-cap".to_string(),
+            value_json: r#"{"key":"value"}"#.to_string(),
+        });
+
+        let result = service.register_capability(request).await;
+        assert!(result.is_ok(), "Expected Ok, got: {result:?}");
+
+        // Verify the capability is actually stored
+        let stored = coord.get_capability("my-cap");
+        assert_eq!(stored, Some(serde_json::json!({"key": "value"})));
+    }
+
+    #[tokio::test]
+    async fn register_capability_invalid_json_returns_invalid_argument() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::RegisterCapabilityRequest {
+            name: "my-cap".to_string(),
+            value_json: "not-valid-json{{{".to_string(),
+        });
+
+        let result = service.register_capability(request).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code(), tonic::Code::InvalidArgument);
+    }
+
+    // -----------------------------------------------------------------------
+    // GetCapability tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_capability_returns_found_true_when_registered() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.register_capability("streaming", serde_json::json!(true));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::GetCapabilityRequest {
+            name: "streaming".to_string(),
+        });
+
+        let result = service.get_capability(request).await.unwrap();
+        let inner = result.into_inner();
+        assert!(inner.found);
+        let parsed: serde_json::Value = serde_json::from_str(&inner.value_json).unwrap();
+        assert_eq!(parsed, serde_json::json!(true));
+    }
+
+    #[tokio::test]
+    async fn get_capability_returns_found_false_when_missing() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::GetCapabilityRequest {
+            name: "nonexistent".to_string(),
+        });
+
+        let result = service.get_capability(request).await.unwrap();
+        let inner = result.into_inner();
+        assert!(!inner.found);
+        assert!(inner.value_json.is_empty());
+    }
+
+    #[tokio::test]
+    async fn register_then_get_capability_roundtrip() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        // Register
+        let reg_request = Request::new(amplifier_module::RegisterCapabilityRequest {
+            name: "config".to_string(),
+            value_json: r#"{"model":"gpt-4","max_tokens":1000}"#.to_string(),
+        });
+        service.register_capability(reg_request).await.unwrap();
+
+        // Get
+        let get_request = Request::new(amplifier_module::GetCapabilityRequest {
+            name: "config".to_string(),
+        });
+        let result = service.get_capability(get_request).await.unwrap();
+        let inner = result.into_inner();
+        assert!(inner.found);
+        let parsed: serde_json::Value = serde_json::from_str(&inner.value_json).unwrap();
+        assert_eq!(parsed["model"], serde_json::json!("gpt-4"));
+        assert_eq!(parsed["max_tokens"], serde_json::json!(1000));
     }
 }
