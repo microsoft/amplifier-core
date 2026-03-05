@@ -130,11 +130,64 @@ impl KernelService for KernelServiceImpl {
 
     async fn get_mounted_module(
         &self,
-        _request: Request<amplifier_module::GetMountedModuleRequest>,
+        request: Request<amplifier_module::GetMountedModuleRequest>,
     ) -> Result<Response<amplifier_module::GetMountedModuleResponse>, Status> {
-        Err(Status::unimplemented(
-            "GetMountedModule not yet implemented",
-        ))
+        let req = request.into_inner();
+        let module_name = &req.module_name;
+        let module_type = amplifier_module::ModuleType::try_from(req.module_type)
+            .unwrap_or(amplifier_module::ModuleType::Unspecified);
+
+        let found_info: Option<amplifier_module::ModuleInfo> = match module_type {
+            amplifier_module::ModuleType::Tool => {
+                self.coordinator.get_tool(module_name).map(|tool| {
+                    amplifier_module::ModuleInfo {
+                        name: tool.name().to_string(),
+                        module_type: amplifier_module::ModuleType::Tool as i32,
+                        ..Default::default()
+                    }
+                })
+            }
+            amplifier_module::ModuleType::Provider => {
+                self.coordinator.get_provider(module_name).map(|provider| {
+                    amplifier_module::ModuleInfo {
+                        name: provider.name().to_string(),
+                        module_type: amplifier_module::ModuleType::Provider as i32,
+                        ..Default::default()
+                    }
+                })
+            }
+            amplifier_module::ModuleType::Unspecified => {
+                // Search tools first, then providers
+                if let Some(tool) = self.coordinator.get_tool(module_name) {
+                    Some(amplifier_module::ModuleInfo {
+                        name: tool.name().to_string(),
+                        module_type: amplifier_module::ModuleType::Tool as i32,
+                        ..Default::default()
+                    })
+                } else {
+                    self.coordinator.get_provider(module_name).map(|provider| {
+                        amplifier_module::ModuleInfo {
+                            name: provider.name().to_string(),
+                            module_type: amplifier_module::ModuleType::Provider as i32,
+                            ..Default::default()
+                        }
+                    })
+                }
+            }
+            // Hook, Memory, Guardrail, Approval — not yet stored by name in Coordinator
+            _ => None,
+        };
+
+        match found_info {
+            Some(info) => Ok(Response::new(amplifier_module::GetMountedModuleResponse {
+                found: true,
+                info: Some(info),
+            })),
+            None => Ok(Response::new(amplifier_module::GetMountedModuleResponse {
+                found: false,
+                info: None,
+            })),
+        }
     }
 
     async fn register_capability(
@@ -275,5 +328,138 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&inner.value_json).unwrap();
         assert_eq!(parsed["model"], serde_json::json!("gpt-4"));
         assert_eq!(parsed["max_tokens"], serde_json::json!(1000));
+    }
+
+    // -----------------------------------------------------------------------
+    // GetMountedModule tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_mounted_module_finds_tool_by_name() {
+        use crate::testing::FakeTool;
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.mount_tool("my-tool", Arc::new(FakeTool::new("my-tool", "a test tool")));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::GetMountedModuleRequest {
+            module_name: "my-tool".to_string(),
+            module_type: amplifier_module::ModuleType::Tool as i32,
+        });
+
+        let result = service.get_mounted_module(request).await.unwrap();
+        let inner = result.into_inner();
+        assert!(inner.found, "Expected found=true for mounted tool");
+        let info = inner.info.expect("Expected ModuleInfo to be present");
+        assert_eq!(info.name, "my-tool");
+        assert_eq!(
+            info.module_type,
+            amplifier_module::ModuleType::Tool as i32
+        );
+    }
+
+    #[tokio::test]
+    async fn get_mounted_module_returns_not_found_for_missing_tool() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::GetMountedModuleRequest {
+            module_name: "nonexistent-tool".to_string(),
+            module_type: amplifier_module::ModuleType::Tool as i32,
+        });
+
+        let result = service.get_mounted_module(request).await.unwrap();
+        let inner = result.into_inner();
+        assert!(!inner.found, "Expected found=false for missing tool");
+        assert!(inner.info.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_mounted_module_finds_provider_by_name() {
+        use crate::testing::FakeProvider;
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.mount_provider("openai", Arc::new(FakeProvider::new("openai", "hello")));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::GetMountedModuleRequest {
+            module_name: "openai".to_string(),
+            module_type: amplifier_module::ModuleType::Provider as i32,
+        });
+
+        let result = service.get_mounted_module(request).await.unwrap();
+        let inner = result.into_inner();
+        assert!(inner.found, "Expected found=true for mounted provider");
+        let info = inner.info.expect("Expected ModuleInfo to be present");
+        assert_eq!(info.name, "openai");
+        assert_eq!(
+            info.module_type,
+            amplifier_module::ModuleType::Provider as i32
+        );
+    }
+
+    #[tokio::test]
+    async fn get_mounted_module_unspecified_type_finds_tool() {
+        use crate::testing::FakeTool;
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.mount_tool("bash", Arc::new(FakeTool::new("bash", "runs bash")));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::GetMountedModuleRequest {
+            module_name: "bash".to_string(),
+            module_type: amplifier_module::ModuleType::Unspecified as i32,
+        });
+
+        let result = service.get_mounted_module(request).await.unwrap();
+        let inner = result.into_inner();
+        assert!(inner.found, "UNSPECIFIED type should find a mounted tool");
+        let info = inner.info.expect("Expected ModuleInfo to be present");
+        assert_eq!(info.name, "bash");
+        assert_eq!(
+            info.module_type,
+            amplifier_module::ModuleType::Tool as i32
+        );
+    }
+
+    #[tokio::test]
+    async fn get_mounted_module_unspecified_type_finds_provider() {
+        use crate::testing::FakeProvider;
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.mount_provider("anthropic", Arc::new(FakeProvider::new("anthropic", "hi")));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::GetMountedModuleRequest {
+            module_name: "anthropic".to_string(),
+            module_type: amplifier_module::ModuleType::Unspecified as i32,
+        });
+
+        let result = service.get_mounted_module(request).await.unwrap();
+        let inner = result.into_inner();
+        assert!(inner.found, "UNSPECIFIED type should find a mounted provider");
+        let info = inner.info.expect("Expected ModuleInfo to be present");
+        assert_eq!(info.name, "anthropic");
+        assert_eq!(
+            info.module_type,
+            amplifier_module::ModuleType::Provider as i32
+        );
+    }
+
+    #[tokio::test]
+    async fn get_mounted_module_wrong_type_returns_not_found() {
+        use crate::testing::FakeTool;
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.mount_tool("my-tool", Arc::new(FakeTool::new("my-tool", "a test tool")));
+        let service = KernelServiceImpl::new(coord);
+
+        // Tool is mounted but we query as PROVIDER type — should not find it
+        let request = Request::new(amplifier_module::GetMountedModuleRequest {
+            module_name: "my-tool".to_string(),
+            module_type: amplifier_module::ModuleType::Provider as i32,
+        });
+
+        let result = service.get_mounted_module(request).await.unwrap();
+        let inner = result.into_inner();
+        assert!(
+            !inner.found,
+            "Querying a tool name as PROVIDER type should return not found"
+        );
     }
 }
