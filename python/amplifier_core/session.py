@@ -470,8 +470,9 @@ class AmplifierSession:
                         },
                     )
                 except Exception:
-                    # Best-effort: cleanup must never crash on emit failure
-                    pass
+                    logger.debug(
+                        "Failed to emit SESSION_END during cleanup", exc_info=True
+                    )
 
             await self.coordinator.cleanup()
         finally:
