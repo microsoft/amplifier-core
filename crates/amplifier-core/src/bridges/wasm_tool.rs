@@ -23,11 +23,8 @@ use crate::traits::Tool;
 /// The WIT interface name used by `cargo component` for tool exports.
 const INTERFACE_NAME: &str = "amplifier:modules/tool@1.0.0";
 
-/// Store state for wasmtime, holding the WASI context.
-///
-/// Even Tier 1 (pure-compute) tool modules may import basic WASI interfaces
-/// (e.g. `wasi:cli/environment`) because `cargo component` adds them by default.
-/// We provide a minimal WASI context to satisfy these imports.
+/// Store state for wasmtime, holding the WASI context required by
+/// `cargo component`-generated modules.
 pub(crate) struct WasmState {
     wasi: wasmtime_wasi::WasiCtx,
     table: wasmtime::component::ResourceTable,
@@ -194,7 +191,7 @@ impl Tool for WasmToolBridge {
             })?;
 
             let engine = Arc::clone(&self.engine);
-            let component = self.component.clone();
+            let component = self.component.clone(); // Component is Arc-backed, cheap clone
 
             let result_bytes = tokio::task::spawn_blocking(move || {
                 call_execute(&engine, &component, input_bytes)
