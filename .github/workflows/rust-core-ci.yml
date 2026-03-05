@@ -16,6 +16,9 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
       - name: Run Rust tests
         run: cargo test -p amplifier-core --verbose
       - name: Check workspace
@@ -24,6 +27,12 @@ jobs:
         run: cargo fmt --check
       - name: Clippy
         run: cargo clippy --workspace -- -D warnings
+      - name: Build and test Node.js bindings
+        working-directory: bindings/node
+        run: |
+          npm install
+          npm run build
+          npx vitest run
 
   python-tests:
     name: Python Tests (${{ matrix.python-version }})
