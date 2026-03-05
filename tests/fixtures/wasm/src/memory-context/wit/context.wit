@@ -1,0 +1,29 @@
+// Minimal WIT for context-module world.
+// Extracted from the main amplifier-modules.wit to avoid pulling in
+// WASI HTTP dependencies that are only needed by the provider-module world.
+
+package amplifier:modules@1.0.0;
+
+/// Context manager interface — owns conversation memory policy.
+interface context-manager {
+    /// Append a message to the context (Message proto, serialized).
+    add-message: func(message: list<u8>) -> result<_, string>;
+
+    /// Get all messages (raw, uncompacted). Returns GetMessagesResponse proto.
+    get-messages: func() -> result<list<u8>, string>;
+
+    /// Get messages for an LLM request (compacted). Accepts
+    /// GetMessagesForRequestParams proto, returns GetMessagesResponse proto.
+    get-messages-for-request: func(params: list<u8>) -> result<list<u8>, string>;
+
+    /// Replace the entire message list (SetMessagesRequest proto).
+    set-messages: func(messages: list<u8>) -> result<_, string>;
+
+    /// Clear all messages from context.
+    clear: func() -> result<_, string>;
+}
+
+/// Tier 1: Pure-compute context manager module.
+world context-module {
+    export context-manager;
+}
