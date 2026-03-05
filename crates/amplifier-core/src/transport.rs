@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::traits::Tool;
+use crate::traits::{Orchestrator, Tool};
 
 /// Supported transport types.
 #[derive(Debug, Clone, PartialEq)]
@@ -31,6 +31,24 @@ pub async fn load_grpc_tool(
     endpoint: &str,
 ) -> Result<Arc<dyn Tool>, Box<dyn std::error::Error + Send + Sync>> {
     let bridge = crate::bridges::grpc_tool::GrpcToolBridge::connect(endpoint).await?;
+    Ok(Arc::new(bridge))
+}
+
+/// Load an orchestrator module via gRPC transport.
+///
+/// # Arguments
+///
+/// * `endpoint` — gRPC endpoint URL (e.g. `"http://localhost:50051"`).
+/// * `session_id` — Session identifier threaded through execute requests so
+///   the remote orchestrator can route KernelService callbacks back to the
+///   correct session.
+pub async fn load_grpc_orchestrator(
+    endpoint: &str,
+    session_id: &str,
+) -> Result<Arc<dyn Orchestrator>, Box<dyn std::error::Error + Send + Sync>> {
+    let bridge =
+        crate::bridges::grpc_orchestrator::GrpcOrchestratorBridge::connect(endpoint, session_id)
+            .await?;
     Ok(Arc::new(bridge))
 }
 
