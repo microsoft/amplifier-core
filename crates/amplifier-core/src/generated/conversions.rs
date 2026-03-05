@@ -180,11 +180,11 @@ impl From<super::amplifier_module::Usage> for crate::messages::Usage {
 // Role conversion helpers
 // ---------------------------------------------------------------------------
 
-/// Convert a native [`crate::messages::Role`] to its proto `i32` equivalent.
-pub fn native_role_to_proto(role: crate::messages::Role) -> i32 {
-    use crate::messages::Role;
-    use super::amplifier_module::Role as ProtoRole;
+use crate::messages::Role;
+use super::amplifier_module::Role as ProtoRole;
 
+/// Convert a native [`crate::messages::Role`] to its proto `i32` equivalent.
+pub fn native_role_to_proto(role: Role) -> i32 {
     match role {
         Role::System => ProtoRole::System as i32,
         Role::User => ProtoRole::User as i32,
@@ -199,10 +199,7 @@ pub fn native_role_to_proto(role: crate::messages::Role) -> i32 {
 ///
 /// `Unspecified` (0) and unknown values default to [`crate::messages::Role::User`]
 /// with a warning log.
-pub fn proto_role_to_native(proto_role: i32) -> crate::messages::Role {
-    use crate::messages::Role;
-    use super::amplifier_module::Role as ProtoRole;
-
+pub fn proto_role_to_native(proto_role: i32) -> Role {
     match ProtoRole::try_from(proto_role) {
         Ok(ProtoRole::System) => Role::System,
         Ok(ProtoRole::User) => Role::User,
