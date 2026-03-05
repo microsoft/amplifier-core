@@ -845,6 +845,138 @@ pub fn proto_chat_request_to_native(
     }
 }
 
+// ---------------------------------------------------------------------------
+// ChatResponse conversion functions (public)
+// ---------------------------------------------------------------------------
+
+/// Convert a native [`crate::messages::ChatResponse`] to its proto equivalent.
+///
+/// # Field mapping notes
+///
+/// - `content`: the full `Vec<ContentBlock>` is serialized as a JSON string into
+///   the proto `content` field (empty string when no content).
+/// - `tool_calls`: each `ToolCall.arguments` map is serialized to
+///   `ToolCallMessage.arguments_json`.
+/// - `usage`: delegated to the existing `Usage` `From` impl.
+/// - `degradation`: mapped field-for-field (extensions are dropped).
+/// - `finish_reason`: empty string sentinel in proto → `None` on restore.
+/// - `metadata`: serialized to `metadata_json`.
+/// - `extensions`: dropped (proto has no extensions field).
+pub fn native_chat_response_to_proto(
+    response: &crate::messages::ChatResponse,
+) -> super::amplifier_module::ChatResponse {
+    super::amplifier_module::ChatResponse {
+        content: serde_json::to_string(&response.content).unwrap_or_else(|e| {
+            log::warn!("Failed to serialize ChatResponse content to JSON: {e}");
+            String::new()
+        }),
+        tool_calls: response
+            .tool_calls
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .map(|tc| super::amplifier_module::ToolCallMessage {
+                id: tc.id.clone(),
+                name: tc.name.clone(),
+                arguments_json: serde_json::to_string(&tc.arguments).unwrap_or_else(|e| {
+                    log::warn!("Failed to serialize ToolCall arguments to JSON: {e}");
+                    String::new()
+                }),
+            })
+            .collect(),
+        usage: response.usage.clone().map(Into::into),
+        degradation: response.degradation.as_ref().map(|d| {
+            super::amplifier_module::Degradation {
+                requested: d.requested.clone(),
+                actual: d.actual.clone(),
+                reason: d.reason.clone(),
+            }
+        }),
+        finish_reason: response.finish_reason.clone().unwrap_or_default(),
+        metadata_json: response
+            .metadata
+            .as_ref()
+            .map(|m| {
+                serde_json::to_string(m).unwrap_or_else(|e| {
+                    log::warn!("Failed to serialize ChatResponse metadata to JSON: {e}");
+                    String::new()
+                })
+            })
+            .unwrap_or_default(),
+    }
+}
+
+/// Convert a proto [`super::amplifier_module::ChatResponse`] to a native
+/// [`crate::messages::ChatResponse`].
+///
+/// - `content`: JSON-deserialized back to `Vec<ContentBlock>`; empty string → empty `Vec`.
+/// - `tool_calls`: empty repeated field → `None`; non-empty → `Some(Vec<ToolCall>)`.
+/// - `finish_reason`: empty string → `None`.
+/// - `metadata_json`: empty string → `None`.
+/// - `extensions`: always empty (proto has no extensions field).
+pub fn proto_chat_response_to_native(
+    response: super::amplifier_module::ChatResponse,
+) -> crate::messages::ChatResponse {
+    crate::messages::ChatResponse {
+        content: if response.content.is_empty() {
+            Vec::new()
+        } else {
+            serde_json::from_str(&response.content).unwrap_or_else(|e| {
+                log::warn!("Failed to deserialize ChatResponse content: {e}");
+                Vec::new()
+            })
+        },
+        tool_calls: if response.tool_calls.is_empty() {
+            None
+        } else {
+            Some(
+                response
+                    .tool_calls
+                    .into_iter()
+                    .map(|tc| crate::messages::ToolCall {
+                        id: tc.id,
+                        name: tc.name,
+                        arguments: if tc.arguments_json.is_empty() {
+                            HashMap::new()
+                        } else {
+                            serde_json::from_str(&tc.arguments_json).unwrap_or_else(|e| {
+                                log::warn!(
+                                    "Failed to deserialize ToolCall arguments_json: {e}"
+                                );
+                                Default::default()
+                            })
+                        },
+                        extensions: HashMap::new(),
+                    })
+                    .collect(),
+            )
+        },
+        usage: response.usage.map(Into::into),
+        degradation: response.degradation.map(|d| crate::messages::Degradation {
+            requested: d.requested,
+            actual: d.actual,
+            reason: d.reason,
+            extensions: HashMap::new(),
+        }),
+        finish_reason: if response.finish_reason.is_empty() {
+            None
+        } else {
+            Some(response.finish_reason)
+        },
+        metadata: if response.metadata_json.is_empty() {
+            None
+        } else {
+            serde_json::from_str(&response.metadata_json)
+                .map_err(|e| {
+                    log::warn!("Failed to deserialize ChatResponse metadata_json: {e}");
+                    e
+                })
+                .ok()
+        },
+        extensions: HashMap::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -1605,6 +1737,200 @@ mod tests {
             }
             other => panic!("Expected ToolChoice::Object, got: {other:?}"),
         }
+    }
+
+    // -- ChatResponse conversion tests (RED: functions not yet implemented) --
+
+    #[test]
+    fn chat_response_minimal_roundtrip() {
+        use crate::messages::ChatResponse;
+
+        let original = ChatResponse {
+            content: vec![crate::messages::ContentBlock::Text {
+                text: "Hello, world!".into(),
+                visibility: None,
+                extensions: HashMap::new(),
+            }],
+            tool_calls: None,
+            usage: None,
+            degradation: None,
+            finish_reason: None,
+            metadata: None,
+            extensions: HashMap::new(),
+        };
+
+        let proto = super::native_chat_response_to_proto(&original);
+        let restored = super::proto_chat_response_to_native(proto);
+
+        assert_eq!(restored.content.len(), 1);
+        assert_eq!(restored.content, original.content);
+        assert!(restored.tool_calls.is_none());
+        assert!(restored.usage.is_none());
+        assert!(restored.degradation.is_none());
+        assert!(restored.finish_reason.is_none());
+        assert!(restored.metadata.is_none());
+    }
+
+    #[test]
+    fn chat_response_full_fields_roundtrip() {
+        use crate::messages::{ChatResponse, Degradation, ToolCall, Usage};
+
+        let original = ChatResponse {
+            content: vec![
+                crate::messages::ContentBlock::Text {
+                    text: "Here's the answer.".into(),
+                    visibility: None,
+                    extensions: HashMap::new(),
+                },
+                crate::messages::ContentBlock::Thinking {
+                    thinking: "Let me reason...".into(),
+                    signature: Some("sig_xyz".into()),
+                    visibility: Some(crate::messages::Visibility::Internal),
+                    content: None,
+                    extensions: HashMap::new(),
+                },
+            ],
+            tool_calls: Some(vec![ToolCall {
+                id: "call_001".into(),
+                name: "search".into(),
+                arguments: HashMap::from([
+                    ("query".to_string(), serde_json::json!("rust async")),
+                    ("limit".to_string(), serde_json::json!(10)),
+                ]),
+                extensions: HashMap::new(),
+            }]),
+            usage: Some(Usage {
+                input_tokens: 200,
+                output_tokens: 100,
+                total_tokens: 300,
+                reasoning_tokens: Some(50),
+                cache_read_tokens: Some(20),
+                cache_write_tokens: None,
+                extensions: HashMap::new(),
+            }),
+            degradation: Some(Degradation {
+                requested: "gpt-4-turbo".into(),
+                actual: "gpt-4".into(),
+                reason: "rate limit".into(),
+                extensions: HashMap::new(),
+            }),
+            finish_reason: Some("stop".into()),
+            metadata: Some(HashMap::from([
+                ("request_id".to_string(), serde_json::json!("req_abc123")),
+            ])),
+            extensions: HashMap::new(),
+        };
+
+        let proto = super::native_chat_response_to_proto(&original);
+        let restored = super::proto_chat_response_to_native(proto);
+
+        // content blocks
+        assert_eq!(restored.content.len(), 2);
+        assert_eq!(restored.content, original.content);
+
+        // tool_calls
+        let tool_calls = restored.tool_calls.as_ref().expect("tool_calls must be Some");
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(tool_calls[0].id, "call_001");
+        assert_eq!(tool_calls[0].name, "search");
+        assert_eq!(
+            tool_calls[0].arguments.get("query"),
+            Some(&serde_json::json!("rust async"))
+        );
+        assert_eq!(
+            tool_calls[0].arguments.get("limit"),
+            Some(&serde_json::json!(10))
+        );
+
+        // usage
+        let usage = restored.usage.as_ref().expect("usage must be Some");
+        assert_eq!(usage.input_tokens, 200);
+        assert_eq!(usage.output_tokens, 100);
+        assert_eq!(usage.total_tokens, 300);
+        assert_eq!(usage.reasoning_tokens, Some(50));
+        assert_eq!(usage.cache_read_tokens, Some(20));
+
+        // degradation
+        let deg = restored.degradation.as_ref().expect("degradation must be Some");
+        assert_eq!(deg.requested, "gpt-4-turbo");
+        assert_eq!(deg.actual, "gpt-4");
+        assert_eq!(deg.reason, "rate limit");
+
+        // finish_reason
+        assert_eq!(restored.finish_reason, Some("stop".into()));
+
+        // metadata
+        let meta = restored.metadata.as_ref().expect("metadata must be Some");
+        assert_eq!(meta.get("request_id"), Some(&serde_json::json!("req_abc123")));
+    }
+
+    #[test]
+    fn chat_response_tool_calls_roundtrip() {
+        use crate::messages::{ChatResponse, ToolCall};
+
+        let original = ChatResponse {
+            content: vec![crate::messages::ContentBlock::Text {
+                text: "Let me look that up.".into(),
+                visibility: None,
+                extensions: HashMap::new(),
+            }],
+            tool_calls: Some(vec![
+                ToolCall {
+                    id: "call_A".into(),
+                    name: "read_file".into(),
+                    arguments: HashMap::from([
+                        ("path".to_string(), serde_json::json!("/tmp/data.txt")),
+                    ]),
+                    extensions: HashMap::new(),
+                },
+                ToolCall {
+                    id: "call_B".into(),
+                    name: "write_file".into(),
+                    arguments: HashMap::from([
+                        ("path".to_string(), serde_json::json!("/tmp/out.txt")),
+                        ("content".to_string(), serde_json::json!("hello")),
+                    ]),
+                    extensions: HashMap::new(),
+                },
+            ]),
+            usage: None,
+            degradation: None,
+            finish_reason: Some("tool_calls".into()),
+            metadata: None,
+            extensions: HashMap::new(),
+        };
+
+        let proto = super::native_chat_response_to_proto(&original);
+        let restored = super::proto_chat_response_to_native(proto);
+
+        let tool_calls = restored.tool_calls.expect("tool_calls must be Some");
+        assert_eq!(tool_calls.len(), 2);
+        assert_eq!(tool_calls[0].id, "call_A");
+        assert_eq!(tool_calls[0].name, "read_file");
+        assert_eq!(tool_calls[1].id, "call_B");
+        assert_eq!(tool_calls[1].name, "write_file");
+        assert_eq!(restored.finish_reason, Some("tool_calls".into()));
+    }
+
+    #[test]
+    fn chat_response_empty_content_roundtrip() {
+        use crate::messages::ChatResponse;
+
+        let original = ChatResponse {
+            content: vec![],
+            tool_calls: None,
+            usage: None,
+            degradation: None,
+            finish_reason: Some("stop".into()),
+            metadata: None,
+            extensions: HashMap::new(),
+        };
+
+        let proto = super::native_chat_response_to_proto(&original);
+        let restored = super::proto_chat_response_to_native(proto);
+
+        assert!(restored.content.is_empty());
+        assert_eq!(restored.finish_reason, Some("stop".into()));
     }
 
     #[test]
