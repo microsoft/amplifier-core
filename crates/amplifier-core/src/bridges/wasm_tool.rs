@@ -162,7 +162,8 @@ impl WasmToolBridge {
         path: &Path,
         engine: Arc<Engine>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let bytes = std::fs::read(path)?;
+        let bytes = std::fs::read(path)
+            .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
         Self::from_bytes(&bytes, engine)
     }
 }
@@ -221,9 +222,6 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    #[allow(dead_code)]
-    fn assert_tool_trait_object(_: Arc<dyn crate::traits::Tool>) {}
-
     /// Compile-time check: WasmToolBridge satisfies Arc<dyn Tool>.
     ///
     /// Note: the integration test in `tests/wasm_tool_e2e.rs` has an equivalent
@@ -231,10 +229,8 @@ mod tests {
     /// catches breakage during unit-test runs without needing the integration
     /// test, while the integration test verifies the public export path.
     #[allow(dead_code)]
-    fn wasm_tool_bridge_is_tool() {
-        fn _check(bridge: WasmToolBridge) {
-            assert_tool_trait_object(Arc::new(bridge));
-        }
+    fn _assert_wasm_tool_bridge_is_tool(bridge: WasmToolBridge) {
+        let _: Arc<dyn crate::traits::Tool> = Arc::new(bridge);
     }
 
     /// Helper: read the echo-tool.wasm fixture bytes.
