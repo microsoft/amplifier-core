@@ -586,6 +586,265 @@ pub fn proto_message_to_native(
     })
 }
 
+// ---------------------------------------------------------------------------
+// ChatRequest conversion functions (public)
+// ---------------------------------------------------------------------------
+
+/// Convert a native [`crate::messages::ChatRequest`] to its proto equivalent.
+///
+/// # Sentinel value conventions
+///
+/// Since proto scalar fields (`temperature`, `top_p`, `max_output_tokens`,
+/// `stream`, `timeout`, etc.) lack `optional`, the following conventions apply
+/// for the reverse direction (`proto_chat_request_to_native`):
+///
+/// - `temperature`, `top_p`, `timeout` == `0.0` → `None`
+/// - `max_output_tokens` == `0` → `None`
+/// - Empty strings → `None` for string optionals
+/// - `stream == false` → `None`
+///
+/// Tests should use non-zero / non-empty values to verify full roundtrip
+/// fidelity.
+pub fn native_chat_request_to_proto(
+    request: &crate::messages::ChatRequest,
+) -> super::amplifier_module::ChatRequest {
+    use crate::messages::{ResponseFormat, ToolChoice};
+    use super::amplifier_module::{
+        response_format, JsonSchemaFormat, ResponseFormat as ProtoResponseFormat, ToolSpecProto,
+    };
+
+    super::amplifier_module::ChatRequest {
+        messages: request
+            .messages
+            .iter()
+            .map(|m| native_message_to_proto(m.clone()))
+            .collect(),
+        tools: request
+            .tools
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .map(|t| ToolSpecProto {
+                name: t.name.clone(),
+                description: t.description.clone().unwrap_or_default(),
+                parameters_json: serde_json::to_string(&t.parameters).unwrap_or_else(|e| {
+                    log::warn!("Failed to serialize ToolSpec parameters to JSON: {e}");
+                    String::new()
+                }),
+            })
+            .collect(),
+        response_format: request.response_format.as_ref().map(|rf| match rf {
+            ResponseFormat::Text => ProtoResponseFormat {
+                format: Some(response_format::Format::Text(true)),
+            },
+            ResponseFormat::Json => ProtoResponseFormat {
+                format: Some(response_format::Format::Json(true)),
+            },
+            ResponseFormat::JsonSchema { schema, strict } => ProtoResponseFormat {
+                format: Some(response_format::Format::JsonSchema(JsonSchemaFormat {
+                    schema_json: serde_json::to_string(schema).unwrap_or_else(|e| {
+                        log::warn!("Failed to serialize JsonSchema schema to JSON: {e}");
+                        String::new()
+                    }),
+                    strict: strict.unwrap_or(false),
+                })),
+            },
+        }),
+        temperature: request.temperature.unwrap_or(0.0),
+        top_p: request.top_p.unwrap_or(0.0),
+        max_output_tokens: request
+            .max_output_tokens
+            .map(|v| {
+                i32::try_from(v).unwrap_or_else(|_| {
+                    log::warn!(
+                        "max_output_tokens {} overflows i32, clamping to i32::MAX",
+                        v
+                    );
+                    i32::MAX
+                })
+            })
+            .unwrap_or(0),
+        conversation_id: request.conversation_id.clone().unwrap_or_default(),
+        stream: request.stream.unwrap_or(false),
+        metadata_json: request
+            .metadata
+            .as_ref()
+            .map(|m| {
+                serde_json::to_string(m).unwrap_or_else(|e| {
+                    log::warn!("Failed to serialize ChatRequest metadata to JSON: {e}");
+                    String::new()
+                })
+            })
+            .unwrap_or_default(),
+        model: request.model.clone().unwrap_or_default(),
+        tool_choice: request
+            .tool_choice
+            .as_ref()
+            .map(|tc| match tc {
+                ToolChoice::String(s) => s.clone(),
+                ToolChoice::Object(obj) => {
+                    serde_json::to_string(obj).unwrap_or_else(|e| {
+                        log::warn!("Failed to serialize ToolChoice object to JSON: {e}");
+                        String::new()
+                    })
+                }
+            })
+            .unwrap_or_default(),
+        stop: request.stop.clone().unwrap_or_default(),
+        reasoning_effort: request.reasoning_effort.clone().unwrap_or_default(),
+        timeout: request.timeout.unwrap_or(0.0),
+    }
+}
+
+/// Convert a proto [`super::amplifier_module::ChatRequest`] to a native
+/// [`crate::messages::ChatRequest`].
+///
+/// See [`native_chat_request_to_proto`] for the sentinel value conventions
+/// used for scalar fields that have no `optional` proto modifier.
+///
+/// For `tool_choice`: if the stored string parses as a JSON object it is
+/// returned as [`crate::messages::ToolChoice::Object`]; otherwise it is
+/// treated as a plain [`crate::messages::ToolChoice::String`].
+///
+/// Messages that fail to convert are silently skipped with a warning log.
+pub fn proto_chat_request_to_native(
+    request: super::amplifier_module::ChatRequest,
+) -> crate::messages::ChatRequest {
+    use crate::messages::{ResponseFormat, ToolChoice, ToolSpec};
+    use super::amplifier_module::response_format;
+
+    crate::messages::ChatRequest {
+        messages: request
+            .messages
+            .into_iter()
+            .filter_map(|m| {
+                proto_message_to_native(m)
+                    .map_err(|e| {
+                        log::warn!("Skipping invalid message in ChatRequest: {e}");
+                        e
+                    })
+                    .ok()
+            })
+            .collect(),
+        tools: if request.tools.is_empty() {
+            None
+        } else {
+            Some(
+                request
+                    .tools
+                    .into_iter()
+                    .map(|t| ToolSpec {
+                        name: t.name,
+                        description: if t.description.is_empty() {
+                            None
+                        } else {
+                            Some(t.description)
+                        },
+                        parameters: if t.parameters_json.is_empty() {
+                            HashMap::new()
+                        } else {
+                            serde_json::from_str(&t.parameters_json).unwrap_or_else(|e| {
+                                log::warn!(
+                                    "Failed to deserialize ToolSpec parameters_json: {e}"
+                                );
+                                Default::default()
+                            })
+                        },
+                        extensions: HashMap::new(),
+                    })
+                    .collect(),
+            )
+        },
+        response_format: request.response_format.and_then(|rf| match rf.format {
+            Some(response_format::Format::Text(_)) => Some(ResponseFormat::Text),
+            Some(response_format::Format::Json(_)) => Some(ResponseFormat::Json),
+            Some(response_format::Format::JsonSchema(js)) => {
+                let schema = if js.schema_json.is_empty() {
+                    HashMap::new()
+                } else {
+                    serde_json::from_str(&js.schema_json).unwrap_or_else(|e| {
+                        log::warn!(
+                            "Failed to deserialize JsonSchemaFormat schema_json: {e}"
+                        );
+                        Default::default()
+                    })
+                };
+                Some(ResponseFormat::JsonSchema {
+                    schema,
+                    // proto `strict` is non-optional bool; false → None, true → Some(true)
+                    strict: if js.strict { Some(true) } else { None },
+                })
+            }
+            None => None,
+        }),
+        // Sentinel: 0.0 means "not set"
+        temperature: if request.temperature == 0.0 {
+            None
+        } else {
+            Some(request.temperature)
+        },
+        top_p: if request.top_p == 0.0 {
+            None
+        } else {
+            Some(request.top_p)
+        },
+        max_output_tokens: if request.max_output_tokens == 0 {
+            None
+        } else {
+            Some(i64::from(request.max_output_tokens))
+        },
+        conversation_id: if request.conversation_id.is_empty() {
+            None
+        } else {
+            Some(request.conversation_id)
+        },
+        // Sentinel: false means "not set"
+        stream: if request.stream { Some(true) } else { None },
+        metadata: if request.metadata_json.is_empty() {
+            None
+        } else {
+            serde_json::from_str(&request.metadata_json)
+                .map_err(|e| {
+                    log::warn!("Failed to deserialize ChatRequest metadata_json: {e}");
+                    e
+                })
+                .ok()
+        },
+        model: if request.model.is_empty() {
+            None
+        } else {
+            Some(request.model)
+        },
+        tool_choice: if request.tool_choice.is_empty() {
+            None
+        } else {
+            // Try to parse as a JSON object; fall back to a plain string value.
+            match serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(
+                &request.tool_choice,
+            ) {
+                Ok(map) => Some(ToolChoice::Object(map.into_iter().collect())),
+                Err(_) => Some(ToolChoice::String(request.tool_choice)),
+            }
+        },
+        stop: if request.stop.is_empty() {
+            None
+        } else {
+            Some(request.stop)
+        },
+        reasoning_effort: if request.reasoning_effort.is_empty() {
+            None
+        } else {
+            Some(request.reasoning_effort)
+        },
+        timeout: if request.timeout == 0.0 {
+            None
+        } else {
+            Some(request.timeout)
+        },
+        extensions: HashMap::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -1033,5 +1292,375 @@ mod tests {
         };
         let result = super::proto_message_to_native(proto);
         assert!(result.is_err(), "None content should return Err");
+    }
+
+    // -- ChatRequest conversion tests --
+
+    #[test]
+    fn chat_request_minimal_roundtrip() {
+        use crate::messages::{ChatRequest, Message, MessageContent};
+
+        let original = ChatRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: MessageContent::Text("Hello!".into()),
+                name: None,
+                tool_call_id: None,
+                metadata: None,
+                extensions: HashMap::new(),
+            }],
+            tools: None,
+            response_format: None,
+            temperature: None,
+            top_p: None,
+            max_output_tokens: None,
+            conversation_id: None,
+            stream: None,
+            metadata: None,
+            model: None,
+            tool_choice: None,
+            stop: None,
+            reasoning_effort: None,
+            timeout: None,
+            extensions: HashMap::new(),
+        };
+
+        let proto = super::native_chat_request_to_proto(&original);
+        let restored = super::proto_chat_request_to_native(proto);
+
+        assert_eq!(restored.messages.len(), 1);
+        assert_eq!(restored.messages[0].role, original.messages[0].role);
+        assert_eq!(restored.messages[0].content, original.messages[0].content);
+        assert!(restored.tools.is_none());
+        assert!(restored.response_format.is_none());
+        assert!(restored.temperature.is_none());
+        assert!(restored.model.is_none());
+    }
+
+    #[test]
+    fn chat_request_full_fields_roundtrip() {
+        use crate::messages::{
+            ChatRequest, Message, MessageContent, ResponseFormat, ToolChoice, ToolSpec,
+        };
+
+        let original = ChatRequest {
+            messages: vec![Message {
+                role: Role::Assistant,
+                content: MessageContent::Text("I can help!".into()),
+                name: None,
+                tool_call_id: None,
+                metadata: None,
+                extensions: HashMap::new(),
+            }],
+            tools: Some(vec![ToolSpec {
+                name: "search".into(),
+                description: Some("Search the web".into()),
+                parameters: {
+                    let mut m = HashMap::new();
+                    m.insert("type".into(), serde_json::json!("object"));
+                    m.insert("properties".into(), serde_json::json!({"query": {"type": "string"}}));
+                    m
+                },
+                extensions: HashMap::new(),
+            }]),
+            response_format: Some(ResponseFormat::Text),
+            temperature: Some(0.7),
+            top_p: Some(0.9),
+            max_output_tokens: Some(2048),
+            conversation_id: Some("conv_abc".into()),
+            stream: Some(true),
+            metadata: Some({
+                let mut m = HashMap::new();
+                m.insert("source".into(), serde_json::json!("test-suite"));
+                m
+            }),
+            model: Some("gpt-4o".into()),
+            tool_choice: Some(ToolChoice::String("auto".into())),
+            stop: Some(vec!["END".into(), "STOP".into()]),
+            reasoning_effort: Some("high".into()),
+            timeout: Some(30.0),
+            extensions: HashMap::new(),
+        };
+
+        let proto = super::native_chat_request_to_proto(&original);
+        let restored = super::proto_chat_request_to_native(proto);
+
+        assert_eq!(restored.messages.len(), 1);
+        assert_eq!(restored.model, Some("gpt-4o".into()));
+        assert_eq!(restored.temperature, Some(0.7));
+        assert_eq!(restored.top_p, Some(0.9));
+        assert_eq!(restored.max_output_tokens, Some(2048));
+        assert_eq!(restored.conversation_id, Some("conv_abc".into()));
+        assert_eq!(restored.stream, Some(true));
+        assert_eq!(restored.reasoning_effort, Some("high".into()));
+        assert_eq!(restored.timeout, Some(30.0));
+        assert_eq!(restored.stop, Some(vec!["END".into(), "STOP".into()]));
+        assert_eq!(restored.tool_choice, Some(ToolChoice::String("auto".into())));
+        assert_eq!(restored.response_format, Some(ResponseFormat::Text));
+        assert_eq!(restored.metadata, original.metadata);
+    }
+
+    #[test]
+    fn chat_request_tools_roundtrip() {
+        use crate::messages::{ChatRequest, Message, MessageContent, ToolSpec};
+
+        let original = ChatRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: MessageContent::Text("help".into()),
+                name: None,
+                tool_call_id: None,
+                metadata: None,
+                extensions: HashMap::new(),
+            }],
+            tools: Some(vec![
+                ToolSpec {
+                    name: "read_file".into(),
+                    description: Some("Read a file from disk".into()),
+                    parameters: {
+                        let mut m = HashMap::new();
+                        m.insert("type".into(), serde_json::json!("object"));
+                        m
+                    },
+                    extensions: HashMap::new(),
+                },
+                ToolSpec {
+                    name: "write_file".into(),
+                    description: None,
+                    parameters: HashMap::new(),
+                    extensions: HashMap::new(),
+                },
+            ]),
+            response_format: None,
+            temperature: None,
+            top_p: None,
+            max_output_tokens: None,
+            conversation_id: None,
+            stream: None,
+            metadata: None,
+            model: None,
+            tool_choice: None,
+            stop: None,
+            reasoning_effort: None,
+            timeout: None,
+            extensions: HashMap::new(),
+        };
+
+        let proto = super::native_chat_request_to_proto(&original);
+        let restored = super::proto_chat_request_to_native(proto);
+
+        let tools = restored.tools.expect("tools must be Some");
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0].name, "read_file");
+        assert_eq!(tools[0].description, Some("Read a file from disk".into()));
+        let params_type = tools[0].parameters.get("type");
+        assert_eq!(params_type, Some(&serde_json::json!("object")));
+        assert_eq!(tools[1].name, "write_file");
+        assert!(tools[1].description.is_none());
+    }
+
+    #[test]
+    fn chat_request_response_format_json_roundtrip() {
+        use crate::messages::{ChatRequest, Message, MessageContent, ResponseFormat};
+
+        let original = ChatRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: MessageContent::Text("go".into()),
+                name: None,
+                tool_call_id: None,
+                metadata: None,
+                extensions: HashMap::new(),
+            }],
+            tools: None,
+            response_format: Some(ResponseFormat::Json),
+            temperature: None,
+            top_p: None,
+            max_output_tokens: None,
+            conversation_id: None,
+            stream: None,
+            metadata: None,
+            model: None,
+            tool_choice: None,
+            stop: None,
+            reasoning_effort: None,
+            timeout: None,
+            extensions: HashMap::new(),
+        };
+
+        let proto = super::native_chat_request_to_proto(&original);
+        let restored = super::proto_chat_request_to_native(proto);
+        assert_eq!(restored.response_format, Some(ResponseFormat::Json));
+    }
+
+    #[test]
+    fn chat_request_response_format_json_schema_roundtrip() {
+        use crate::messages::{ChatRequest, Message, MessageContent, ResponseFormat};
+
+        let schema = {
+            let mut m = HashMap::new();
+            m.insert("type".into(), serde_json::json!("object"));
+            m.insert(
+                "properties".into(),
+                serde_json::json!({"answer": {"type": "string"}}),
+            );
+            m
+        };
+
+        let original = ChatRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: MessageContent::Text("go".into()),
+                name: None,
+                tool_call_id: None,
+                metadata: None,
+                extensions: HashMap::new(),
+            }],
+            tools: None,
+            response_format: Some(ResponseFormat::JsonSchema {
+                schema: schema.clone(),
+                strict: Some(true),
+            }),
+            temperature: None,
+            top_p: None,
+            max_output_tokens: None,
+            conversation_id: None,
+            stream: None,
+            metadata: None,
+            model: None,
+            tool_choice: None,
+            stop: None,
+            reasoning_effort: None,
+            timeout: None,
+            extensions: HashMap::new(),
+        };
+
+        let proto = super::native_chat_request_to_proto(&original);
+        let restored = super::proto_chat_request_to_native(proto);
+
+        match restored.response_format {
+            Some(ResponseFormat::JsonSchema {
+                schema: restored_schema,
+                strict,
+            }) => {
+                assert_eq!(
+                    restored_schema.get("type"),
+                    Some(&serde_json::json!("object"))
+                );
+                assert_eq!(strict, Some(true));
+            }
+            other => panic!("Expected JsonSchema response_format, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn chat_request_tool_choice_object_roundtrip() {
+        use crate::messages::{ChatRequest, Message, MessageContent, ToolChoice};
+
+        let tool_choice_obj = {
+            let mut m = HashMap::new();
+            m.insert("type".into(), serde_json::json!("function"));
+            m.insert(
+                "function".into(),
+                serde_json::json!({"name": "read_file"}),
+            );
+            m
+        };
+
+        let original = ChatRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: MessageContent::Text("do it".into()),
+                name: None,
+                tool_call_id: None,
+                metadata: None,
+                extensions: HashMap::new(),
+            }],
+            tools: None,
+            response_format: None,
+            temperature: None,
+            top_p: None,
+            max_output_tokens: None,
+            conversation_id: None,
+            stream: None,
+            metadata: None,
+            model: None,
+            tool_choice: Some(ToolChoice::Object(tool_choice_obj.clone())),
+            stop: None,
+            reasoning_effort: None,
+            timeout: None,
+            extensions: HashMap::new(),
+        };
+
+        let proto = super::native_chat_request_to_proto(&original);
+        let restored = super::proto_chat_request_to_native(proto);
+
+        match restored.tool_choice {
+            Some(ToolChoice::Object(obj)) => {
+                assert_eq!(obj.get("type"), Some(&serde_json::json!("function")));
+                assert_eq!(
+                    obj.get("function"),
+                    Some(&serde_json::json!({"name": "read_file"}))
+                );
+            }
+            other => panic!("Expected ToolChoice::Object, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn chat_request_multiple_messages_roundtrip() {
+        use crate::messages::{ChatRequest, ContentBlock, Message, MessageContent};
+
+        let original = ChatRequest {
+            messages: vec![
+                Message {
+                    role: Role::System,
+                    content: MessageContent::Text("You are helpful.".into()),
+                    name: None,
+                    tool_call_id: None,
+                    metadata: None,
+                    extensions: HashMap::new(),
+                },
+                Message {
+                    role: Role::User,
+                    content: MessageContent::Blocks(vec![ContentBlock::Text {
+                        text: "Help me!".into(),
+                        visibility: None,
+                        extensions: HashMap::new(),
+                    }]),
+                    name: None,
+                    tool_call_id: None,
+                    metadata: None,
+                    extensions: HashMap::new(),
+                },
+            ],
+            tools: None,
+            response_format: None,
+            temperature: Some(1.0),
+            top_p: None,
+            max_output_tokens: None,
+            conversation_id: None,
+            stream: None,
+            metadata: None,
+            model: Some("claude-3-opus".into()),
+            tool_choice: None,
+            stop: None,
+            reasoning_effort: None,
+            timeout: None,
+            extensions: HashMap::new(),
+        };
+
+        let proto = super::native_chat_request_to_proto(&original);
+        let restored = super::proto_chat_request_to_native(proto);
+
+        assert_eq!(restored.messages.len(), 2);
+        assert_eq!(restored.messages[0].role, Role::System);
+        assert_eq!(
+            restored.messages[0].content,
+            MessageContent::Text("You are helpful.".into())
+        );
+        assert_eq!(restored.messages[1].role, Role::User);
+        assert_eq!(restored.model, Some("claude-3-opus".into()));
+        assert_eq!(restored.temperature, Some(1.0));
     }
 }
