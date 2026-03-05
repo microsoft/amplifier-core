@@ -30,28 +30,28 @@ def test_all_event_constants_in_all_events():
 
 
 def test_events_follow_naming_convention():
-    """Verify all events follow namespace:action or namespace:action:detail convention."""
-    valid_detail_suffixes = {"debug", "raw"}
+    """Verify all events follow namespace:action convention.
+
+    CP-V: The :debug and :raw detail tiers have been removed.
+    All events now follow the two-part namespace:action pattern only.
+    """
     for event in events.ALL_EVENTS:
         assert ":" in event, f"Event {event} missing namespace separator ':'"
         parts = event.split(":")
         assert len(parts) >= 2, (
-            f"Event {event} should follow namespace:action or namespace:action:detail convention"
+            f"Event {event} should follow namespace:action convention"
         )
-        assert len(parts) <= 3, (
-            f"Event {event} has too many ':' separators (max 3 parts: namespace:action:detail)"
+        # CP-V: No more :debug or :raw tiers — all events must be exactly 2 parts
+        # (namespace:action). The only exception is provider:tool_sequence_repaired
+        # which uses underscores within the action portion (not a third colon-part).
+        assert len(parts) == 2, (
+            f"Event {event} has more than 2 ':' parts — "
+            f"verbosity tiers (:debug/:raw) were removed in CP-V"
         )
         namespace = parts[0]
         action = parts[1]
         assert namespace, f"Event {event} has empty namespace"
         assert action, f"Event {event} has empty action"
-        if len(parts) == 3:
-            detail = parts[2]
-            assert detail, f"Event {event} has empty detail suffix"
-            assert detail in valid_detail_suffixes, (
-                f"Event {event} has unexpected detail suffix '{detail}' "
-                f"(expected one of: {valid_detail_suffixes})"
-            )
         # Allow lowercase with underscores
         assert event.islower() or "_" in event, (
             f"Event {event} not lowercase/snake_case"

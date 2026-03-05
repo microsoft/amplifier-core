@@ -2,8 +2,9 @@
 //!
 //! Every hook, log entry, and observability span in Amplifier references events
 //! by these string constants. The taxonomy follows a `namespace:action` pattern
-//! (e.g. `"session:start"`, `"tool:pre"`), with optional `:debug` / `:raw`
-//! suffixes for verbosity tiers.
+//! (e.g. `"session:start"`, `"tool:pre"`). Verbosity tiers (`:debug` / `:raw`)
+//! have been removed — callers may include an optional `raw` field in event
+//! payloads when `session.raw: true` is configured.
 //!
 //! # Categories
 //!
@@ -13,7 +14,7 @@
 //! | Prompt          | `prompt:`         | Prompt submission and completion              |
 //! | Planning        | `plan:`           | Optional orchestration planning phases        |
 //! | Provider        | `provider:`       | High-level provider call events               |
-//! | LLM             | `llm:`            | Raw LLM request/response with debug tiers     |
+//! | LLM             | `llm:`            | LLM request/response events                   |
 //! | Content Block   | `content_block:`  | Real-time streaming display events            |
 //! | Thinking        | `thinking:`       | Model thinking/reasoning events               |
 //! | Tool            | `tool:`           | Tool invocation lifecycle                     |
@@ -30,24 +31,12 @@
 
 /// A new session has started.
 pub const SESSION_START: &str = "session:start";
-/// Session start with debug-level detail.
-pub const SESSION_START_DEBUG: &str = "session:start:debug";
-/// Session start with raw (full) detail.
-pub const SESSION_START_RAW: &str = "session:start:raw";
 /// A session has ended.
 pub const SESSION_END: &str = "session:end";
 /// A session has been forked.
 pub const SESSION_FORK: &str = "session:fork";
-/// Session fork with debug-level detail.
-pub const SESSION_FORK_DEBUG: &str = "session:fork:debug";
-/// Session fork with raw (full) detail.
-pub const SESSION_FORK_RAW: &str = "session:fork:raw";
 /// A session has been resumed.
 pub const SESSION_RESUME: &str = "session:resume";
-/// Session resume with debug-level detail.
-pub const SESSION_RESUME_DEBUG: &str = "session:resume:debug";
-/// Session resume with raw (full) detail.
-pub const SESSION_RESUME_RAW: &str = "session:resume:raw";
 
 // --- Prompt lifecycle ---
 
@@ -79,20 +68,12 @@ pub const PROVIDER_TOOL_SEQUENCE_REPAIRED: &str = "provider:tool_sequence_repair
 /// A provider has been resolved (selected for use).
 pub const PROVIDER_RESOLVE: &str = "provider:resolve";
 
-// --- LLM request/response (with debug tiers) ---
+// --- LLM request/response ---
 
 /// An LLM request has been issued.
 pub const LLM_REQUEST: &str = "llm:request";
-/// LLM request with debug-level detail.
-pub const LLM_REQUEST_DEBUG: &str = "llm:request:debug";
-/// LLM request with raw (full) detail.
-pub const LLM_REQUEST_RAW: &str = "llm:request:raw";
 /// An LLM response has been received.
 pub const LLM_RESPONSE: &str = "llm:response";
-/// LLM response with debug-level detail.
-pub const LLM_RESPONSE_DEBUG: &str = "llm:response:debug";
-/// LLM response with raw (full) detail.
-pub const LLM_RESPONSE_RAW: &str = "llm:response:raw";
 
 // --- Content block events (real-time streaming display) ---
 
@@ -175,17 +156,12 @@ pub const CANCEL_COMPLETED: &str = "cancel:completed";
 ///
 /// This slice contains every event constant defined in this module,
 /// matching the order used in the Python `ALL_EVENTS` list.
+/// The 10 tiered `:debug` / `:raw` constants were removed in CP-V.
 pub const ALL_EVENTS: &[&str] = &[
     SESSION_START,
-    SESSION_START_DEBUG,
-    SESSION_START_RAW,
     SESSION_END,
     SESSION_FORK,
-    SESSION_FORK_DEBUG,
-    SESSION_FORK_RAW,
     SESSION_RESUME,
-    SESSION_RESUME_DEBUG,
-    SESSION_RESUME_RAW,
     PROMPT_SUBMIT,
     PROMPT_COMPLETE,
     PLAN_START,
@@ -198,11 +174,7 @@ pub const ALL_EVENTS: &[&str] = &[
     PROVIDER_TOOL_SEQUENCE_REPAIRED,
     PROVIDER_RESOLVE,
     LLM_REQUEST,
-    LLM_REQUEST_DEBUG,
-    LLM_REQUEST_RAW,
     LLM_RESPONSE,
-    LLM_RESPONSE_DEBUG,
-    LLM_RESPONSE_RAW,
     CONTENT_BLOCK_START,
     CONTENT_BLOCK_DELTA,
     CONTENT_BLOCK_END,
@@ -238,15 +210,9 @@ mod tests {
     #[test]
     fn session_constants() {
         assert_eq!(SESSION_START, "session:start");
-        assert_eq!(SESSION_START_DEBUG, "session:start:debug");
-        assert_eq!(SESSION_START_RAW, "session:start:raw");
         assert_eq!(SESSION_END, "session:end");
         assert_eq!(SESSION_FORK, "session:fork");
-        assert_eq!(SESSION_FORK_DEBUG, "session:fork:debug");
-        assert_eq!(SESSION_FORK_RAW, "session:fork:raw");
         assert_eq!(SESSION_RESUME, "session:resume");
-        assert_eq!(SESSION_RESUME_DEBUG, "session:resume:debug");
-        assert_eq!(SESSION_RESUME_RAW, "session:resume:raw");
     }
 
     #[test]
@@ -272,11 +238,7 @@ mod tests {
     #[test]
     fn llm_constants() {
         assert_eq!(LLM_REQUEST, "llm:request");
-        assert_eq!(LLM_REQUEST_DEBUG, "llm:request:debug");
-        assert_eq!(LLM_REQUEST_RAW, "llm:request:raw");
         assert_eq!(LLM_RESPONSE, "llm:response");
-        assert_eq!(LLM_RESPONSE_DEBUG, "llm:response:debug");
-        assert_eq!(LLM_RESPONSE_RAW, "llm:response:raw");
     }
 
     #[test]
@@ -381,8 +343,8 @@ mod tests {
     fn all_events_count() {
         assert_eq!(
             ALL_EVENTS.len(),
-            51,
-            "Python source defines exactly 51 events"
+            41,
+            "41 canonical events after CP-V verbosity collapse (removed 10 :debug/:raw constants)"
         );
     }
 
@@ -390,15 +352,9 @@ mod tests {
     fn all_events_contains_every_constant() {
         let expected: &[&str] = &[
             SESSION_START,
-            SESSION_START_DEBUG,
-            SESSION_START_RAW,
             SESSION_END,
             SESSION_FORK,
-            SESSION_FORK_DEBUG,
-            SESSION_FORK_RAW,
             SESSION_RESUME,
-            SESSION_RESUME_DEBUG,
-            SESSION_RESUME_RAW,
             PROMPT_SUBMIT,
             PROMPT_COMPLETE,
             PLAN_START,
@@ -408,11 +364,7 @@ mod tests {
             PROVIDER_RETRY,
             PROVIDER_ERROR,
             LLM_REQUEST,
-            LLM_REQUEST_DEBUG,
-            LLM_REQUEST_RAW,
             LLM_RESPONSE,
-            LLM_RESPONSE_DEBUG,
-            LLM_RESPONSE_RAW,
             CONTENT_BLOCK_START,
             CONTENT_BLOCK_DELTA,
             CONTENT_BLOCK_END,

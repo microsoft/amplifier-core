@@ -62,42 +62,38 @@ async def run_orchestrator(coordinator: Any, prompt: str) -> str:
     return result
 
 
-async def emit_debug_events(
+async def emit_raw_field_if_configured(
     coordinator: Any,
     config: dict,
     session_id: str,
-    event_debug: str,
-    event_raw: str,
+    event_base: str,
 ) -> None:
-    """Emit debug/raw events if debug flags are set in config.
+    """Emit the base session event with an optional raw field.
 
-    Separated from Rust because it needs Python utilities
-    (redact_secrets, truncate_values).
+    CP-V: The old 3-tier emission (base, :debug, :raw) has been collapsed to a
+    single base emission. When session.raw=true, a redacted copy of the full
+    config is included as the 'raw' field on the base event.
+
+    This helper is called from the Rust PyO3 bridge's execute() path and
+    handles the Python utilities (redact_secrets) needed for raw payloads.
+
+    Args:
+        coordinator: The coordinator with hooks.
+        config: Full session mount plan.
+        session_id: Current session ID.
+        event_base: The base event name (e.g. 'session:start' or 'session:resume').
     """
-    from .utils import redact_secrets, truncate_values
+    from .utils import redact_secrets
 
     session_config = config.get("session", {})
-    debug = session_config.get("debug", False)
-    raw_debug = session_config.get("raw_debug", False)
+    raw = session_config.get("raw", False)
 
-    if debug:
-        mount_plan_safe = redact_secrets(truncate_values(config))
+    if raw:
+        raw_payload = redact_secrets(config)
         await coordinator.hooks.emit(
-            event_debug,
+            event_base,
             {
-                "lvl": "DEBUG",
                 "session_id": session_id,
-                "mount_plan": mount_plan_safe,
-            },
-        )
-
-    if debug and raw_debug:
-        mount_plan_redacted = redact_secrets(config)
-        await coordinator.hooks.emit(
-            event_raw,
-            {
-                "lvl": "DEBUG",
-                "session_id": session_id,
-                "mount_plan": mount_plan_redacted,
+                "raw": raw_payload,
             },
         )
