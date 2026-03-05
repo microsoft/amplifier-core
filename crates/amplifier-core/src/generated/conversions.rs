@@ -171,7 +171,7 @@ impl From<super::amplifier_module::Usage> for crate::messages::Usage {
             reasoning_tokens: proto.reasoning_tokens.map(i64::from),
             cache_read_tokens: proto.cache_read_tokens.map(i64::from),
             cache_write_tokens: proto.cache_creation_tokens.map(i64::from),
-            extensions: std::collections::HashMap::new(),
+            extensions: HashMap::new(),
         }
     }
 }
@@ -179,6 +179,8 @@ impl From<super::amplifier_module::Usage> for crate::messages::Usage {
 // ---------------------------------------------------------------------------
 // Role conversion helpers
 // ---------------------------------------------------------------------------
+
+use std::collections::HashMap;
 
 use crate::messages::Role;
 use super::amplifier_module::Role as ProtoRole;
@@ -393,7 +395,7 @@ fn proto_content_block_to_native(
         Some(Block::TextBlock(tb)) => ContentBlock::Text {
             text: tb.text,
             visibility: vis,
-            extensions: std::collections::HashMap::new(),
+            extensions: HashMap::new(),
         },
         Some(Block::ThinkingBlock(tb)) => ContentBlock::Thinking {
             thinking: tb.thinking,
@@ -406,58 +408,85 @@ fn proto_content_block_to_native(
             content: if tb.content.is_empty() {
                 None
             } else {
-                serde_json::from_str(&tb.content).ok()
+                serde_json::from_str(&tb.content)
+                    .map_err(|e| {
+                        log::warn!("Failed to deserialize ThinkingBlock content: {e}");
+                        e
+                    })
+                    .ok()
             },
-            extensions: std::collections::HashMap::new(),
+            extensions: HashMap::new(),
         },
         Some(Block::RedactedThinkingBlock(rb)) => ContentBlock::RedactedThinking {
             data: rb.data,
             visibility: vis,
-            extensions: std::collections::HashMap::new(),
+            extensions: HashMap::new(),
         },
         Some(Block::ToolCallBlock(tc)) => ContentBlock::ToolCall {
             id: tc.id,
             name: tc.name,
-            input: serde_json::from_str(&tc.input_json).unwrap_or_default(),
+            input: serde_json::from_str(&tc.input_json).unwrap_or_else(|e| {
+                log::warn!("Failed to deserialize ToolCallBlock input_json: {e}");
+                Default::default()
+            }),
             visibility: vis,
-            extensions: std::collections::HashMap::new(),
+            extensions: HashMap::new(),
         },
         Some(Block::ToolResultBlock(tr)) => ContentBlock::ToolResult {
             tool_call_id: tr.tool_call_id,
-            output: serde_json::from_str(&tr.output_json)
-                .unwrap_or(serde_json::Value::Null),
+            output: serde_json::from_str(&tr.output_json).unwrap_or_else(|e| {
+                log::warn!("Failed to deserialize ToolResultBlock output_json: {e}");
+                serde_json::Value::Null
+            }),
             visibility: vis,
-            extensions: std::collections::HashMap::new(),
+            extensions: HashMap::new(),
         },
         Some(Block::ImageBlock(ib)) => ContentBlock::Image {
             source: if ib.source_json.is_empty() {
-                std::collections::HashMap::new()
+                HashMap::new()
             } else {
-                serde_json::from_str(&ib.source_json).unwrap_or_default()
+                serde_json::from_str(&ib.source_json).unwrap_or_else(|e| {
+                    log::warn!("Failed to deserialize ImageBlock source_json: {e}");
+                    Default::default()
+                })
             },
             visibility: vis,
-            extensions: std::collections::HashMap::new(),
+            extensions: HashMap::new(),
         },
         Some(Block::ReasoningBlock(rb)) => ContentBlock::Reasoning {
             content: rb
                 .content
                 .into_iter()
-                .filter_map(|s| serde_json::from_str(&s).ok())
+                .filter_map(|s| {
+                    serde_json::from_str(&s)
+                        .map_err(|e| {
+                            log::warn!("Failed to deserialize ReasoningBlock content item: {e}");
+                            e
+                        })
+                        .ok()
+                })
                 .collect(),
             summary: rb
                 .summary
                 .into_iter()
-                .filter_map(|s| serde_json::from_str(&s).ok())
+                .filter_map(|s| {
+                    serde_json::from_str(&s)
+                        .map_err(|e| {
+                            log::warn!("Failed to deserialize ReasoningBlock summary item: {e}");
+                            e
+                        })
+                        .ok()
+                })
                 .collect(),
             visibility: vis,
-            extensions: std::collections::HashMap::new(),
+            extensions: HashMap::new(),
         },
         None => {
             log::warn!("Proto ContentBlock has no block variant set, falling back to empty Text");
             ContentBlock::Text {
                 text: String::new(),
                 visibility: vis,
-                extensions: std::collections::HashMap::new(),
+                extensions: HashMap::new(),
             }
         }
     }
@@ -553,7 +582,7 @@ pub fn proto_message_to_native(
                 })
                 .ok()
         },
-        extensions: std::collections::HashMap::new(),
+        extensions: HashMap::new(),
     })
 }
 
