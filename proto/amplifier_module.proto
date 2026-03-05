@@ -299,12 +299,12 @@ message ResponseFormat {
 // --- Token usage and degradation ---
 
 message Usage {
-  int32 prompt_tokens          = 1;
-  int32 completion_tokens      = 2;
-  int32 total_tokens           = 3;
-  int32 reasoning_tokens       = 4;
-  int32 cache_read_tokens      = 5;
-  int32 cache_creation_tokens  = 6;
+  int32 prompt_tokens                    = 1;
+  int32 completion_tokens                = 2;
+  int32 total_tokens                     = 3;
+  optional int32 reasoning_tokens        = 4;
+  optional int32 cache_read_tokens       = 5;
+  optional int32 cache_creation_tokens   = 6;
 }
 
 message Degradation {
@@ -397,7 +397,7 @@ message HookResult {
   string               approval_prompt            = 7;
   repeated string      approval_options           = 8;
   // Default: 300.0 seconds (5 minutes).
-  double               approval_timeout           = 9;
+  optional double      approval_timeout           = 9;
   ApprovalDefault      approval_default           = 10;
   bool                 suppress_output            = 11;
   string               user_message               = 12;
@@ -425,11 +425,11 @@ message ProviderInfo {
 }
 
 message ApprovalRequest {
-  string tool_name    = 1;
-  string action       = 2;
-  string details_json = 3;
-  string risk_level   = 4;
-  double timeout      = 5;
+  string tool_name      = 1;
+  string action         = 2;
+  string details_json   = 3;
+  string risk_level     = 4;
+  optional double timeout = 5;
 }
 
 message ApprovalResponse {

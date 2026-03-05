@@ -118,9 +118,6 @@ impl From<super::amplifier_module::ModelInfo> for crate::models::ModelInfo {
 
 impl From<crate::messages::Usage> for super::amplifier_module::Usage {
     fn from(native: crate::messages::Usage) -> Self {
-        // NOTE: Optional token counts (reasoning, cache_read, cache_write) use 0 as sentinel
-        // for 'not reported' because proto uses bare int32, not optional int32. This means
-        // Some(0) and None are indistinguishable. Fix requires proto schema change.
         Self {
             prompt_tokens: i32::try_from(native.input_tokens).unwrap_or_else(|_| {
                 log::warn!(
@@ -143,39 +140,37 @@ impl From<crate::messages::Usage> for super::amplifier_module::Usage {
                 );
                 i32::MAX
             }),
-            // TODO(grpc-v2): proto uses bare int32 — Some(0) and None are indistinguishable
-            reasoning_tokens: native.reasoning_tokens.unwrap_or(0) as i32,
-            // TODO(grpc-v2): proto uses bare int32 — Some(0) and None are indistinguishable
-            cache_read_tokens: native.cache_read_tokens.unwrap_or(0) as i32,
-            // TODO(grpc-v2): proto uses bare int32 — Some(0) and None are indistinguishable
-            cache_creation_tokens: native.cache_write_tokens.unwrap_or(0) as i32,
+            reasoning_tokens: native.reasoning_tokens.map(|v| {
+                i32::try_from(v).unwrap_or_else(|_| {
+                    log::warn!("reasoning_tokens {} overflows i32, clamping to i32::MAX", v);
+                    i32::MAX
+                })
+            }),
+            cache_read_tokens: native.cache_read_tokens.map(|v| {
+                i32::try_from(v).unwrap_or_else(|_| {
+                    log::warn!("cache_read_tokens {} overflows i32, clamping to i32::MAX", v);
+                    i32::MAX
+                })
+            }),
+            cache_creation_tokens: native.cache_write_tokens.map(|v| {
+                i32::try_from(v).unwrap_or_else(|_| {
+                    log::warn!("cache_write_tokens {} overflows i32, clamping to i32::MAX", v);
+                    i32::MAX
+                })
+            }),
         }
     }
 }
 
 impl From<super::amplifier_module::Usage> for crate::messages::Usage {
     fn from(proto: super::amplifier_module::Usage) -> Self {
-        // NOTE: 0 values for reasoning/cache tokens are treated as 'not reported' (None).
-        // This is a known proto limitation.
         Self {
             input_tokens: i64::from(proto.prompt_tokens),
             output_tokens: i64::from(proto.completion_tokens),
             total_tokens: i64::from(proto.total_tokens),
-            reasoning_tokens: if proto.reasoning_tokens == 0 {
-                None
-            } else {
-                Some(i64::from(proto.reasoning_tokens))
-            },
-            cache_read_tokens: if proto.cache_read_tokens == 0 {
-                None
-            } else {
-                Some(i64::from(proto.cache_read_tokens))
-            },
-            cache_write_tokens: if proto.cache_creation_tokens == 0 {
-                None
-            } else {
-                Some(i64::from(proto.cache_creation_tokens))
-            },
+            reasoning_tokens: proto.reasoning_tokens.map(i64::from),
+            cache_read_tokens: proto.cache_read_tokens.map(i64::from),
+            cache_write_tokens: proto.cache_creation_tokens.map(i64::from),
             extensions: std::collections::HashMap::new(),
         }
     }
@@ -245,7 +240,7 @@ mod tests {
         assert_eq!(original.total_tokens, restored.total_tokens);
         assert_eq!(original.reasoning_tokens, restored.reasoning_tokens);
         assert_eq!(original.cache_read_tokens, restored.cache_read_tokens);
-        // cache_write_tokens: None → 0 → None (roundtrip preserves None)
+        // cache_write_tokens: None → None (optional proto preserves None)
         assert_eq!(restored.cache_write_tokens, None);
         // extensions are lost in proto roundtrip (proto has no extensions field)
         assert!(restored.extensions.is_empty());
@@ -270,6 +265,25 @@ mod tests {
         assert_eq!(original.reasoning_tokens, restored.reasoning_tokens);
         assert_eq!(original.cache_read_tokens, restored.cache_read_tokens);
         assert_eq!(original.cache_write_tokens, restored.cache_write_tokens);
+    }
+
+    /// Verify that `Some(0)` survives roundtrip now that proto uses `optional` fields.
+    #[test]
+    fn usage_some_zero_roundtrips_correctly() {
+        let original = crate::messages::Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            total_tokens: 150,
+            reasoning_tokens: Some(0),
+            cache_read_tokens: Some(0),
+            cache_write_tokens: Some(0),
+            extensions: HashMap::new(),
+        };
+        let proto: super::super::amplifier_module::Usage = original.clone().into();
+        let restored: crate::messages::Usage = proto.into();
+        assert_eq!(restored.reasoning_tokens, Some(0), "Some(0) reasoning_tokens must survive roundtrip");
+        assert_eq!(restored.cache_read_tokens, Some(0), "Some(0) cache_read_tokens must survive roundtrip");
+        assert_eq!(restored.cache_write_tokens, Some(0), "Some(0) cache_write_tokens must survive roundtrip");
     }
 
     // -- E-3: ModelInfo i64→i32 overflow clamps to i32::MAX --
