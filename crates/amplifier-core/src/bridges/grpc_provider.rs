@@ -142,29 +142,60 @@ impl Provider for GrpcProviderBridge {
 
     fn complete(
         &self,
-        _request: ChatRequest,
+        request: ChatRequest,
     ) -> Pin<Box<dyn Future<Output = Result<ChatResponse, ProviderError>> + Send + '_>> {
         Box::pin(async move {
-            // Phase 2 stub: Message ↔ proto::Message and ContentBlock ↔
-            // proto::ContentBlock conversions are not yet implemented.
-            // Fail loudly so callers know this bridge cannot complete yet.
-            // Full conversion will land in Phase 4 (Task 21).
-            Err(ProviderError::Other {
-                message: "GrpcProviderBridge::complete() not yet implemented: \
-                          Message/ContentBlock conversion requires Phase 4"
-                    .into(),
-                provider: Some(self.name.clone()),
-                model: None,
-                retry_after: None,
-                status_code: None,
-                retryable: false,
-                delay_multiplier: None,
-            })
+            let proto_request =
+                crate::generated::conversions::native_chat_request_to_proto(&request);
+
+            let response = {
+                let mut client = self.client.lock().await;
+                client
+                    .complete(proto_request)
+                    .await
+                    .map_err(|e| ProviderError::Other {
+                        message: format!("gRPC call failed: {e}"),
+                        provider: Some(self.name.clone()),
+                        model: None,
+                        retry_after: None,
+                        status_code: None,
+                        retryable: false,
+                        delay_multiplier: None,
+                    })?
+            };
+
+            let native_response =
+                crate::generated::conversions::proto_chat_response_to_native(
+                    response.into_inner(),
+                );
+
+            Ok(native_response)
         })
     }
 
     fn parse_tool_calls(&self, response: &ChatResponse) -> Vec<ToolCall> {
         response.tool_calls.clone().unwrap_or_default()
+    }
+}
+
+impl GrpcProviderBridge {
+    /// Test-only constructor: build a bridge from a pre-built client without
+    /// going through `connect()` (which would require a live gRPC server).
+    #[cfg(test)]
+    fn new_for_testing(client: ProviderServiceClient<Channel>, name: String) -> Self {
+        use crate::models::ProviderInfo;
+        Self {
+            client: tokio::sync::Mutex::new(client),
+            name,
+            info: ProviderInfo {
+                id: "test-provider".into(),
+                display_name: "Test Provider".into(),
+                credential_env_vars: vec![],
+                capabilities: vec![],
+                defaults: Default::default(),
+                config_fields: vec![],
+            },
+        }
     }
 }
 
@@ -202,5 +233,73 @@ mod tests {
         // Invalid non-empty JSON should return empty HashMap (and log a warning).
         let result = parse_defaults_json("not-valid-json", "test-provider");
         assert!(result.is_empty());
+    }
+
+    /// RED test: verifies that `complete()` actually attempts a gRPC call
+    /// rather than returning the Phase-2 "not yet implemented" stub error.
+    ///
+    /// The bridge is pointed at a non-existent server so the call will fail
+    /// with a transport/connection error — NOT the old stub message.
+    ///
+    /// Before the fix: returns `ProviderError::Other { message: "… not yet
+    /// implemented …" }` → assertion fails (RED).
+    /// After the fix: returns a gRPC transport error → assertion passes (GREEN).
+    #[tokio::test]
+    async fn complete_attempts_grpc_call_not_stub() {
+        use crate::messages::{ChatRequest, Message, MessageContent, Role};
+        use std::collections::HashMap;
+
+        // Create a lazy channel to a port that has nothing listening.
+        // `connect_lazy()` defers the actual TCP connection until the first
+        // RPC, so creating the channel never blocks or fails.
+        let channel = tonic::transport::Channel::from_static("http://[::1]:50099")
+            .connect_lazy();
+        let client = ProviderServiceClient::new(channel);
+        let bridge = GrpcProviderBridge::new_for_testing(client, "test-provider".into());
+
+        let request = ChatRequest {
+            messages: vec![Message {
+                role: Role::User,
+                content: MessageContent::Text("hello".into()),
+                name: None,
+                tool_call_id: None,
+                metadata: None,
+                extensions: HashMap::new(),
+            }],
+            tools: None,
+            response_format: None,
+            temperature: None,
+            top_p: None,
+            max_output_tokens: None,
+            conversation_id: None,
+            stream: None,
+            metadata: None,
+            model: None,
+            tool_choice: None,
+            stop: None,
+            reasoning_effort: None,
+            timeout: None,
+            extensions: HashMap::new(),
+        };
+
+        let result = bridge.complete(request).await;
+
+        // The stub returned exactly this message — after the fix the bridge
+        // must attempt a real RPC and return a connection/transport error.
+        match &result {
+            Err(ProviderError::Other { message, .. }) => {
+                assert!(
+                    !message.contains("not yet implemented"),
+                    "complete() returned the old stub error instead of attempting a gRPC \
+                     call. Got: {message}"
+                );
+            }
+            Err(_) => {
+                // Any other ProviderError variant means a real attempt was made.
+            }
+            Ok(_) => {
+                // Succeeding would also be fine (highly unlikely with no server).
+            }
+        }
     }
 }
