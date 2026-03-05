@@ -19,10 +19,11 @@ prost = "0.13"
 tonic = "0.12"
 tokio-stream = { version = "0.1", features = ["net"] }
 wasmtime = { version = "42", optional = true, features = ["component-model"] }
+wasmtime-wasi = { version = "42", optional = true }
 
 [features]
 default = []
-wasm = ["wasmtime"]
+wasm = ["wasmtime", "wasmtime-wasi"]
 
 [build-dependencies]
 tonic-build = "0.12"

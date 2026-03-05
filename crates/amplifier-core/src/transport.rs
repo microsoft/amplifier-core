@@ -61,8 +61,9 @@ pub fn load_native_tool(tool: impl Tool + 'static) -> Arc<dyn Tool> {
 #[cfg(feature = "wasm")]
 pub fn load_wasm_tool(
     wasm_bytes: &[u8],
+    engine: Arc<wasmtime::Engine>,
 ) -> Result<Arc<dyn Tool>, Box<dyn std::error::Error + Send + Sync>> {
-    let bridge = crate::bridges::wasm_tool::WasmToolBridge::from_bytes(wasm_bytes)?;
+    let bridge = crate::bridges::wasm_tool::WasmToolBridge::from_bytes(wasm_bytes, engine)?;
     Ok(Arc::new(bridge))
 }
 
