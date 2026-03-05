@@ -2,6 +2,7 @@
 members = [
     "crates/amplifier-core",
     "bindings/python",
+    "bindings/node",
 ]
 resolver = "2"
 
