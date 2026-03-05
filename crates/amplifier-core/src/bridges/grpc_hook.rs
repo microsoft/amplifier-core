@@ -51,7 +51,7 @@ impl GrpcHookBridge {
     }
 
     /// Convert a proto `HookResult` to a native [`models::HookResult`].
-    fn proto_to_native_hook_result(proto: amplifier_module::HookResult) -> models::HookResult {
+    pub(crate) fn proto_to_native_hook_result(proto: amplifier_module::HookResult) -> models::HookResult {
         let action = match amplifier_module::HookAction::try_from(proto.action) {
             Ok(amplifier_module::HookAction::Continue) => models::HookAction::Continue,
             Ok(amplifier_module::HookAction::Modify) => models::HookAction::Modify,

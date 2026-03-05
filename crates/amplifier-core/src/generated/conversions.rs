@@ -587,6 +587,86 @@ pub fn proto_message_to_native(
 }
 
 // ---------------------------------------------------------------------------
+// HookResult conversion functions (public)
+// ---------------------------------------------------------------------------
+
+/// Convert a native [`crate::models::HookResult`] to its proto equivalent.
+///
+/// # Field mapping notes
+///
+/// - `action`: native enum variant → proto `HookAction` i32
+/// - `context_injection_role`: native enum → proto `ContextInjectionRole` i32
+/// - `approval_default`: native `Allow` → proto `Approve`, native `Deny` → proto `Deny`
+/// - `user_message_level`: native enum → proto `UserMessageLevel` i32
+/// - `approval_timeout`: native `f64` → proto `Option<f64>` (always `Some`)
+/// - `approval_options`: native `Option<Vec<String>>` → proto `Vec<String>` (None → empty)
+/// - All `Option<String>` fields → proto `String` (None → empty string)
+/// - `data`: `Option<HashMap<String, Value>>` serialized to JSON or empty string
+/// - `extensions`: dropped (proto has no extensions field)
+pub fn native_hook_result_to_proto(
+    result: &crate::models::HookResult,
+) -> super::amplifier_module::HookResult {
+    use crate::models::{ApprovalDefault, ContextInjectionRole, HookAction, UserMessageLevel};
+    use super::amplifier_module;
+
+    let action = match result.action {
+        HookAction::Continue => amplifier_module::HookAction::Continue as i32,
+        HookAction::Modify => amplifier_module::HookAction::Modify as i32,
+        HookAction::Deny => amplifier_module::HookAction::Deny as i32,
+        HookAction::InjectContext => amplifier_module::HookAction::InjectContext as i32,
+        HookAction::AskUser => amplifier_module::HookAction::AskUser as i32,
+    };
+
+    let context_injection_role = match result.context_injection_role {
+        ContextInjectionRole::System => amplifier_module::ContextInjectionRole::System as i32,
+        ContextInjectionRole::User => amplifier_module::ContextInjectionRole::User as i32,
+        ContextInjectionRole::Assistant => {
+            amplifier_module::ContextInjectionRole::Assistant as i32
+        }
+    };
+
+    let approval_default = match result.approval_default {
+        ApprovalDefault::Allow => amplifier_module::ApprovalDefault::Approve as i32,
+        ApprovalDefault::Deny => amplifier_module::ApprovalDefault::Deny as i32,
+    };
+
+    let user_message_level = match result.user_message_level {
+        UserMessageLevel::Info => amplifier_module::UserMessageLevel::Info as i32,
+        UserMessageLevel::Warning => amplifier_module::UserMessageLevel::Warning as i32,
+        UserMessageLevel::Error => amplifier_module::UserMessageLevel::Error as i32,
+    };
+
+    let data_json = result
+        .data
+        .as_ref()
+        .map(|d| {
+            serde_json::to_string(d).unwrap_or_else(|e| {
+                log::warn!("Failed to serialize HookResult data to JSON: {e}");
+                String::new()
+            })
+        })
+        .unwrap_or_default();
+
+    amplifier_module::HookResult {
+        action,
+        data_json,
+        reason: result.reason.clone().unwrap_or_default(),
+        context_injection: result.context_injection.clone().unwrap_or_default(),
+        context_injection_role,
+        ephemeral: result.ephemeral,
+        approval_prompt: result.approval_prompt.clone().unwrap_or_default(),
+        approval_options: result.approval_options.clone().unwrap_or_default(),
+        approval_timeout: Some(result.approval_timeout),
+        approval_default,
+        suppress_output: result.suppress_output,
+        user_message: result.user_message.clone().unwrap_or_default(),
+        user_message_level,
+        user_message_source: result.user_message_source.clone().unwrap_or_default(),
+        append_to_last_tool_result: result.append_to_last_tool_result,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ChatRequest conversion functions (public)
 // ---------------------------------------------------------------------------
 
@@ -1931,6 +2011,264 @@ mod tests {
 
         assert!(restored.content.is_empty());
         assert_eq!(restored.finish_reason, Some("stop".into()));
+    }
+
+    // -- HookResult native → proto conversion tests (RED: function not yet implemented) --
+
+    #[test]
+    fn hook_result_default_native_to_proto_fields() {
+        use crate::models::HookResult;
+        use super::super::amplifier_module;
+
+        let native = HookResult::default();
+        let proto = super::native_hook_result_to_proto(&native);
+
+        // action: Continue (default)
+        assert_eq!(proto.action, amplifier_module::HookAction::Continue as i32);
+        // string optionals → empty strings
+        assert_eq!(proto.reason, "");
+        assert_eq!(proto.context_injection, "");
+        assert_eq!(proto.approval_prompt, "");
+        assert_eq!(proto.user_message, "");
+        assert_eq!(proto.user_message_source, "");
+        // data_json: None → empty string
+        assert_eq!(proto.data_json, "");
+        // bools: false (default)
+        assert!(!proto.ephemeral);
+        assert!(!proto.suppress_output);
+        assert!(!proto.append_to_last_tool_result);
+        // approval_options: None → empty vec
+        assert!(proto.approval_options.is_empty());
+        // approval_timeout: 300.0 → Some(300.0)
+        assert_eq!(proto.approval_timeout, Some(300.0));
+        // approval_default: Deny (default)
+        assert_eq!(proto.approval_default, amplifier_module::ApprovalDefault::Deny as i32);
+        // context_injection_role: System (default)
+        assert_eq!(
+            proto.context_injection_role,
+            amplifier_module::ContextInjectionRole::System as i32
+        );
+        // user_message_level: Info (default)
+        assert_eq!(
+            proto.user_message_level,
+            amplifier_module::UserMessageLevel::Info as i32
+        );
+    }
+
+    #[test]
+    fn hook_result_all_hook_action_variants_to_proto() {
+        use crate::models::{HookAction, HookResult};
+        use super::super::amplifier_module;
+
+        let cases = [
+            (HookAction::Continue, amplifier_module::HookAction::Continue as i32),
+            (HookAction::Modify, amplifier_module::HookAction::Modify as i32),
+            (HookAction::Deny, amplifier_module::HookAction::Deny as i32),
+            (HookAction::InjectContext, amplifier_module::HookAction::InjectContext as i32),
+            (HookAction::AskUser, amplifier_module::HookAction::AskUser as i32),
+        ];
+        for (native_action, expected_i32) in cases {
+            let native = HookResult { action: native_action, ..Default::default() };
+            let proto = super::native_hook_result_to_proto(&native);
+            assert_eq!(proto.action, expected_i32);
+        }
+    }
+
+    #[test]
+    fn hook_result_context_injection_role_all_variants_to_proto() {
+        use crate::models::{ContextInjectionRole, HookResult};
+        use super::super::amplifier_module;
+
+        let cases = [
+            (ContextInjectionRole::System, amplifier_module::ContextInjectionRole::System as i32),
+            (ContextInjectionRole::User, amplifier_module::ContextInjectionRole::User as i32),
+            (
+                ContextInjectionRole::Assistant,
+                amplifier_module::ContextInjectionRole::Assistant as i32,
+            ),
+        ];
+        for (native_role, expected_i32) in cases {
+            let native = HookResult {
+                context_injection_role: native_role,
+                ..Default::default()
+            };
+            let proto = super::native_hook_result_to_proto(&native);
+            assert_eq!(proto.context_injection_role, expected_i32);
+        }
+    }
+
+    #[test]
+    fn hook_result_approval_default_all_variants_to_proto() {
+        use crate::models::{ApprovalDefault, HookResult};
+        use super::super::amplifier_module;
+
+        // Allow → Approve
+        let native = HookResult { approval_default: ApprovalDefault::Allow, ..Default::default() };
+        let proto = super::native_hook_result_to_proto(&native);
+        assert_eq!(proto.approval_default, amplifier_module::ApprovalDefault::Approve as i32);
+
+        // Deny → Deny
+        let native = HookResult { approval_default: ApprovalDefault::Deny, ..Default::default() };
+        let proto = super::native_hook_result_to_proto(&native);
+        assert_eq!(proto.approval_default, amplifier_module::ApprovalDefault::Deny as i32);
+    }
+
+    #[test]
+    fn hook_result_user_message_level_all_variants_to_proto() {
+        use crate::models::{HookResult, UserMessageLevel};
+        use super::super::amplifier_module;
+
+        let cases = [
+            (UserMessageLevel::Info, amplifier_module::UserMessageLevel::Info as i32),
+            (UserMessageLevel::Warning, amplifier_module::UserMessageLevel::Warning as i32),
+            (UserMessageLevel::Error, amplifier_module::UserMessageLevel::Error as i32),
+        ];
+        for (native_level, expected_i32) in cases {
+            let native = HookResult { user_message_level: native_level, ..Default::default() };
+            let proto = super::native_hook_result_to_proto(&native);
+            assert_eq!(proto.user_message_level, expected_i32);
+        }
+    }
+
+    #[test]
+    fn hook_result_string_option_fields_to_proto() {
+        use crate::models::HookResult;
+
+        let native = HookResult {
+            reason: Some("blocked".to_string()),
+            context_injection: Some("extra context".to_string()),
+            approval_prompt: Some("Proceed?".to_string()),
+            user_message: Some("Watch out!".to_string()),
+            user_message_source: Some("security-hook".to_string()),
+            ..Default::default()
+        };
+        let proto = super::native_hook_result_to_proto(&native);
+        assert_eq!(proto.reason, "blocked");
+        assert_eq!(proto.context_injection, "extra context");
+        assert_eq!(proto.approval_prompt, "Proceed?");
+        assert_eq!(proto.user_message, "Watch out!");
+        assert_eq!(proto.user_message_source, "security-hook");
+    }
+
+    #[test]
+    fn hook_result_bool_fields_to_proto() {
+        use crate::models::HookResult;
+
+        let native = HookResult {
+            ephemeral: true,
+            suppress_output: true,
+            append_to_last_tool_result: true,
+            ..Default::default()
+        };
+        let proto = super::native_hook_result_to_proto(&native);
+        assert!(proto.ephemeral);
+        assert!(proto.suppress_output);
+        assert!(proto.append_to_last_tool_result);
+    }
+
+    #[test]
+    fn hook_result_approval_options_some_to_proto() {
+        use crate::models::HookResult;
+
+        let native = HookResult {
+            approval_options: Some(vec!["allow".to_string(), "deny".to_string()]),
+            ..Default::default()
+        };
+        let proto = super::native_hook_result_to_proto(&native);
+        assert_eq!(proto.approval_options, vec!["allow".to_string(), "deny".to_string()]);
+    }
+
+    #[test]
+    fn hook_result_approval_options_none_to_empty_vec() {
+        use crate::models::HookResult;
+
+        let native = HookResult { approval_options: None, ..Default::default() };
+        let proto = super::native_hook_result_to_proto(&native);
+        assert!(proto.approval_options.is_empty());
+    }
+
+    #[test]
+    fn hook_result_approval_timeout_to_optional_proto() {
+        use crate::models::HookResult;
+
+        // Default 300.0 → Some(300.0)
+        let native = HookResult { approval_timeout: 300.0, ..Default::default() };
+        let proto = super::native_hook_result_to_proto(&native);
+        assert_eq!(proto.approval_timeout, Some(300.0));
+
+        // Custom 60.0 → Some(60.0)
+        let native = HookResult { approval_timeout: 60.0, ..Default::default() };
+        let proto = super::native_hook_result_to_proto(&native);
+        assert_eq!(proto.approval_timeout, Some(60.0));
+    }
+
+    #[test]
+    fn hook_result_data_json_some_to_proto() {
+        use crate::models::HookResult;
+
+        let mut data = HashMap::new();
+        data.insert("key".to_string(), serde_json::json!("value"));
+        let native = HookResult { data: Some(data), ..Default::default() };
+        let proto = super::native_hook_result_to_proto(&native);
+        // Should be valid non-empty JSON
+        assert!(!proto.data_json.is_empty());
+        let parsed: serde_json::Value = serde_json::from_str(&proto.data_json)
+            .expect("data_json should be valid JSON");
+        assert_eq!(parsed["key"], serde_json::json!("value"));
+    }
+
+    #[test]
+    fn hook_result_data_json_none_to_empty_string() {
+        use crate::models::HookResult;
+
+        let native = HookResult { data: None, ..Default::default() };
+        let proto = super::native_hook_result_to_proto(&native);
+        assert_eq!(proto.data_json, "");
+    }
+
+    #[test]
+    fn hook_result_roundtrip_via_bridge_reverse() {
+        use crate::bridges::grpc_hook::GrpcHookBridge;
+        use crate::models::{
+            ApprovalDefault, ContextInjectionRole, HookAction, HookResult, UserMessageLevel,
+        };
+
+        let original = HookResult {
+            action: HookAction::AskUser,
+            data: None,
+            reason: Some("needs approval".to_string()),
+            context_injection: Some("please confirm".to_string()),
+            context_injection_role: ContextInjectionRole::User,
+            ephemeral: true,
+            approval_prompt: Some("Allow this action?".to_string()),
+            approval_options: Some(vec!["yes".to_string(), "no".to_string()]),
+            approval_timeout: 120.0,
+            approval_default: ApprovalDefault::Allow,
+            suppress_output: true,
+            user_message: Some("Action requires approval".to_string()),
+            user_message_level: UserMessageLevel::Warning,
+            user_message_source: Some("approval-hook".to_string()),
+            append_to_last_tool_result: false,
+            extensions: HashMap::new(),
+        };
+
+        let proto = super::native_hook_result_to_proto(&original);
+        let restored = GrpcHookBridge::proto_to_native_hook_result(proto);
+
+        assert_eq!(restored.action, original.action);
+        assert_eq!(restored.reason, original.reason);
+        assert_eq!(restored.context_injection, original.context_injection);
+        assert_eq!(restored.context_injection_role, original.context_injection_role);
+        assert_eq!(restored.ephemeral, original.ephemeral);
+        assert_eq!(restored.approval_prompt, original.approval_prompt);
+        assert_eq!(restored.approval_options, original.approval_options);
+        assert_eq!(restored.approval_timeout, original.approval_timeout);
+        assert_eq!(restored.approval_default, original.approval_default);
+        assert_eq!(restored.suppress_output, original.suppress_output);
+        assert_eq!(restored.user_message, original.user_message);
+        assert_eq!(restored.user_message_level, original.user_message_level);
+        assert_eq!(restored.user_message_source, original.user_message_source);
+        assert_eq!(restored.append_to_last_tool_result, original.append_to_last_tool_result);
     }
 
     #[test]
