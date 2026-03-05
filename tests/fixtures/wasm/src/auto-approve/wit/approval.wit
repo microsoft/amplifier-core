@@ -1,0 +1,17 @@
+// Minimal WIT for approval-module world.
+// Extracted from the main amplifier-modules.wit to avoid pulling in
+// WASI HTTP dependencies that are only needed by the provider-module world.
+
+package amplifier:modules@1.0.0;
+
+/// Approval provider interface — human-in-the-loop approval gate.
+interface approval-provider {
+    /// Request approval from the user (ApprovalRequest proto, serialized).
+    /// Returns proto-serialized ApprovalResponse on success.
+    request-approval: func(request: list<u8>) -> result<list<u8>, string>;
+}
+
+/// Tier 1: Pure-compute approval provider module.
+world approval-module {
+    export approval-provider;
+}
