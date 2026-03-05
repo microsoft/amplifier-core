@@ -248,10 +248,11 @@ fn proto_visibility_to_native(vis: i32) -> Option<crate::messages::Visibility> {
 fn native_content_block_to_proto(
     block: crate::messages::ContentBlock,
 ) -> super::amplifier_module::ContentBlock {
+    use crate::messages::ContentBlock;
     use super::amplifier_module::content_block::Block;
 
     let (proto_block, vis) = match block {
-        crate::messages::ContentBlock::Text {
+        ContentBlock::Text {
             text,
             visibility,
             ..
@@ -259,7 +260,7 @@ fn native_content_block_to_proto(
             Block::TextBlock(super::amplifier_module::TextBlock { text }),
             visibility,
         ),
-        crate::messages::ContentBlock::Thinking {
+        ContentBlock::Thinking {
             thinking,
             signature,
             visibility,
@@ -270,12 +271,17 @@ fn native_content_block_to_proto(
                 thinking,
                 signature: signature.unwrap_or_default(),
                 content: content
-                    .map(|v| serde_json::to_string(&v).unwrap_or_default())
+                    .map(|v| {
+                        serde_json::to_string(&v).unwrap_or_else(|e| {
+                            log::warn!("Failed to serialize Thinking content to JSON: {e}");
+                            String::new()
+                        })
+                    })
                     .unwrap_or_default(),
             }),
             visibility,
         ),
-        crate::messages::ContentBlock::RedactedThinking {
+        ContentBlock::RedactedThinking {
             data,
             visibility,
             ..
@@ -283,7 +289,7 @@ fn native_content_block_to_proto(
             Block::RedactedThinkingBlock(super::amplifier_module::RedactedThinkingBlock { data }),
             visibility,
         ),
-        crate::messages::ContentBlock::ToolCall {
+        ContentBlock::ToolCall {
             id,
             name,
             input,
@@ -293,11 +299,14 @@ fn native_content_block_to_proto(
             Block::ToolCallBlock(super::amplifier_module::ToolCallBlock {
                 id,
                 name,
-                input_json: serde_json::to_string(&input).unwrap_or_default(),
+                input_json: serde_json::to_string(&input).unwrap_or_else(|e| {
+                    log::warn!("Failed to serialize ToolCall input to JSON: {e}");
+                    String::new()
+                }),
             }),
             visibility,
         ),
-        crate::messages::ContentBlock::ToolResult {
+        ContentBlock::ToolResult {
             tool_call_id,
             output,
             visibility,
@@ -305,11 +314,14 @@ fn native_content_block_to_proto(
         } => (
             Block::ToolResultBlock(super::amplifier_module::ToolResultBlock {
                 tool_call_id,
-                output_json: serde_json::to_string(&output).unwrap_or_default(),
+                output_json: serde_json::to_string(&output).unwrap_or_else(|e| {
+                    log::warn!("Failed to serialize ToolResult output to JSON: {e}");
+                    String::new()
+                }),
             }),
             visibility,
         ),
-        crate::messages::ContentBlock::Image {
+        ContentBlock::Image {
             source,
             visibility,
             ..
@@ -326,11 +338,14 @@ fn native_content_block_to_proto(
                     .unwrap_or_default()
                     .as_bytes()
                     .to_vec(),
-                source_json: serde_json::to_string(&source).unwrap_or_default(),
+                source_json: serde_json::to_string(&source).unwrap_or_else(|e| {
+                    log::warn!("Failed to serialize Image source to JSON: {e}");
+                    String::new()
+                }),
             }),
             visibility,
         ),
-        crate::messages::ContentBlock::Reasoning {
+        ContentBlock::Reasoning {
             content,
             summary,
             visibility,
@@ -339,11 +354,21 @@ fn native_content_block_to_proto(
             Block::ReasoningBlock(super::amplifier_module::ReasoningBlock {
                 content: content
                     .into_iter()
-                    .map(|v| serde_json::to_string(&v).unwrap_or_default())
+                    .map(|v| {
+                        serde_json::to_string(&v).unwrap_or_else(|e| {
+                            log::warn!("Failed to serialize Reasoning content item to JSON: {e}");
+                            String::new()
+                        })
+                    })
                     .collect(),
                 summary: summary
                     .into_iter()
-                    .map(|v| serde_json::to_string(&v).unwrap_or_default())
+                    .map(|v| {
+                        serde_json::to_string(&v).unwrap_or_else(|e| {
+                            log::warn!("Failed to serialize Reasoning summary item to JSON: {e}");
+                            String::new()
+                        })
+                    })
                     .collect(),
             }),
             visibility,
@@ -359,17 +384,18 @@ fn native_content_block_to_proto(
 fn proto_content_block_to_native(
     block: super::amplifier_module::ContentBlock,
 ) -> crate::messages::ContentBlock {
+    use crate::messages::ContentBlock;
     use super::amplifier_module::content_block::Block;
 
     let vis = proto_visibility_to_native(block.visibility);
 
     match block.block {
-        Some(Block::TextBlock(tb)) => crate::messages::ContentBlock::Text {
+        Some(Block::TextBlock(tb)) => ContentBlock::Text {
             text: tb.text,
             visibility: vis,
             extensions: std::collections::HashMap::new(),
         },
-        Some(Block::ThinkingBlock(tb)) => crate::messages::ContentBlock::Thinking {
+        Some(Block::ThinkingBlock(tb)) => ContentBlock::Thinking {
             thinking: tb.thinking,
             signature: if tb.signature.is_empty() {
                 None
@@ -384,28 +410,26 @@ fn proto_content_block_to_native(
             },
             extensions: std::collections::HashMap::new(),
         },
-        Some(Block::RedactedThinkingBlock(rb)) => {
-            crate::messages::ContentBlock::RedactedThinking {
-                data: rb.data,
-                visibility: vis,
-                extensions: std::collections::HashMap::new(),
-            }
-        }
-        Some(Block::ToolCallBlock(tc)) => crate::messages::ContentBlock::ToolCall {
+        Some(Block::RedactedThinkingBlock(rb)) => ContentBlock::RedactedThinking {
+            data: rb.data,
+            visibility: vis,
+            extensions: std::collections::HashMap::new(),
+        },
+        Some(Block::ToolCallBlock(tc)) => ContentBlock::ToolCall {
             id: tc.id,
             name: tc.name,
             input: serde_json::from_str(&tc.input_json).unwrap_or_default(),
             visibility: vis,
             extensions: std::collections::HashMap::new(),
         },
-        Some(Block::ToolResultBlock(tr)) => crate::messages::ContentBlock::ToolResult {
+        Some(Block::ToolResultBlock(tr)) => ContentBlock::ToolResult {
             tool_call_id: tr.tool_call_id,
             output: serde_json::from_str(&tr.output_json)
                 .unwrap_or(serde_json::Value::Null),
             visibility: vis,
             extensions: std::collections::HashMap::new(),
         },
-        Some(Block::ImageBlock(ib)) => crate::messages::ContentBlock::Image {
+        Some(Block::ImageBlock(ib)) => ContentBlock::Image {
             source: if ib.source_json.is_empty() {
                 std::collections::HashMap::new()
             } else {
@@ -414,7 +438,7 @@ fn proto_content_block_to_native(
             visibility: vis,
             extensions: std::collections::HashMap::new(),
         },
-        Some(Block::ReasoningBlock(rb)) => crate::messages::ContentBlock::Reasoning {
+        Some(Block::ReasoningBlock(rb)) => ContentBlock::Reasoning {
             content: rb
                 .content
                 .into_iter()
@@ -428,11 +452,14 @@ fn proto_content_block_to_native(
             visibility: vis,
             extensions: std::collections::HashMap::new(),
         },
-        None => crate::messages::ContentBlock::Text {
-            text: String::new(),
-            visibility: vis,
-            extensions: std::collections::HashMap::new(),
-        },
+        None => {
+            log::warn!("Proto ContentBlock has no block variant set, falling back to empty Text");
+            ContentBlock::Text {
+                text: String::new(),
+                visibility: vis,
+                extensions: std::collections::HashMap::new(),
+            }
+        }
     }
 }
 
