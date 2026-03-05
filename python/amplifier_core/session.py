@@ -274,11 +274,13 @@ class AmplifierSession:
             if self.parent_id:
                 from .events import SESSION_FORK, SESSION_FORK_DEBUG, SESSION_FORK_RAW
 
+                session_metadata = self.config.get("session", {}).get("metadata", {})
                 await self.coordinator.hooks.emit(
                     SESSION_FORK,
                     {
                         "parent": self.parent_id,
                         "session_id": self.session_id,
+                        **({"metadata": session_metadata} if session_metadata else {}),
                     },
                 )
 
@@ -350,11 +352,13 @@ class AmplifierSession:
             event_raw = SESSION_START_RAW
 
         # Emit session lifecycle event from kernel (single source of truth)
+        session_metadata = self.config.get("session", {}).get("metadata", {})
         await self.coordinator.hooks.emit(
             event_base,
             {
                 "session_id": self.session_id,
                 "parent_id": self.parent_id,
+                **({"metadata": session_metadata} if session_metadata else {}),
             },
         )
 
