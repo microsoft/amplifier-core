@@ -44,9 +44,7 @@ impl KernelService for KernelServiceImpl {
         let provider = self
             .coordinator
             .get_provider(provider_name)
-            .ok_or_else(|| {
-                Status::not_found(format!("Provider not mounted: {provider_name}"))
-            })?;
+            .ok_or_else(|| Status::not_found(format!("Provider not mounted: {provider_name}")))?;
 
         // Extract the proto ChatRequest (required field)
         let proto_chat_request = req
@@ -80,9 +78,7 @@ impl KernelService for KernelServiceImpl {
         let provider = self
             .coordinator
             .get_provider(provider_name)
-            .ok_or_else(|| {
-                Status::not_found(format!("Provider not mounted: {provider_name}"))
-            })?;
+            .ok_or_else(|| Status::not_found(format!("Provider not mounted: {provider_name}")))?;
 
         // Extract the proto ChatRequest (required field)
         let proto_chat_request = req
@@ -212,9 +208,9 @@ impl KernelService for KernelServiceImpl {
             })
             .collect();
 
-        Ok(Response::new(amplifier_module::EmitHookAndCollectResponse {
-            responses_json,
-        }))
+        Ok(Response::new(
+            amplifier_module::EmitHookAndCollectResponse { responses_json },
+        ))
     }
 
     async fn get_messages(
@@ -289,23 +285,22 @@ impl KernelService for KernelServiceImpl {
 
         let found_info: Option<amplifier_module::ModuleInfo> = match module_type {
             amplifier_module::ModuleType::Tool => {
-                self.coordinator.get_tool(module_name).map(|tool| {
-                    amplifier_module::ModuleInfo {
+                self.coordinator
+                    .get_tool(module_name)
+                    .map(|tool| amplifier_module::ModuleInfo {
                         name: tool.name().to_string(),
                         module_type: amplifier_module::ModuleType::Tool as i32,
                         ..Default::default()
-                    }
-                })
+                    })
             }
-            amplifier_module::ModuleType::Provider => {
-                self.coordinator.get_provider(module_name).map(|provider| {
-                    amplifier_module::ModuleInfo {
-                        name: provider.name().to_string(),
-                        module_type: amplifier_module::ModuleType::Provider as i32,
-                        ..Default::default()
-                    }
-                })
-            }
+            amplifier_module::ModuleType::Provider => self
+                .coordinator
+                .get_provider(module_name)
+                .map(|provider| amplifier_module::ModuleInfo {
+                    name: provider.name().to_string(),
+                    module_type: amplifier_module::ModuleType::Provider as i32,
+                    ..Default::default()
+                }),
             amplifier_module::ModuleType::Unspecified => {
                 // Search tools first, then providers
                 if let Some(tool) = self.coordinator.get_tool(module_name) {
@@ -358,8 +353,9 @@ impl KernelService for KernelServiceImpl {
         let req = request.into_inner();
         match self.coordinator.get_capability(&req.name) {
             Some(value) => {
-                let value_json = serde_json::to_string(&value)
-                    .map_err(|e| Status::internal(format!("Failed to serialize capability: {e}")))?;
+                let value_json = serde_json::to_string(&value).map_err(|e| {
+                    Status::internal(format!("Failed to serialize capability: {e}"))
+                })?;
                 Ok(Response::new(amplifier_module::GetCapabilityResponse {
                     found: true,
                     value_json,
@@ -545,7 +541,11 @@ mod tests {
         let result = service.emit_hook_and_collect(request).await;
         assert!(result.is_ok(), "Expected Ok, got: {result:?}");
         let inner = result.unwrap().into_inner();
-        assert_eq!(inner.responses_json.len(), 1, "Expected 1 response from handler");
+        assert_eq!(
+            inner.responses_json.len(),
+            1,
+            "Expected 1 response from handler"
+        );
 
         let parsed: serde_json::Value =
             serde_json::from_str(&inner.responses_json[0]).expect("response must be valid JSON");
@@ -726,10 +726,7 @@ mod tests {
         assert!(inner.found, "Expected found=true for mounted tool");
         let info = inner.info.expect("Expected ModuleInfo to be present");
         assert_eq!(info.name, "my-tool");
-        assert_eq!(
-            info.module_type,
-            amplifier_module::ModuleType::Tool as i32
-        );
+        assert_eq!(info.module_type, amplifier_module::ModuleType::Tool as i32);
     }
 
     #[tokio::test]
@@ -788,10 +785,7 @@ mod tests {
         assert!(inner.found, "UNSPECIFIED type should find a mounted tool");
         let info = inner.info.expect("Expected ModuleInfo to be present");
         assert_eq!(info.name, "bash");
-        assert_eq!(
-            info.module_type,
-            amplifier_module::ModuleType::Tool as i32
-        );
+        assert_eq!(info.module_type, amplifier_module::ModuleType::Tool as i32);
     }
 
     #[tokio::test]
@@ -808,7 +802,10 @@ mod tests {
 
         let result = service.get_mounted_module(request).await.unwrap();
         let inner = result.into_inner();
-        assert!(inner.found, "UNSPECIFIED type should find a mounted provider");
+        assert!(
+            inner.found,
+            "UNSPECIFIED type should find a mounted provider"
+        );
         let info = inner.info.expect("Expected ModuleInfo to be present");
         assert_eq!(info.name, "anthropic");
         assert_eq!(
@@ -1021,7 +1018,10 @@ mod tests {
         use crate::testing::FakeProvider;
 
         let coord = Arc::new(Coordinator::new(Default::default()));
-        coord.mount_provider("openai", Arc::new(FakeProvider::new("openai", "hello from openai")));
+        coord.mount_provider(
+            "openai",
+            Arc::new(FakeProvider::new("openai", "hello from openai")),
+        );
         let service = KernelServiceImpl::new(coord);
 
         let request = Request::new(amplifier_module::CompleteWithProviderRequest {
@@ -1135,7 +1135,11 @@ mod tests {
         }
 
         assert_eq!(chunks.len(), 1, "Expected exactly one streamed chunk");
-        let response = chunks.into_iter().next().unwrap().expect("Expected Ok chunk");
+        let response = chunks
+            .into_iter()
+            .next()
+            .unwrap()
+            .expect("Expected Ok chunk");
         assert!(
             response.content.contains("streamed hello"),
             "Expected response to contain provider text, got: {}",

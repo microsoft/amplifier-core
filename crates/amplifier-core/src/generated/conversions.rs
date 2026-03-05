@@ -148,13 +148,19 @@ impl From<crate::messages::Usage> for super::amplifier_module::Usage {
             }),
             cache_read_tokens: native.cache_read_tokens.map(|v| {
                 i32::try_from(v).unwrap_or_else(|_| {
-                    log::warn!("cache_read_tokens {} overflows i32, clamping to i32::MAX", v);
+                    log::warn!(
+                        "cache_read_tokens {} overflows i32, clamping to i32::MAX",
+                        v
+                    );
                     i32::MAX
                 })
             }),
             cache_creation_tokens: native.cache_write_tokens.map(|v| {
                 i32::try_from(v).unwrap_or_else(|_| {
-                    log::warn!("cache_write_tokens {} overflows i32, clamping to i32::MAX", v);
+                    log::warn!(
+                        "cache_write_tokens {} overflows i32, clamping to i32::MAX",
+                        v
+                    );
                     i32::MAX
                 })
             }),
@@ -182,9 +188,9 @@ impl From<super::amplifier_module::Usage> for crate::messages::Usage {
 
 use std::collections::HashMap;
 
-use crate::messages::Role;
 use super::amplifier_module::Role as ProtoRole;
 use super::amplifier_module::Visibility as ProtoVisibility;
+use crate::messages::Role;
 
 /// Convert a native [`crate::messages::Role`] to its proto `i32` equivalent.
 pub fn native_role_to_proto(role: Role) -> i32 {
@@ -250,14 +256,12 @@ fn proto_visibility_to_native(vis: i32) -> Option<crate::messages::Visibility> {
 fn native_content_block_to_proto(
     block: crate::messages::ContentBlock,
 ) -> super::amplifier_module::ContentBlock {
-    use crate::messages::ContentBlock;
     use super::amplifier_module::content_block::Block;
+    use crate::messages::ContentBlock;
 
     let (proto_block, vis) = match block {
         ContentBlock::Text {
-            text,
-            visibility,
-            ..
+            text, visibility, ..
         } => (
             Block::TextBlock(super::amplifier_module::TextBlock { text }),
             visibility,
@@ -284,9 +288,7 @@ fn native_content_block_to_proto(
             visibility,
         ),
         ContentBlock::RedactedThinking {
-            data,
-            visibility,
-            ..
+            data, visibility, ..
         } => (
             Block::RedactedThinkingBlock(super::amplifier_module::RedactedThinkingBlock { data }),
             visibility,
@@ -324,9 +326,7 @@ fn native_content_block_to_proto(
             visibility,
         ),
         ContentBlock::Image {
-            source,
-            visibility,
-            ..
+            source, visibility, ..
         } => (
             Block::ImageBlock(super::amplifier_module::ImageBlock {
                 media_type: source
@@ -386,8 +386,8 @@ fn native_content_block_to_proto(
 fn proto_content_block_to_native(
     block: super::amplifier_module::ContentBlock,
 ) -> crate::messages::ContentBlock {
-    use crate::messages::ContentBlock;
     use super::amplifier_module::content_block::Block;
+    use crate::messages::ContentBlock;
 
     let vis = proto_visibility_to_native(block.visibility);
 
@@ -497,15 +497,11 @@ fn proto_content_block_to_native(
 // ---------------------------------------------------------------------------
 
 /// Convert a native [`crate::messages::Message`] to its proto equivalent.
-pub fn native_message_to_proto(
-    msg: crate::messages::Message,
-) -> super::amplifier_module::Message {
+pub fn native_message_to_proto(msg: crate::messages::Message) -> super::amplifier_module::Message {
     use super::amplifier_module::message;
 
     let content = match msg.content {
-        crate::messages::MessageContent::Text(s) => {
-            Some(message::Content::TextContent(s))
-        }
+        crate::messages::MessageContent::Text(s) => Some(message::Content::TextContent(s)),
         crate::messages::MessageContent::Blocks(blocks) => {
             let proto_blocks: Vec<_> = blocks
                 .into_iter()
@@ -606,8 +602,8 @@ pub fn proto_message_to_native(
 pub fn native_hook_result_to_proto(
     result: &crate::models::HookResult,
 ) -> super::amplifier_module::HookResult {
-    use crate::models::{ApprovalDefault, ContextInjectionRole, HookAction, UserMessageLevel};
     use super::amplifier_module;
+    use crate::models::{ApprovalDefault, ContextInjectionRole, HookAction, UserMessageLevel};
 
     let action = match result.action {
         HookAction::Continue => amplifier_module::HookAction::Continue as i32,
@@ -620,9 +616,7 @@ pub fn native_hook_result_to_proto(
     let context_injection_role = match result.context_injection_role {
         ContextInjectionRole::System => amplifier_module::ContextInjectionRole::System as i32,
         ContextInjectionRole::User => amplifier_module::ContextInjectionRole::User as i32,
-        ContextInjectionRole::Assistant => {
-            amplifier_module::ContextInjectionRole::Assistant as i32
-        }
+        ContextInjectionRole::Assistant => amplifier_module::ContextInjectionRole::Assistant as i32,
     };
 
     let approval_default = match result.approval_default {
@@ -688,10 +682,10 @@ pub fn native_hook_result_to_proto(
 pub fn native_chat_request_to_proto(
     request: &crate::messages::ChatRequest,
 ) -> super::amplifier_module::ChatRequest {
-    use crate::messages::{ResponseFormat, ToolChoice};
     use super::amplifier_module::{
         response_format, JsonSchemaFormat, ResponseFormat as ProtoResponseFormat, ToolSpecProto,
     };
+    use crate::messages::{ResponseFormat, ToolChoice};
 
     super::amplifier_module::ChatRequest {
         messages: request
@@ -762,12 +756,10 @@ pub fn native_chat_request_to_proto(
             .as_ref()
             .map(|tc| match tc {
                 ToolChoice::String(s) => s.clone(),
-                ToolChoice::Object(obj) => {
-                    serde_json::to_string(obj).unwrap_or_else(|e| {
-                        log::warn!("Failed to serialize ToolChoice object to JSON: {e}");
-                        String::new()
-                    })
-                }
+                ToolChoice::Object(obj) => serde_json::to_string(obj).unwrap_or_else(|e| {
+                    log::warn!("Failed to serialize ToolChoice object to JSON: {e}");
+                    String::new()
+                }),
             })
             .unwrap_or_default(),
         stop: request.stop.clone().unwrap_or_default(),
@@ -790,8 +782,8 @@ pub fn native_chat_request_to_proto(
 pub fn proto_chat_request_to_native(
     request: super::amplifier_module::ChatRequest,
 ) -> crate::messages::ChatRequest {
-    use crate::messages::{ResponseFormat, ToolChoice, ToolSpec};
     use super::amplifier_module::response_format;
+    use crate::messages::{ResponseFormat, ToolChoice, ToolSpec};
 
     crate::messages::ChatRequest {
         messages: request
@@ -824,9 +816,7 @@ pub fn proto_chat_request_to_native(
                             HashMap::new()
                         } else {
                             serde_json::from_str(&t.parameters_json).unwrap_or_else(|e| {
-                                log::warn!(
-                                    "Failed to deserialize ToolSpec parameters_json: {e}"
-                                );
+                                log::warn!("Failed to deserialize ToolSpec parameters_json: {e}");
                                 Default::default()
                             })
                         },
@@ -843,9 +833,7 @@ pub fn proto_chat_request_to_native(
                     HashMap::new()
                 } else {
                     serde_json::from_str(&js.schema_json).unwrap_or_else(|e| {
-                        log::warn!(
-                            "Failed to deserialize JsonSchemaFormat schema_json: {e}"
-                        );
+                        log::warn!("Failed to deserialize JsonSchemaFormat schema_json: {e}");
                         Default::default()
                     })
                 };
@@ -965,13 +953,14 @@ pub fn native_chat_response_to_proto(
             })
             .collect(),
         usage: response.usage.clone().map(Into::into),
-        degradation: response.degradation.as_ref().map(|d| {
-            super::amplifier_module::Degradation {
+        degradation: response
+            .degradation
+            .as_ref()
+            .map(|d| super::amplifier_module::Degradation {
                 requested: d.requested.clone(),
                 actual: d.actual.clone(),
                 reason: d.reason.clone(),
-            }
-        }),
+            }),
         finish_reason: response.finish_reason.clone().unwrap_or_default(),
         metadata_json: response
             .metadata
@@ -1020,9 +1009,7 @@ pub fn proto_chat_response_to_native(
                             HashMap::new()
                         } else {
                             serde_json::from_str(&tc.arguments_json).unwrap_or_else(|e| {
-                                log::warn!(
-                                    "Failed to deserialize ToolCall arguments_json: {e}"
-                                );
+                                log::warn!("Failed to deserialize ToolCall arguments_json: {e}");
                                 Default::default()
                             })
                         },
@@ -1061,8 +1048,8 @@ pub fn proto_chat_response_to_native(
 mod tests {
     use std::collections::HashMap;
 
-    use crate::messages::Role;
     use super::super::amplifier_module::Role as ProtoRole;
+    use crate::messages::Role;
 
     #[test]
     fn tool_result_roundtrip() {
@@ -1165,9 +1152,21 @@ mod tests {
         };
         let proto: super::super::amplifier_module::Usage = original.clone().into();
         let restored: crate::messages::Usage = proto.into();
-        assert_eq!(restored.reasoning_tokens, Some(0), "Some(0) reasoning_tokens must survive roundtrip");
-        assert_eq!(restored.cache_read_tokens, Some(0), "Some(0) cache_read_tokens must survive roundtrip");
-        assert_eq!(restored.cache_write_tokens, Some(0), "Some(0) cache_write_tokens must survive roundtrip");
+        assert_eq!(
+            restored.reasoning_tokens,
+            Some(0),
+            "Some(0) reasoning_tokens must survive roundtrip"
+        );
+        assert_eq!(
+            restored.cache_read_tokens,
+            Some(0),
+            "Some(0) cache_read_tokens must survive roundtrip"
+        );
+        assert_eq!(
+            restored.cache_write_tokens,
+            Some(0),
+            "Some(0) cache_write_tokens must survive roundtrip"
+        );
     }
 
     // -- E-3: ModelInfo i64→i32 overflow clamps to i32::MAX --
@@ -1251,27 +1250,66 @@ mod tests {
 
     #[test]
     fn native_role_to_proto_role_all_variants() {
-        assert_eq!(super::native_role_to_proto(Role::System), ProtoRole::System as i32);
-        assert_eq!(super::native_role_to_proto(Role::User), ProtoRole::User as i32);
-        assert_eq!(super::native_role_to_proto(Role::Assistant), ProtoRole::Assistant as i32);
-        assert_eq!(super::native_role_to_proto(Role::Tool), ProtoRole::Tool as i32);
-        assert_eq!(super::native_role_to_proto(Role::Function), ProtoRole::Function as i32);
-        assert_eq!(super::native_role_to_proto(Role::Developer), ProtoRole::Developer as i32);
+        assert_eq!(
+            super::native_role_to_proto(Role::System),
+            ProtoRole::System as i32
+        );
+        assert_eq!(
+            super::native_role_to_proto(Role::User),
+            ProtoRole::User as i32
+        );
+        assert_eq!(
+            super::native_role_to_proto(Role::Assistant),
+            ProtoRole::Assistant as i32
+        );
+        assert_eq!(
+            super::native_role_to_proto(Role::Tool),
+            ProtoRole::Tool as i32
+        );
+        assert_eq!(
+            super::native_role_to_proto(Role::Function),
+            ProtoRole::Function as i32
+        );
+        assert_eq!(
+            super::native_role_to_proto(Role::Developer),
+            ProtoRole::Developer as i32
+        );
     }
 
     #[test]
     fn proto_role_to_native_role_all_variants() {
-        assert_eq!(super::proto_role_to_native(ProtoRole::System as i32), Role::System);
-        assert_eq!(super::proto_role_to_native(ProtoRole::User as i32), Role::User);
-        assert_eq!(super::proto_role_to_native(ProtoRole::Assistant as i32), Role::Assistant);
-        assert_eq!(super::proto_role_to_native(ProtoRole::Tool as i32), Role::Tool);
-        assert_eq!(super::proto_role_to_native(ProtoRole::Function as i32), Role::Function);
-        assert_eq!(super::proto_role_to_native(ProtoRole::Developer as i32), Role::Developer);
+        assert_eq!(
+            super::proto_role_to_native(ProtoRole::System as i32),
+            Role::System
+        );
+        assert_eq!(
+            super::proto_role_to_native(ProtoRole::User as i32),
+            Role::User
+        );
+        assert_eq!(
+            super::proto_role_to_native(ProtoRole::Assistant as i32),
+            Role::Assistant
+        );
+        assert_eq!(
+            super::proto_role_to_native(ProtoRole::Tool as i32),
+            Role::Tool
+        );
+        assert_eq!(
+            super::proto_role_to_native(ProtoRole::Function as i32),
+            Role::Function
+        );
+        assert_eq!(
+            super::proto_role_to_native(ProtoRole::Developer as i32),
+            Role::Developer
+        );
     }
 
     #[test]
     fn proto_role_unspecified_defaults_to_user() {
-        assert_eq!(super::proto_role_to_native(ProtoRole::Unspecified as i32), Role::User);
+        assert_eq!(
+            super::proto_role_to_native(ProtoRole::Unspecified as i32),
+            Role::User
+        );
     }
 
     #[test]
@@ -1334,9 +1372,10 @@ mod tests {
             content: MessageContent::Text("result data".into()),
             name: Some("read_file".into()),
             tool_call_id: Some("call_123".into()),
-            metadata: Some(HashMap::from([
-                ("source".to_string(), serde_json::json!("test")),
-            ])),
+            metadata: Some(HashMap::from([(
+                "source".to_string(),
+                serde_json::json!("test"),
+            )])),
             extensions: HashMap::new(),
         };
         let proto = super::native_message_to_proto(original.clone());
@@ -1403,9 +1442,7 @@ mod tests {
             content: MessageContent::Blocks(vec![ContentBlock::ToolCall {
                 id: "call_456".into(),
                 name: "read_file".into(),
-                input: HashMap::from([
-                    ("path".to_string(), serde_json::json!("/tmp/test.txt")),
-                ]),
+                input: HashMap::from([("path".to_string(), serde_json::json!("/tmp/test.txt"))]),
                 visibility: Some(Visibility::Developer),
                 extensions: HashMap::new(),
             }]),
@@ -1570,7 +1607,10 @@ mod tests {
                 parameters: {
                     let mut m = HashMap::new();
                     m.insert("type".into(), serde_json::json!("object"));
-                    m.insert("properties".into(), serde_json::json!({"query": {"type": "string"}}));
+                    m.insert(
+                        "properties".into(),
+                        serde_json::json!({"query": {"type": "string"}}),
+                    );
                     m
                 },
                 extensions: HashMap::new(),
@@ -1607,7 +1647,10 @@ mod tests {
         assert_eq!(restored.reasoning_effort, Some("high".into()));
         assert_eq!(restored.timeout, Some(30.0));
         assert_eq!(restored.stop, Some(vec!["END".into(), "STOP".into()]));
-        assert_eq!(restored.tool_choice, Some(ToolChoice::String("auto".into())));
+        assert_eq!(
+            restored.tool_choice,
+            Some(ToolChoice::String("auto".into()))
+        );
         assert_eq!(restored.response_format, Some(ResponseFormat::Text));
         assert_eq!(restored.metadata, original.metadata);
     }
@@ -1772,10 +1815,7 @@ mod tests {
         let tool_choice_obj = {
             let mut m = HashMap::new();
             m.insert("type".into(), serde_json::json!("function"));
-            m.insert(
-                "function".into(),
-                serde_json::json!({"name": "read_file"}),
-            );
+            m.insert("function".into(), serde_json::json!({"name": "read_file"}));
             m
         };
 
@@ -1895,9 +1935,10 @@ mod tests {
                 extensions: HashMap::new(),
             }),
             finish_reason: Some("stop".into()),
-            metadata: Some(HashMap::from([
-                ("request_id".to_string(), serde_json::json!("req_abc123")),
-            ])),
+            metadata: Some(HashMap::from([(
+                "request_id".to_string(),
+                serde_json::json!("req_abc123"),
+            )])),
             extensions: HashMap::new(),
         };
 
@@ -1909,7 +1950,10 @@ mod tests {
         assert_eq!(restored.content, original.content);
 
         // tool_calls
-        let tool_calls = restored.tool_calls.as_ref().expect("tool_calls must be Some");
+        let tool_calls = restored
+            .tool_calls
+            .as_ref()
+            .expect("tool_calls must be Some");
         assert_eq!(tool_calls.len(), 1);
         assert_eq!(tool_calls[0].id, "call_001");
         assert_eq!(tool_calls[0].name, "search");
@@ -1931,7 +1975,10 @@ mod tests {
         assert_eq!(usage.cache_read_tokens, Some(20));
 
         // degradation
-        let deg = restored.degradation.as_ref().expect("degradation must be Some");
+        let deg = restored
+            .degradation
+            .as_ref()
+            .expect("degradation must be Some");
         assert_eq!(deg.requested, "gpt-4-turbo");
         assert_eq!(deg.actual, "gpt-4");
         assert_eq!(deg.reason, "rate limit");
@@ -1941,7 +1988,10 @@ mod tests {
 
         // metadata
         let meta = restored.metadata.as_ref().expect("metadata must be Some");
-        assert_eq!(meta.get("request_id"), Some(&serde_json::json!("req_abc123")));
+        assert_eq!(
+            meta.get("request_id"),
+            Some(&serde_json::json!("req_abc123"))
+        );
     }
 
     #[test]
@@ -1958,9 +2008,10 @@ mod tests {
                 ToolCall {
                     id: "call_A".into(),
                     name: "read_file".into(),
-                    arguments: HashMap::from([
-                        ("path".to_string(), serde_json::json!("/tmp/data.txt")),
-                    ]),
+                    arguments: HashMap::from([(
+                        "path".to_string(),
+                        serde_json::json!("/tmp/data.txt"),
+                    )]),
                     extensions: HashMap::new(),
                 },
                 ToolCall {
@@ -2017,8 +2068,8 @@ mod tests {
 
     #[test]
     fn hook_result_default_native_to_proto_fields() {
-        use crate::models::HookResult;
         use super::super::amplifier_module;
+        use crate::models::HookResult;
 
         let native = HookResult::default();
         let proto = super::native_hook_result_to_proto(&native);
@@ -2042,7 +2093,10 @@ mod tests {
         // approval_timeout: 300.0 → Some(300.0)
         assert_eq!(proto.approval_timeout, Some(300.0));
         // approval_default: Deny (default)
-        assert_eq!(proto.approval_default, amplifier_module::ApprovalDefault::Deny as i32);
+        assert_eq!(
+            proto.approval_default,
+            amplifier_module::ApprovalDefault::Deny as i32
+        );
         // context_injection_role: System (default)
         assert_eq!(
             proto.context_injection_role,
@@ -2057,18 +2111,33 @@ mod tests {
 
     #[test]
     fn hook_result_all_hook_action_variants_to_proto() {
-        use crate::models::{HookAction, HookResult};
         use super::super::amplifier_module;
+        use crate::models::{HookAction, HookResult};
 
         let cases = [
-            (HookAction::Continue, amplifier_module::HookAction::Continue as i32),
-            (HookAction::Modify, amplifier_module::HookAction::Modify as i32),
+            (
+                HookAction::Continue,
+                amplifier_module::HookAction::Continue as i32,
+            ),
+            (
+                HookAction::Modify,
+                amplifier_module::HookAction::Modify as i32,
+            ),
             (HookAction::Deny, amplifier_module::HookAction::Deny as i32),
-            (HookAction::InjectContext, amplifier_module::HookAction::InjectContext as i32),
-            (HookAction::AskUser, amplifier_module::HookAction::AskUser as i32),
+            (
+                HookAction::InjectContext,
+                amplifier_module::HookAction::InjectContext as i32,
+            ),
+            (
+                HookAction::AskUser,
+                amplifier_module::HookAction::AskUser as i32,
+            ),
         ];
         for (native_action, expected_i32) in cases {
-            let native = HookResult { action: native_action, ..Default::default() };
+            let native = HookResult {
+                action: native_action,
+                ..Default::default()
+            };
             let proto = super::native_hook_result_to_proto(&native);
             assert_eq!(proto.action, expected_i32);
         }
@@ -2076,12 +2145,18 @@ mod tests {
 
     #[test]
     fn hook_result_context_injection_role_all_variants_to_proto() {
-        use crate::models::{ContextInjectionRole, HookResult};
         use super::super::amplifier_module;
+        use crate::models::{ContextInjectionRole, HookResult};
 
         let cases = [
-            (ContextInjectionRole::System, amplifier_module::ContextInjectionRole::System as i32),
-            (ContextInjectionRole::User, amplifier_module::ContextInjectionRole::User as i32),
+            (
+                ContextInjectionRole::System,
+                amplifier_module::ContextInjectionRole::System as i32,
+            ),
+            (
+                ContextInjectionRole::User,
+                amplifier_module::ContextInjectionRole::User as i32,
+            ),
             (
                 ContextInjectionRole::Assistant,
                 amplifier_module::ContextInjectionRole::Assistant as i32,
@@ -2099,32 +2174,56 @@ mod tests {
 
     #[test]
     fn hook_result_approval_default_all_variants_to_proto() {
-        use crate::models::{ApprovalDefault, HookResult};
         use super::super::amplifier_module;
+        use crate::models::{ApprovalDefault, HookResult};
 
         // Allow → Approve
-        let native = HookResult { approval_default: ApprovalDefault::Allow, ..Default::default() };
+        let native = HookResult {
+            approval_default: ApprovalDefault::Allow,
+            ..Default::default()
+        };
         let proto = super::native_hook_result_to_proto(&native);
-        assert_eq!(proto.approval_default, amplifier_module::ApprovalDefault::Approve as i32);
+        assert_eq!(
+            proto.approval_default,
+            amplifier_module::ApprovalDefault::Approve as i32
+        );
 
         // Deny → Deny
-        let native = HookResult { approval_default: ApprovalDefault::Deny, ..Default::default() };
+        let native = HookResult {
+            approval_default: ApprovalDefault::Deny,
+            ..Default::default()
+        };
         let proto = super::native_hook_result_to_proto(&native);
-        assert_eq!(proto.approval_default, amplifier_module::ApprovalDefault::Deny as i32);
+        assert_eq!(
+            proto.approval_default,
+            amplifier_module::ApprovalDefault::Deny as i32
+        );
     }
 
     #[test]
     fn hook_result_user_message_level_all_variants_to_proto() {
-        use crate::models::{HookResult, UserMessageLevel};
         use super::super::amplifier_module;
+        use crate::models::{HookResult, UserMessageLevel};
 
         let cases = [
-            (UserMessageLevel::Info, amplifier_module::UserMessageLevel::Info as i32),
-            (UserMessageLevel::Warning, amplifier_module::UserMessageLevel::Warning as i32),
-            (UserMessageLevel::Error, amplifier_module::UserMessageLevel::Error as i32),
+            (
+                UserMessageLevel::Info,
+                amplifier_module::UserMessageLevel::Info as i32,
+            ),
+            (
+                UserMessageLevel::Warning,
+                amplifier_module::UserMessageLevel::Warning as i32,
+            ),
+            (
+                UserMessageLevel::Error,
+                amplifier_module::UserMessageLevel::Error as i32,
+            ),
         ];
         for (native_level, expected_i32) in cases {
-            let native = HookResult { user_message_level: native_level, ..Default::default() };
+            let native = HookResult {
+                user_message_level: native_level,
+                ..Default::default()
+            };
             let proto = super::native_hook_result_to_proto(&native);
             assert_eq!(proto.user_message_level, expected_i32);
         }
@@ -2175,14 +2274,20 @@ mod tests {
             ..Default::default()
         };
         let proto = super::native_hook_result_to_proto(&native);
-        assert_eq!(proto.approval_options, vec!["allow".to_string(), "deny".to_string()]);
+        assert_eq!(
+            proto.approval_options,
+            vec!["allow".to_string(), "deny".to_string()]
+        );
     }
 
     #[test]
     fn hook_result_approval_options_none_to_empty_vec() {
         use crate::models::HookResult;
 
-        let native = HookResult { approval_options: None, ..Default::default() };
+        let native = HookResult {
+            approval_options: None,
+            ..Default::default()
+        };
         let proto = super::native_hook_result_to_proto(&native);
         assert!(proto.approval_options.is_empty());
     }
@@ -2192,12 +2297,18 @@ mod tests {
         use crate::models::HookResult;
 
         // Default 300.0 → Some(300.0)
-        let native = HookResult { approval_timeout: 300.0, ..Default::default() };
+        let native = HookResult {
+            approval_timeout: 300.0,
+            ..Default::default()
+        };
         let proto = super::native_hook_result_to_proto(&native);
         assert_eq!(proto.approval_timeout, Some(300.0));
 
         // Custom 60.0 → Some(60.0)
-        let native = HookResult { approval_timeout: 60.0, ..Default::default() };
+        let native = HookResult {
+            approval_timeout: 60.0,
+            ..Default::default()
+        };
         let proto = super::native_hook_result_to_proto(&native);
         assert_eq!(proto.approval_timeout, Some(60.0));
     }
@@ -2208,12 +2319,15 @@ mod tests {
 
         let mut data = HashMap::new();
         data.insert("key".to_string(), serde_json::json!("value"));
-        let native = HookResult { data: Some(data), ..Default::default() };
+        let native = HookResult {
+            data: Some(data),
+            ..Default::default()
+        };
         let proto = super::native_hook_result_to_proto(&native);
         // Should be valid non-empty JSON
         assert!(!proto.data_json.is_empty());
-        let parsed: serde_json::Value = serde_json::from_str(&proto.data_json)
-            .expect("data_json should be valid JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&proto.data_json).expect("data_json should be valid JSON");
         assert_eq!(parsed["key"], serde_json::json!("value"));
     }
 
@@ -2221,7 +2335,10 @@ mod tests {
     fn hook_result_data_json_none_to_empty_string() {
         use crate::models::HookResult;
 
-        let native = HookResult { data: None, ..Default::default() };
+        let native = HookResult {
+            data: None,
+            ..Default::default()
+        };
         let proto = super::native_hook_result_to_proto(&native);
         assert_eq!(proto.data_json, "");
     }
@@ -2258,7 +2375,10 @@ mod tests {
         assert_eq!(restored.action, original.action);
         assert_eq!(restored.reason, original.reason);
         assert_eq!(restored.context_injection, original.context_injection);
-        assert_eq!(restored.context_injection_role, original.context_injection_role);
+        assert_eq!(
+            restored.context_injection_role,
+            original.context_injection_role
+        );
         assert_eq!(restored.ephemeral, original.ephemeral);
         assert_eq!(restored.approval_prompt, original.approval_prompt);
         assert_eq!(restored.approval_options, original.approval_options);
@@ -2268,7 +2388,10 @@ mod tests {
         assert_eq!(restored.user_message, original.user_message);
         assert_eq!(restored.user_message_level, original.user_message_level);
         assert_eq!(restored.user_message_source, original.user_message_source);
-        assert_eq!(restored.append_to_last_tool_result, original.append_to_last_tool_result);
+        assert_eq!(
+            restored.append_to_last_tool_result,
+            original.append_to_last_tool_result
+        );
     }
 
     #[test]

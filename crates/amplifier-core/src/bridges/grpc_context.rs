@@ -261,7 +261,10 @@ mod tests {
         assert_eq!(msg.role, 0, "fallback role must be ROLE_UNSPECIFIED (0)");
         assert_eq!(msg.name, "", "fallback name must be empty");
         assert_eq!(msg.tool_call_id, "", "fallback tool_call_id must be empty");
-        assert_eq!(msg.metadata_json, "", "fallback metadata_json must be empty");
+        assert_eq!(
+            msg.metadata_json, "",
+            "fallback metadata_json must be empty"
+        );
         match msg.content {
             Some(amplifier_module::message::Content::TextContent(text)) => {
                 assert_eq!(text, "\"hello\"");
@@ -350,7 +353,10 @@ mod tests {
         // role must NOT be 0 (ROLE_UNSPECIFIED) — it should be Assistant
         assert_ne!(proto.role, 0, "role must not be ROLE_UNSPECIFIED");
         assert_eq!(proto.name, "alice", "name must be preserved");
-        assert_eq!(proto.tool_call_id, "call_123", "tool_call_id must be preserved");
+        assert_eq!(
+            proto.tool_call_id, "call_123",
+            "tool_call_id must be preserved"
+        );
     }
 
     /// proto_message_to_value must produce a proper JSON Value (not Null) when
