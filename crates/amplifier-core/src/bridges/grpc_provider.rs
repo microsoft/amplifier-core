@@ -165,9 +165,7 @@ impl Provider for GrpcProviderBridge {
             };
 
             let native_response =
-                crate::generated::conversions::proto_chat_response_to_native(
-                    response.into_inner(),
-                );
+                crate::generated::conversions::proto_chat_response_to_native(response.into_inner());
 
             Ok(native_response)
         })
@@ -252,8 +250,7 @@ mod tests {
         // Create a lazy channel to a port that has nothing listening.
         // `connect_lazy()` defers the actual TCP connection until the first
         // RPC, so creating the channel never blocks or fails.
-        let channel = tonic::transport::Channel::from_static("http://[::1]:50099")
-            .connect_lazy();
+        let channel = tonic::transport::Channel::from_static("http://[::1]:50099").connect_lazy();
         let client = ProviderServiceClient::new(channel);
         let bridge = GrpcProviderBridge::new_for_testing(client, "test-provider".into());
 
