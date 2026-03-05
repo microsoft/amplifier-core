@@ -52,7 +52,7 @@ pub struct WasmToolBridge {
 }
 
 /// Create a linker with WASI imports registered and a store with WASI context.
-fn create_linker_and_store(
+pub(crate) fn create_linker_and_store(
     engine: &Engine,
 ) -> Result<(Linker<WasmState>, Store<WasmState>), Box<dyn std::error::Error + Send + Sync>> {
     let mut linker = Linker::<WasmState>::new(engine);
