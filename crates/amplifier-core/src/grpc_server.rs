@@ -71,11 +71,44 @@ impl KernelService for KernelServiceImpl {
 
     async fn complete_with_provider_streaming(
         &self,
-        _request: Request<amplifier_module::CompleteWithProviderRequest>,
+        request: Request<amplifier_module::CompleteWithProviderRequest>,
     ) -> Result<Response<Self::CompleteWithProviderStreamingStream>, Status> {
-        Err(Status::unimplemented(
-            "CompleteWithProviderStreaming not yet implemented",
-        ))
+        let req = request.into_inner();
+        let provider_name = &req.provider_name;
+
+        // Look up the provider in the coordinator
+        let provider = self
+            .coordinator
+            .get_provider(provider_name)
+            .ok_or_else(|| {
+                Status::not_found(format!("Provider not mounted: {provider_name}"))
+            })?;
+
+        // Extract the proto ChatRequest (required field)
+        let proto_chat_request = req
+            .request
+            .ok_or_else(|| Status::invalid_argument("Missing required field: request"))?;
+
+        // Convert proto ChatRequest → native ChatRequest
+        let native_request = proto_chat_request_to_native(proto_chat_request);
+
+        // Call the provider
+        let native_response = provider
+            .complete(native_request)
+            .await
+            .map_err(|e| Status::internal(format!("Provider completion failed: {e}")))?;
+
+        let proto_response = native_chat_response_to_proto(&native_response);
+
+        // Wrap in a one-shot stream: send the single response then drop the sender
+        // to signal end-of-stream to the client.
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        let _ = tx.send(Ok(proto_response)).await;
+        // `tx` is dropped here, closing the channel and ending the stream.
+
+        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
+            rx,
+        )))
     }
 
     async fn execute_tool(
@@ -1069,6 +1102,86 @@ mod tests {
         let calls = fake_provider.recorded_calls();
         assert_eq!(calls.len(), 1, "Provider should have been called once");
         assert_eq!(calls[0].messages.len(), 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // CompleteWithProviderStreaming tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn complete_with_provider_streaming_returns_single_response() {
+        use crate::testing::FakeProvider;
+        use tokio_stream::StreamExt as _;
+
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.mount_provider(
+            "openai",
+            Arc::new(FakeProvider::new("openai", "streamed hello")),
+        );
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::CompleteWithProviderRequest {
+            provider_name: "openai".to_string(),
+            request: Some(make_chat_request("ping")),
+        });
+
+        let result = service.complete_with_provider_streaming(request).await;
+        assert!(result.is_ok(), "Expected Ok, got: {result:?}");
+
+        let mut stream = result.unwrap().into_inner();
+        let mut chunks = Vec::new();
+        while let Some(item) = stream.next().await {
+            chunks.push(item);
+        }
+
+        assert_eq!(chunks.len(), 1, "Expected exactly one streamed chunk");
+        let response = chunks.into_iter().next().unwrap().expect("Expected Ok chunk");
+        assert!(
+            response.content.contains("streamed hello"),
+            "Expected response to contain provider text, got: {}",
+            response.content
+        );
+    }
+
+    #[tokio::test]
+    async fn complete_with_provider_streaming_not_found_returns_error() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::CompleteWithProviderRequest {
+            provider_name: "nonexistent".to_string(),
+            request: Some(make_chat_request("ping")),
+        });
+
+        let result = service.complete_with_provider_streaming(request).await;
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().code(),
+            tonic::Code::NotFound,
+            "Should return NotFound when provider is not mounted"
+        );
+    }
+
+    #[tokio::test]
+    async fn complete_with_provider_streaming_missing_request_returns_invalid_argument() {
+        use crate::testing::FakeProvider;
+
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.mount_provider("openai", Arc::new(FakeProvider::new("openai", "response")));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::CompleteWithProviderRequest {
+            provider_name: "openai".to_string(),
+            request: None, // missing request
+        });
+
+        let result = service.complete_with_provider_streaming(request).await;
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().code(),
+            tonic::Code::InvalidArgument,
+            "Should return InvalidArgument when request field is missing"
+        );
     }
 
     #[tokio::test]
