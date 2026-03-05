@@ -20,6 +20,9 @@ use crate::messages::ToolSpec;
 use crate::models::ToolResult;
 use crate::traits::Tool;
 
+/// The WIT interface name used by `cargo component` for tool exports.
+const INTERFACE_NAME: &str = "amplifier:modules/tool@1.0.0";
+
 /// Store state for wasmtime, holding the WASI context.
 ///
 /// Even Tier 1 (pure-compute) tool modules may import basic WASI interfaces
@@ -68,7 +71,7 @@ fn create_linker_and_store(
 /// Component Model exports may be at the root level or nested inside an
 /// exported interface instance. This helper tries:
 /// 1. Direct root-level export by `func_name`
-/// 2. Nested inside the `"amplifier:modules/tool@1.0.0"` exported instance
+/// 2. Nested inside the [`INTERFACE_NAME`] exported instance
 fn get_typed_func_from_instance<Params, Results>(
     instance: &wasmtime::component::Instance,
     store: &mut Store<WasmState>,
@@ -84,13 +87,12 @@ where
     }
 
     // Try nested inside the interface-exported instance.
-    let iface_name = "amplifier:modules/tool@1.0.0";
     let iface_idx = instance
-        .get_export_index(&mut *store, None, iface_name)
-        .ok_or_else(|| format!("export instance '{iface_name}' not found"))?;
+        .get_export_index(&mut *store, None, INTERFACE_NAME)
+        .ok_or_else(|| format!("export instance '{INTERFACE_NAME}' not found"))?;
     let func_idx = instance
         .get_export_index(&mut *store, Some(&iface_idx), func_name)
-        .ok_or_else(|| format!("export function '{func_name}' not found in '{iface_name}'"))?;
+        .ok_or_else(|| format!("export function '{func_name}' not found in '{INTERFACE_NAME}'"))?;
     let func = instance
         .get_typed_func::<Params, Results>(&mut *store, &func_idx)
         .map_err(|e| format!("typed func lookup failed for '{func_name}': {e}"))?;
@@ -223,6 +225,11 @@ mod tests {
     fn assert_tool_trait_object(_: Arc<dyn crate::traits::Tool>) {}
 
     /// Compile-time check: WasmToolBridge satisfies Arc<dyn Tool>.
+    ///
+    /// Note: the integration test in `tests/wasm_tool_e2e.rs` has an equivalent
+    /// check from the *public* API surface. Both are intentional — this one
+    /// catches breakage during unit-test runs without needing the integration
+    /// test, while the integration test verifies the public export path.
     #[allow(dead_code)]
     fn wasm_tool_bridge_is_tool() {
         fn _check(bridge: WasmToolBridge) {
@@ -237,7 +244,10 @@ mod tests {
     /// so we walk up to the workspace root first.
     fn echo_tool_wasm_bytes() -> Vec<u8> {
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        // Try workspace-root-relative path (amplifier-core/crates/amplifier-core -> workspace root)
+        // Two candidates because the workspace root may be at different depths
+        // depending on how the repo is checked out:
+        //   - 3 levels up: used as a git submodule (super-repo/amplifier-core/crates/amplifier-core)
+        //   - 2 levels up: standalone checkout (amplifier-core/crates/amplifier-core)
         let candidates = [
             manifest.join("../../../tests/fixtures/wasm/echo-tool.wasm"),
             manifest.join("../../tests/fixtures/wasm/echo-tool.wasm"),
