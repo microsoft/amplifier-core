@@ -457,6 +457,22 @@ class AmplifierSession:
     async def cleanup(self: "AmplifierSession") -> None:
         """Clean up session resources."""
         try:
+            # Emit SESSION_END before coordinator cleanup (matches Rust behavior)
+            if self._initialized:
+                try:
+                    from .events import SESSION_END
+
+                    await self.coordinator.hooks.emit(
+                        SESSION_END,
+                        {
+                            "session_id": self.session_id,
+                            "status": self.status.status,
+                        },
+                    )
+                except Exception:
+                    # Best-effort: cleanup must never crash on emit failure
+                    pass
+
             await self.coordinator.cleanup()
         finally:
             # Clean up sys.path modifications - must always run even if
