@@ -11,6 +11,7 @@ use tonic::{Request, Response, Status};
 use crate::coordinator::Coordinator;
 use crate::generated::amplifier_module;
 use crate::generated::amplifier_module::kernel_service_server::KernelService;
+use crate::generated::conversions::{native_message_to_proto, proto_message_to_native};
 
 /// Implementation of the KernelService gRPC server.
 ///
@@ -118,14 +119,61 @@ impl KernelService for KernelServiceImpl {
         &self,
         _request: Request<amplifier_module::GetMessagesRequest>,
     ) -> Result<Response<amplifier_module::GetMessagesResponse>, Status> {
-        Err(Status::unimplemented("GetMessages not yet implemented"))
+        let context = self
+            .coordinator
+            .context()
+            .ok_or_else(|| Status::failed_precondition("No context manager mounted"))?;
+
+        let values = context
+            .get_messages()
+            .await
+            .map_err(|e| Status::internal(format!("Failed to get messages: {e}")))?;
+
+        let messages: Vec<amplifier_module::Message> = values
+            .into_iter()
+            .filter_map(|v| {
+                serde_json::from_value::<crate::messages::Message>(v)
+                    .map(native_message_to_proto)
+                    .map_err(|e| {
+                        log::warn!("Skipping message that failed to deserialize: {e}");
+                        e
+                    })
+                    .ok()
+            })
+            .collect();
+
+        Ok(Response::new(amplifier_module::GetMessagesResponse {
+            messages,
+        }))
     }
 
     async fn add_message(
         &self,
-        _request: Request<amplifier_module::KernelAddMessageRequest>,
+        request: Request<amplifier_module::KernelAddMessageRequest>,
     ) -> Result<Response<amplifier_module::Empty>, Status> {
-        Err(Status::unimplemented("AddMessage not yet implemented"))
+        let req = request.into_inner();
+
+        let proto_message = req
+            .message
+            .ok_or_else(|| Status::invalid_argument("Missing required field: message"))?;
+
+        let native_message = proto_message_to_native(proto_message)
+            .map_err(|e| Status::invalid_argument(format!("Invalid message: {e}")))?;
+
+        let value = serde_json::to_value(native_message)
+            .map_err(|e| Status::internal(format!("Failed to serialize message: {e}")))?;
+
+        let context = self
+            .coordinator
+            .context()
+            .ok_or_else(|| Status::failed_precondition("No context manager mounted"))?;
+
+        context
+            .add_message(value)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to add message: {e}")))?;
+
+        Ok(Response::new(amplifier_module::Empty {}))
     }
 
     async fn get_mounted_module(
@@ -461,5 +509,190 @@ mod tests {
             !inner.found,
             "Querying a tool name as PROVIDER type should return not found"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // AddMessage tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn add_message_stores_message_in_context() {
+        use crate::testing::FakeContextManager;
+        use crate::traits::ContextManager as _;
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let ctx = Arc::new(FakeContextManager::new());
+        coord.set_context(ctx.clone());
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::KernelAddMessageRequest {
+            session_id: String::new(),
+            message: Some(amplifier_module::Message {
+                role: amplifier_module::Role::User as i32,
+                content: Some(amplifier_module::message::Content::TextContent(
+                    "Hello from gRPC".to_string(),
+                )),
+                name: String::new(),
+                tool_call_id: String::new(),
+                metadata_json: String::new(),
+            }),
+        });
+
+        let result = service.add_message(request).await;
+        assert!(result.is_ok(), "Expected Ok, got: {result:?}");
+
+        // Verify message was stored in context
+        let messages = ctx.get_messages().await.unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["role"], "user");
+    }
+
+    #[tokio::test]
+    async fn add_message_no_context_returns_failed_precondition() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::KernelAddMessageRequest {
+            session_id: String::new(),
+            message: Some(amplifier_module::Message {
+                role: amplifier_module::Role::User as i32,
+                content: Some(amplifier_module::message::Content::TextContent(
+                    "Hello".to_string(),
+                )),
+                name: String::new(),
+                tool_call_id: String::new(),
+                metadata_json: String::new(),
+            }),
+        });
+
+        let result = service.add_message(request).await;
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().code(),
+            tonic::Code::FailedPrecondition,
+            "Should return FailedPrecondition when no context mounted"
+        );
+    }
+
+    #[tokio::test]
+    async fn add_message_missing_message_field_returns_invalid_argument() {
+        use crate::testing::FakeContextManager;
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.set_context(Arc::new(FakeContextManager::new()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::KernelAddMessageRequest {
+            session_id: String::new(),
+            message: None, // no message
+        });
+
+        let result = service.add_message(request).await;
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().code(),
+            tonic::Code::InvalidArgument,
+            "Should return InvalidArgument when message field is missing"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // GetMessages tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_messages_returns_stored_messages() {
+        use crate::testing::FakeContextManager;
+        use crate::traits::ContextManager as _;
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let ctx = Arc::new(FakeContextManager::new());
+        // Pre-populate context with two messages via Value
+        ctx.add_message(serde_json::json!({"role": "user", "content": "hi"}))
+            .await
+            .unwrap();
+        ctx.add_message(serde_json::json!({"role": "assistant", "content": "hello"}))
+            .await
+            .unwrap();
+        coord.set_context(ctx);
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::GetMessagesRequest {
+            session_id: String::new(),
+        });
+
+        let result = service.get_messages(request).await.unwrap();
+        let inner = result.into_inner();
+        assert_eq!(inner.messages.len(), 2, "Expected 2 messages");
+    }
+
+    #[tokio::test]
+    async fn get_messages_empty_context_returns_empty_list() {
+        use crate::testing::FakeContextManager;
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.set_context(Arc::new(FakeContextManager::new()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::GetMessagesRequest {
+            session_id: String::new(),
+        });
+
+        let result = service.get_messages(request).await.unwrap();
+        let inner = result.into_inner();
+        assert!(inner.messages.is_empty(), "Expected empty messages list");
+    }
+
+    #[tokio::test]
+    async fn get_messages_no_context_returns_failed_precondition() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::GetMessagesRequest {
+            session_id: String::new(),
+        });
+
+        let result = service.get_messages(request).await;
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().code(),
+            tonic::Code::FailedPrecondition,
+            "Should return FailedPrecondition when no context mounted"
+        );
+    }
+
+    #[tokio::test]
+    async fn add_then_get_messages_roundtrip() {
+        use crate::testing::FakeContextManager;
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.set_context(Arc::new(FakeContextManager::new()));
+        let service = KernelServiceImpl::new(coord);
+
+        // Add a message
+        let add_request = Request::new(amplifier_module::KernelAddMessageRequest {
+            session_id: String::new(),
+            message: Some(amplifier_module::Message {
+                role: amplifier_module::Role::User as i32,
+                content: Some(amplifier_module::message::Content::TextContent(
+                    "Test message content".to_string(),
+                )),
+                name: String::new(),
+                tool_call_id: String::new(),
+                metadata_json: String::new(),
+            }),
+        });
+        service.add_message(add_request).await.unwrap();
+
+        // Get messages back
+        let get_request = Request::new(amplifier_module::GetMessagesRequest {
+            session_id: String::new(),
+        });
+        let result = service.get_messages(get_request).await.unwrap();
+        let inner = result.into_inner();
+        assert_eq!(inner.messages.len(), 1);
+        assert_eq!(inner.messages[0].role, amplifier_module::Role::User as i32);
+        // Verify content is a text block
+        match &inner.messages[0].content {
+            Some(amplifier_module::message::Content::TextContent(text)) => {
+                assert_eq!(text, "Test message content");
+            }
+            other => panic!("Expected TextContent, got: {other:?}"),
+        }
     }
 }
