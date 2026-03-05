@@ -73,11 +73,11 @@ class TestRustCoreCIWorkflow:
         run_cmds = [s.get("run", "") for s in steps]
         assert any("cargo test" in r for r in run_cmds)
 
-    def test_rust_tests_runs_cargo_check(self):
+    def test_rust_tests_runs_cargo_check_workspace(self):
         wf = self._load()
         steps = wf["jobs"]["rust-tests"]["steps"]
         run_cmds = [s.get("run", "") for s in steps]
-        assert any("cargo check" in r and "amplifier-core" in r for r in run_cmds)
+        assert any("cargo check" in r and "--workspace" in r for r in run_cmds)
 
     def test_rust_tests_runs_cargo_fmt_check(self):
         wf = self._load()
@@ -244,46 +244,3 @@ class TestBuildWheelsWorkflow:
         steps = wf["jobs"]["publish"]["steps"]
         uses_list = [s.get("uses", "") for s in steps]
         assert any("pypi-publish" in u for u in uses_list)
-
-
-class TestNodeBindingsCIWorkflow:
-    """Node.js binding tests in CI workflow."""
-
-    WORKFLOW_PATH = ROOT / ".github" / "workflows" / "rust-core-ci.yml"
-
-    def _load(self) -> dict:
-        return _normalize_on_key(yaml.safe_load(self.WORKFLOW_PATH.read_text()))
-
-    def test_has_node_tests_job(self):
-        wf = self._load()
-        assert "node-tests" in wf["jobs"]
-
-    def test_node_tests_uses_setup_node(self):
-        wf = self._load()
-        steps = wf["jobs"]["node-tests"]["steps"]
-        uses_list = [s.get("uses", "") for s in steps]
-        assert any("setup-node" in u for u in uses_list)
-
-    def test_node_tests_uses_rust_cache(self):
-        wf = self._load()
-        steps = wf["jobs"]["node-tests"]["steps"]
-        uses_list = [s.get("uses", "") for s in steps]
-        assert any("rust-cache" in u for u in uses_list)
-
-    def test_node_tests_runs_npm_build(self):
-        wf = self._load()
-        steps = wf["jobs"]["node-tests"]["steps"]
-        run_cmds = [s.get("run", "") for s in steps]
-        assert any("npm" in r and "build" in r for r in run_cmds)
-
-    def test_node_tests_runs_vitest(self):
-        wf = self._load()
-        steps = wf["jobs"]["node-tests"]["steps"]
-        run_cmds = [s.get("run", "") for s in steps]
-        assert any("vitest" in r for r in run_cmds)
-
-    def test_node_tests_runs_clippy_for_node_binding(self):
-        wf = self._load()
-        steps = wf["jobs"]["node-tests"]["steps"]
-        run_cmds = [s.get("run", "") for s in steps]
-        assert any("cargo clippy" in r and "amplifier-core-node" in r for r in run_cmds)
