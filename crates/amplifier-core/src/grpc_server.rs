@@ -11,7 +11,9 @@ use tonic::{Request, Response, Status};
 use crate::coordinator::Coordinator;
 use crate::generated::amplifier_module;
 use crate::generated::amplifier_module::kernel_service_server::KernelService;
-use crate::generated::conversions::{native_message_to_proto, proto_message_to_native};
+use crate::generated::conversions::{
+    native_hook_result_to_proto, native_message_to_proto, proto_message_to_native,
+};
 
 /// Implementation of the KernelService gRPC server.
 ///
@@ -101,18 +103,60 @@ impl KernelService for KernelServiceImpl {
 
     async fn emit_hook(
         &self,
-        _request: Request<amplifier_module::EmitHookRequest>,
+        request: Request<amplifier_module::EmitHookRequest>,
     ) -> Result<Response<amplifier_module::HookResult>, Status> {
-        Err(Status::unimplemented("EmitHook not yet implemented"))
+        let req = request.into_inner();
+
+        let data: serde_json::Value = if req.data_json.is_empty() {
+            serde_json::json!({})
+        } else {
+            serde_json::from_str(&req.data_json)
+                .map_err(|e| Status::invalid_argument(format!("Invalid data_json: {e}")))?
+        };
+
+        let result = self.coordinator.hooks().emit(&req.event, data).await;
+        let proto_result = native_hook_result_to_proto(&result);
+        Ok(Response::new(proto_result))
     }
 
     async fn emit_hook_and_collect(
         &self,
-        _request: Request<amplifier_module::EmitHookAndCollectRequest>,
+        request: Request<amplifier_module::EmitHookAndCollectRequest>,
     ) -> Result<Response<amplifier_module::EmitHookAndCollectResponse>, Status> {
-        Err(Status::unimplemented(
-            "EmitHookAndCollect not yet implemented",
-        ))
+        let req = request.into_inner();
+
+        let data: serde_json::Value = if req.data_json.is_empty() {
+            serde_json::json!({})
+        } else {
+            serde_json::from_str(&req.data_json)
+                .map_err(|e| Status::invalid_argument(format!("Invalid data_json: {e}")))?
+        };
+
+        let timeout = if req.timeout_seconds > 0.0 {
+            std::time::Duration::from_secs_f64(req.timeout_seconds)
+        } else {
+            std::time::Duration::from_secs(30)
+        };
+
+        let results = self
+            .coordinator
+            .hooks()
+            .emit_and_collect(&req.event, data, timeout)
+            .await;
+
+        let responses_json: Vec<String> = results
+            .iter()
+            .map(|map| {
+                serde_json::to_string(map).unwrap_or_else(|e| {
+                    log::warn!("Failed to serialize hook collect result to JSON: {e}");
+                    String::new()
+                })
+            })
+            .collect();
+
+        Ok(Response::new(amplifier_module::EmitHookAndCollectResponse {
+            responses_json,
+        }))
     }
 
     async fn get_messages(
@@ -279,6 +323,231 @@ mod tests {
     fn kernel_service_impl_compiles() {
         let coord = Arc::new(Coordinator::new(Default::default()));
         let _service = KernelServiceImpl::new(coord);
+    }
+
+    // -----------------------------------------------------------------------
+    // EmitHook tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn emit_hook_with_no_handlers_returns_continue() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::EmitHookRequest {
+            event: "test:event".to_string(),
+            data_json: r#"{"key": "value"}"#.to_string(),
+        });
+
+        let result = service.emit_hook(request).await;
+        assert!(result.is_ok(), "Expected Ok, got: {result:?}");
+        let inner = result.unwrap().into_inner();
+        assert_eq!(inner.action, amplifier_module::HookAction::Continue as i32);
+    }
+
+    #[tokio::test]
+    async fn emit_hook_calls_registered_handler() {
+        use crate::testing::FakeHookHandler;
+
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let handler = Arc::new(FakeHookHandler::new());
+        coord
+            .hooks()
+            .register("test:event", handler.clone(), 0, Some("test-hook".into()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::EmitHookRequest {
+            event: "test:event".to_string(),
+            data_json: r#"{"key": "value"}"#.to_string(),
+        });
+
+        let result = service.emit_hook(request).await;
+        assert!(result.is_ok(), "Expected Ok, got: {result:?}");
+
+        let events = handler.recorded_events();
+        assert_eq!(events.len(), 1, "Handler should have been called once");
+        assert_eq!(events[0].0, "test:event");
+    }
+
+    #[tokio::test]
+    async fn emit_hook_returns_handler_result() {
+        use crate::models::{HookAction, HookResult};
+        use crate::testing::FakeHookHandler;
+
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let deny_result = HookResult {
+            action: HookAction::Deny,
+            reason: Some("blocked by test".into()),
+            ..Default::default()
+        };
+        let handler = Arc::new(FakeHookHandler::with_result(deny_result));
+        coord
+            .hooks()
+            .register("test:event", handler, 0, Some("deny-hook".into()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::EmitHookRequest {
+            event: "test:event".to_string(),
+            data_json: String::new(),
+        });
+
+        let result = service.emit_hook(request).await.unwrap();
+        let inner = result.into_inner();
+        assert_eq!(
+            inner.action,
+            amplifier_module::HookAction::Deny as i32,
+            "Expected Deny action from handler"
+        );
+        assert_eq!(inner.reason, "blocked by test");
+    }
+
+    #[tokio::test]
+    async fn emit_hook_invalid_json_returns_invalid_argument() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::EmitHookRequest {
+            event: "test:event".to_string(),
+            data_json: "not-valid-json{{{".to_string(),
+        });
+
+        let result = service.emit_hook(request).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code(), tonic::Code::InvalidArgument);
+    }
+
+    #[tokio::test]
+    async fn emit_hook_empty_data_json_uses_empty_object() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::EmitHookRequest {
+            event: "test:event".to_string(),
+            data_json: String::new(), // empty → should default to {}
+        });
+
+        // With no handlers, should still succeed (Continue result)
+        let result = service.emit_hook(request).await;
+        assert!(
+            result.is_ok(),
+            "Empty data_json should succeed, got: {result:?}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // EmitHookAndCollect tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn emit_hook_and_collect_with_no_handlers_returns_empty() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::EmitHookAndCollectRequest {
+            event: "test:event".to_string(),
+            data_json: String::new(),
+            timeout_seconds: 5.0,
+        });
+
+        let result = service.emit_hook_and_collect(request).await;
+        assert!(result.is_ok(), "Expected Ok, got: {result:?}");
+        let inner = result.unwrap().into_inner();
+        assert!(
+            inner.responses_json.is_empty(),
+            "Expected empty responses with no handlers"
+        );
+    }
+
+    #[tokio::test]
+    async fn emit_hook_and_collect_returns_data_from_handlers() {
+        use crate::models::HookResult;
+        use crate::testing::FakeHookHandler;
+        use std::collections::HashMap;
+
+        let coord = Arc::new(Coordinator::new(Default::default()));
+
+        let mut data_map = HashMap::new();
+        data_map.insert("result".to_string(), serde_json::json!("from-handler"));
+        let result_with_data = HookResult {
+            data: Some(data_map),
+            ..Default::default()
+        };
+        let handler = Arc::new(FakeHookHandler::with_result(result_with_data));
+        coord
+            .hooks()
+            .register("collect:event", handler, 0, Some("data-hook".into()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::EmitHookAndCollectRequest {
+            event: "collect:event".to_string(),
+            data_json: r#"{"input": "test"}"#.to_string(),
+            timeout_seconds: 5.0,
+        });
+
+        let result = service.emit_hook_and_collect(request).await;
+        assert!(result.is_ok(), "Expected Ok, got: {result:?}");
+        let inner = result.unwrap().into_inner();
+        assert_eq!(inner.responses_json.len(), 1, "Expected 1 response from handler");
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(&inner.responses_json[0]).expect("response must be valid JSON");
+        assert_eq!(parsed["result"], serde_json::json!("from-handler"));
+    }
+
+    #[tokio::test]
+    async fn emit_hook_and_collect_multiple_handlers_returns_all_data() {
+        use crate::models::HookResult;
+        use crate::testing::FakeHookHandler;
+        use std::collections::HashMap;
+
+        let coord = Arc::new(Coordinator::new(Default::default()));
+
+        for i in 0..3u32 {
+            let mut data_map = HashMap::new();
+            data_map.insert("handler_id".to_string(), serde_json::json!(i));
+            let result_with_data = HookResult {
+                data: Some(data_map),
+                ..Default::default()
+            };
+            let handler = Arc::new(FakeHookHandler::with_result(result_with_data));
+            coord.hooks().register(
+                "multi:event",
+                handler,
+                i as i32,
+                Some(format!("handler-{i}")),
+            );
+        }
+
+        let service = KernelServiceImpl::new(coord);
+        let request = Request::new(amplifier_module::EmitHookAndCollectRequest {
+            event: "multi:event".to_string(),
+            data_json: String::new(),
+            timeout_seconds: 5.0,
+        });
+
+        let result = service.emit_hook_and_collect(request).await.unwrap();
+        let inner = result.into_inner();
+        assert_eq!(
+            inner.responses_json.len(),
+            3,
+            "Expected 3 responses from 3 handlers"
+        );
+    }
+
+    #[tokio::test]
+    async fn emit_hook_and_collect_invalid_json_returns_invalid_argument() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::EmitHookAndCollectRequest {
+            event: "test:event".to_string(),
+            data_json: "bad-json{{".to_string(),
+            timeout_seconds: 5.0,
+        });
+
+        let result = service.emit_hook_and_collect(request).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().code(), tonic::Code::InvalidArgument);
     }
 
     // -----------------------------------------------------------------------
