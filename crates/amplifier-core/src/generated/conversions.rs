@@ -182,6 +182,7 @@ impl From<super::amplifier_module::Usage> for crate::messages::Usage {
 
 use crate::messages::Role;
 use super::amplifier_module::Role as ProtoRole;
+use super::amplifier_module::Visibility as ProtoVisibility;
 
 /// Convert a native [`crate::messages::Role`] to its proto `i32` equivalent.
 pub fn native_role_to_proto(role: Role) -> i32 {
@@ -216,6 +217,317 @@ pub fn proto_role_to_native(proto_role: i32) -> Role {
             Role::User
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Visibility conversion helpers (private)
+// ---------------------------------------------------------------------------
+
+fn native_visibility_to_proto(vis: &Option<crate::messages::Visibility>) -> i32 {
+    match vis {
+        None => ProtoVisibility::Unspecified as i32,
+        Some(crate::messages::Visibility::Internal) => ProtoVisibility::LlmOnly as i32,
+        Some(crate::messages::Visibility::Developer) => ProtoVisibility::All as i32,
+        Some(crate::messages::Visibility::User) => ProtoVisibility::UserOnly as i32,
+    }
+}
+
+fn proto_visibility_to_native(vis: i32) -> Option<crate::messages::Visibility> {
+    match ProtoVisibility::try_from(vis) {
+        Ok(ProtoVisibility::LlmOnly) => Some(crate::messages::Visibility::Internal),
+        Ok(ProtoVisibility::All) => Some(crate::messages::Visibility::Developer),
+        Ok(ProtoVisibility::UserOnly) => Some(crate::messages::Visibility::User),
+        _ => None, // Unspecified or unknown
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ContentBlock conversion helpers (private)
+// ---------------------------------------------------------------------------
+
+fn native_content_block_to_proto(
+    block: crate::messages::ContentBlock,
+) -> super::amplifier_module::ContentBlock {
+    use super::amplifier_module::content_block::Block;
+
+    let (proto_block, vis) = match block {
+        crate::messages::ContentBlock::Text {
+            text,
+            visibility,
+            ..
+        } => (
+            Block::TextBlock(super::amplifier_module::TextBlock { text }),
+            visibility,
+        ),
+        crate::messages::ContentBlock::Thinking {
+            thinking,
+            signature,
+            visibility,
+            content,
+            ..
+        } => (
+            Block::ThinkingBlock(super::amplifier_module::ThinkingBlock {
+                thinking,
+                signature: signature.unwrap_or_default(),
+                content: content
+                    .map(|v| serde_json::to_string(&v).unwrap_or_default())
+                    .unwrap_or_default(),
+            }),
+            visibility,
+        ),
+        crate::messages::ContentBlock::RedactedThinking {
+            data,
+            visibility,
+            ..
+        } => (
+            Block::RedactedThinkingBlock(super::amplifier_module::RedactedThinkingBlock { data }),
+            visibility,
+        ),
+        crate::messages::ContentBlock::ToolCall {
+            id,
+            name,
+            input,
+            visibility,
+            ..
+        } => (
+            Block::ToolCallBlock(super::amplifier_module::ToolCallBlock {
+                id,
+                name,
+                input_json: serde_json::to_string(&input).unwrap_or_default(),
+            }),
+            visibility,
+        ),
+        crate::messages::ContentBlock::ToolResult {
+            tool_call_id,
+            output,
+            visibility,
+            ..
+        } => (
+            Block::ToolResultBlock(super::amplifier_module::ToolResultBlock {
+                tool_call_id,
+                output_json: serde_json::to_string(&output).unwrap_or_default(),
+            }),
+            visibility,
+        ),
+        crate::messages::ContentBlock::Image {
+            source,
+            visibility,
+            ..
+        } => (
+            Block::ImageBlock(super::amplifier_module::ImageBlock {
+                media_type: source
+                    .get("media_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                data: source
+                    .get("data")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .as_bytes()
+                    .to_vec(),
+                source_json: serde_json::to_string(&source).unwrap_or_default(),
+            }),
+            visibility,
+        ),
+        crate::messages::ContentBlock::Reasoning {
+            content,
+            summary,
+            visibility,
+            ..
+        } => (
+            Block::ReasoningBlock(super::amplifier_module::ReasoningBlock {
+                content: content
+                    .into_iter()
+                    .map(|v| serde_json::to_string(&v).unwrap_or_default())
+                    .collect(),
+                summary: summary
+                    .into_iter()
+                    .map(|v| serde_json::to_string(&v).unwrap_or_default())
+                    .collect(),
+            }),
+            visibility,
+        ),
+    };
+
+    super::amplifier_module::ContentBlock {
+        block: Some(proto_block),
+        visibility: native_visibility_to_proto(&vis),
+    }
+}
+
+fn proto_content_block_to_native(
+    block: super::amplifier_module::ContentBlock,
+) -> crate::messages::ContentBlock {
+    use super::amplifier_module::content_block::Block;
+
+    let vis = proto_visibility_to_native(block.visibility);
+
+    match block.block {
+        Some(Block::TextBlock(tb)) => crate::messages::ContentBlock::Text {
+            text: tb.text,
+            visibility: vis,
+            extensions: std::collections::HashMap::new(),
+        },
+        Some(Block::ThinkingBlock(tb)) => crate::messages::ContentBlock::Thinking {
+            thinking: tb.thinking,
+            signature: if tb.signature.is_empty() {
+                None
+            } else {
+                Some(tb.signature)
+            },
+            visibility: vis,
+            content: if tb.content.is_empty() {
+                None
+            } else {
+                serde_json::from_str(&tb.content).ok()
+            },
+            extensions: std::collections::HashMap::new(),
+        },
+        Some(Block::RedactedThinkingBlock(rb)) => {
+            crate::messages::ContentBlock::RedactedThinking {
+                data: rb.data,
+                visibility: vis,
+                extensions: std::collections::HashMap::new(),
+            }
+        }
+        Some(Block::ToolCallBlock(tc)) => crate::messages::ContentBlock::ToolCall {
+            id: tc.id,
+            name: tc.name,
+            input: serde_json::from_str(&tc.input_json).unwrap_or_default(),
+            visibility: vis,
+            extensions: std::collections::HashMap::new(),
+        },
+        Some(Block::ToolResultBlock(tr)) => crate::messages::ContentBlock::ToolResult {
+            tool_call_id: tr.tool_call_id,
+            output: serde_json::from_str(&tr.output_json)
+                .unwrap_or(serde_json::Value::Null),
+            visibility: vis,
+            extensions: std::collections::HashMap::new(),
+        },
+        Some(Block::ImageBlock(ib)) => crate::messages::ContentBlock::Image {
+            source: if ib.source_json.is_empty() {
+                std::collections::HashMap::new()
+            } else {
+                serde_json::from_str(&ib.source_json).unwrap_or_default()
+            },
+            visibility: vis,
+            extensions: std::collections::HashMap::new(),
+        },
+        Some(Block::ReasoningBlock(rb)) => crate::messages::ContentBlock::Reasoning {
+            content: rb
+                .content
+                .into_iter()
+                .filter_map(|s| serde_json::from_str(&s).ok())
+                .collect(),
+            summary: rb
+                .summary
+                .into_iter()
+                .filter_map(|s| serde_json::from_str(&s).ok())
+                .collect(),
+            visibility: vis,
+            extensions: std::collections::HashMap::new(),
+        },
+        None => crate::messages::ContentBlock::Text {
+            text: String::new(),
+            visibility: vis,
+            extensions: std::collections::HashMap::new(),
+        },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Message conversion functions (public)
+// ---------------------------------------------------------------------------
+
+/// Convert a native [`crate::messages::Message`] to its proto equivalent.
+pub fn native_message_to_proto(
+    msg: crate::messages::Message,
+) -> super::amplifier_module::Message {
+    use super::amplifier_module::message;
+
+    let content = match msg.content {
+        crate::messages::MessageContent::Text(s) => {
+            Some(message::Content::TextContent(s))
+        }
+        crate::messages::MessageContent::Blocks(blocks) => {
+            let proto_blocks: Vec<_> = blocks
+                .into_iter()
+                .map(native_content_block_to_proto)
+                .collect();
+            Some(message::Content::BlockContent(
+                super::amplifier_module::ContentBlockList {
+                    blocks: proto_blocks,
+                },
+            ))
+        }
+    };
+
+    super::amplifier_module::Message {
+        role: native_role_to_proto(msg.role),
+        content,
+        name: msg.name.unwrap_or_default(),
+        tool_call_id: msg.tool_call_id.unwrap_or_default(),
+        metadata_json: msg
+            .metadata
+            .map(|m| {
+                serde_json::to_string(&m).unwrap_or_else(|e| {
+                    log::warn!("Failed to serialize Message metadata to JSON: {e}");
+                    String::new()
+                })
+            })
+            .unwrap_or_default(),
+    }
+}
+
+/// Convert a proto [`super::amplifier_module::Message`] to a native
+/// [`crate::messages::Message`].
+///
+/// Returns `Err` if the proto message has no content (the `oneof content`
+/// field is `None`).
+pub fn proto_message_to_native(
+    proto: super::amplifier_module::Message,
+) -> Result<crate::messages::Message, String> {
+    let content = match proto.content {
+        None => return Err("Message has no content".to_string()),
+        Some(super::amplifier_module::message::Content::TextContent(s)) => {
+            crate::messages::MessageContent::Text(s)
+        }
+        Some(super::amplifier_module::message::Content::BlockContent(bl)) => {
+            crate::messages::MessageContent::Blocks(
+                bl.blocks
+                    .into_iter()
+                    .map(proto_content_block_to_native)
+                    .collect(),
+            )
+        }
+    };
+
+    Ok(crate::messages::Message {
+        role: proto_role_to_native(proto.role),
+        content,
+        name: if proto.name.is_empty() {
+            None
+        } else {
+            Some(proto.name)
+        },
+        tool_call_id: if proto.tool_call_id.is_empty() {
+            None
+        } else {
+            Some(proto.tool_call_id)
+        },
+        metadata: if proto.metadata_json.is_empty() {
+            None
+        } else {
+            serde_json::from_str(&proto.metadata_json)
+                .map_err(|e| {
+                    log::warn!("Failed to deserialize Message metadata_json: {e}");
+                    e
+                })
+                .ok()
+        },
+        extensions: std::collections::HashMap::new(),
+    })
 }
 
 #[cfg(test)]
@@ -440,5 +752,87 @@ mod tests {
         // 999 and -1 are not valid proto Role values
         assert_eq!(super::proto_role_to_native(999), Role::User);
         assert_eq!(super::proto_role_to_native(-1), Role::User);
+    }
+
+    // -- Message conversion tests --
+
+    #[test]
+    fn message_text_content_roundtrip() {
+        use crate::messages::{Message, MessageContent};
+
+        let original = Message {
+            role: Role::User,
+            content: MessageContent::Text("Hello, world!".into()),
+            name: None,
+            tool_call_id: None,
+            metadata: None,
+            extensions: HashMap::new(),
+        };
+        let proto = super::native_message_to_proto(original.clone());
+        let restored = super::proto_message_to_native(proto).expect("should succeed");
+        assert_eq!(restored.role, original.role);
+        assert_eq!(restored.content, original.content);
+        assert_eq!(restored.name, None);
+        assert_eq!(restored.tool_call_id, None);
+    }
+
+    #[test]
+    fn message_block_content_text_roundtrip() {
+        use crate::messages::{ContentBlock, Message, MessageContent};
+
+        let original = Message {
+            role: Role::Assistant,
+            content: MessageContent::Blocks(vec![ContentBlock::Text {
+                text: "thinking...".into(),
+                visibility: None,
+                extensions: HashMap::new(),
+            }]),
+            name: None,
+            tool_call_id: None,
+            metadata: None,
+            extensions: HashMap::new(),
+        };
+        let proto = super::native_message_to_proto(original.clone());
+        let restored = super::proto_message_to_native(proto).expect("should succeed");
+        assert_eq!(restored.role, original.role);
+        assert_eq!(restored.content, original.content);
+    }
+
+    #[test]
+    fn message_with_tool_call_id_roundtrip() {
+        use crate::messages::{Message, MessageContent};
+
+        let original = Message {
+            role: Role::Tool,
+            content: MessageContent::Text("result data".into()),
+            name: Some("read_file".into()),
+            tool_call_id: Some("call_123".into()),
+            metadata: Some(HashMap::from([
+                ("source".to_string(), serde_json::json!("test")),
+            ])),
+            extensions: HashMap::new(),
+        };
+        let proto = super::native_message_to_proto(original.clone());
+        let restored = super::proto_message_to_native(proto).expect("should succeed");
+        assert_eq!(restored.role, original.role);
+        assert_eq!(restored.content, original.content);
+        assert_eq!(restored.name, Some("read_file".into()));
+        assert_eq!(restored.tool_call_id, Some("call_123".into()));
+        assert_eq!(restored.metadata, original.metadata);
+    }
+
+    #[test]
+    fn message_none_content_returns_error() {
+        use super::super::amplifier_module;
+
+        let proto = amplifier_module::Message {
+            role: amplifier_module::Role::User as i32,
+            content: None,
+            name: String::new(),
+            tool_call_id: String::new(),
+            metadata_json: String::new(),
+        };
+        let result = super::proto_message_to_native(proto);
+        assert!(result.is_err(), "None content should return Err");
     }
 }
