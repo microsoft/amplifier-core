@@ -225,6 +225,9 @@ pub fn proto_role_to_native(proto_role: i32) -> crate::messages::Role {
 mod tests {
     use std::collections::HashMap;
 
+    use crate::messages::Role;
+    use super::super::amplifier_module::Role as ProtoRole;
+
     #[test]
     fn tool_result_roundtrip() {
         let original = crate::models::ToolResult {
@@ -412,9 +415,6 @@ mod tests {
 
     #[test]
     fn native_role_to_proto_role_all_variants() {
-        use crate::messages::Role;
-        use super::super::amplifier_module::Role as ProtoRole;
-
         assert_eq!(super::native_role_to_proto(Role::System), ProtoRole::System as i32);
         assert_eq!(super::native_role_to_proto(Role::User), ProtoRole::User as i32);
         assert_eq!(super::native_role_to_proto(Role::Assistant), ProtoRole::Assistant as i32);
@@ -425,9 +425,6 @@ mod tests {
 
     #[test]
     fn proto_role_to_native_role_all_variants() {
-        use crate::messages::Role;
-        use super::super::amplifier_module::Role as ProtoRole;
-
         assert_eq!(super::proto_role_to_native(ProtoRole::System as i32), Role::System);
         assert_eq!(super::proto_role_to_native(ProtoRole::User as i32), Role::User);
         assert_eq!(super::proto_role_to_native(ProtoRole::Assistant as i32), Role::Assistant);
@@ -438,17 +435,13 @@ mod tests {
 
     #[test]
     fn proto_role_unspecified_defaults_to_user() {
-        use crate::messages::Role;
-        use super::super::amplifier_module::Role as ProtoRole;
-
         assert_eq!(super::proto_role_to_native(ProtoRole::Unspecified as i32), Role::User);
     }
 
     #[test]
     fn proto_role_unknown_defaults_to_user() {
-        use crate::messages::Role;
-
-        // 999 is not a valid proto Role value
+        // 999 and -1 are not valid proto Role values
         assert_eq!(super::proto_role_to_native(999), Role::User);
+        assert_eq!(super::proto_role_to_native(-1), Role::User);
     }
 }
