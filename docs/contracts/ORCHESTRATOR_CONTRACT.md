@@ -2,11 +2,11 @@
 contract_type: module_specification
 module_type: orchestrator
 contract_version: 1.0.0
-last_modified: 2025-01-29
+last_modified: 2026-03-05
 related_files:
   - path: amplifier_core/interfaces.py#Orchestrator
     relationship: protocol_definition
-    lines: 26-52
+    lines: 26-55
   - path: amplifier_core/content_models.py
     relationship: event_content_types
   - path: ../specs/MOUNT_PLAN_SPECIFICATION.md
@@ -50,6 +50,7 @@ class Orchestrator(Protocol):
         providers: dict[str, Provider],
         tools: dict[str, Tool],
         hooks: HookRegistry,
+        coordinator: ModuleCoordinator | None = None,
     ) -> str:
         """
         Execute the agent loop with given prompt.
@@ -60,6 +61,8 @@ class Orchestrator(Protocol):
             providers: Available LLM providers (keyed by name)
             tools: Available tools (keyed by name)
             hooks: Hook registry for lifecycle events
+            coordinator: Module coordinator for accessing shared services
+                         (optional; passed by session.py in production)
 
         Returns:
             Final response string
@@ -189,6 +192,54 @@ async def execute(self, prompt, context, providers, tools, hooks):
 | `turn_count` | int | Number of LLM call iterations |
 | `status` | string | Exit status: `"success"`, `"incomplete"`, or `"cancelled"` |
 
+#### Required: execution:start and execution:end Events
+
+**All orchestrators MUST emit `execution:start` and `execution:end`** to mark the boundaries of every `execute()` invocation. These events are the primary observability signal used by the kernel for session lifecycle tracking, metrics, and tracing.
+
+- `execution:start` MUST be emitted at the **very beginning** of `execute()`, before any other work
+- `execution:end` MUST be emitted on **ALL exit paths** — normal completion, error, and cancellation
+
+```python
+async def execute(self, prompt, context, providers, tools, hooks, coordinator=None):
+    # REQUIRED: Emit at the very start of execute()
+    await hooks.emit("execution:start", {"prompt": prompt})
+
+    try:
+        # ... agent loop logic ...
+
+        # REQUIRED: Emit on successful completion
+        await hooks.emit("execution:end", {
+            "response": final_response,
+            "status": "completed"
+        })
+        return final_response
+
+    except CancelledError:
+        # REQUIRED: Emit on cancellation
+        await hooks.emit("execution:end", {
+            "response": "",
+            "status": "cancelled"
+        })
+        raise
+
+    except Exception:
+        # REQUIRED: Emit on error
+        await hooks.emit("execution:end", {
+            "response": "",
+            "status": "error"
+        })
+        raise
+```
+
+| Event | Field | Type | Description |
+|-------|-------|------|-------------|
+| `execution:start` | `prompt` | string | The user prompt passed to `execute()` |
+| `execution:end` | `response` | string | Final response string (empty on error/cancellation) |
+| `execution:end` | `status` | string | `"completed"`, `"cancelled"`, or `"error"` |
+
+> **Constants**: `execution:start` and `execution:end` are defined in `amplifier_core.events`
+> (Python) and `amplifier_core::events` (Rust). Use the constants rather than string literals.
+
 ### Hook Processing
 
 Handle HookResult actions:
@@ -274,7 +325,9 @@ See [MOUNT_PLAN_SPECIFICATION.md](../specs/MOUNT_PLAN_SPECIFICATION.md) for full
 
 ## Observability
 
-Register custom events your orchestrator emits:
+Orchestrators **MUST** register the custom events they emit via the `observability.events`
+contribution channel. This enables runtime introspection of which events are available and allows
+tooling, dashboards, and other modules to discover orchestrator-specific signals.
 
 ```python
 coordinator.register_contributor(
@@ -287,6 +340,10 @@ coordinator.register_contributor(
     ]
 )
 ```
+
+> **Note**: The standard `execution:start`, `execution:end`, and `orchestrator:complete` events are
+> registered by the kernel and do not need to be re-registered. Only register events that are
+> unique to your orchestrator module.
 
 See [CONTRIBUTION_CHANNELS.md](../specs/CONTRIBUTION_CHANNELS.md) for the pattern.
 
@@ -312,19 +369,21 @@ Additional examples:
 
 ### Required
 
-- [ ] Implements `execute(prompt, context, providers, tools, hooks) -> str`
+- [ ] Implements `execute(prompt, context, providers, tools, hooks, coordinator=None) -> str`
 - [ ] `mount()` function with entry point in pyproject.toml
+- [ ] **Emits `execution:start` with `{prompt}` at the very beginning of `execute()`**
+- [ ] **Emits `execution:end` with `{response, status}` on ALL exit paths (success, error, cancellation)**
 - [ ] Emits standard events (provider:request/response, tool:pre/post)
 - [ ] **Emits `orchestrator:complete` at the end of execute()**
 - [ ] Handles HookResult actions appropriately
 - [ ] Manages context (add messages, check compaction)
+- [ ] Registers custom observability events via `coordinator.register_contributor("observability.events", ...)`
 
 ### Recommended
 
 - [ ] Supports multiple providers
 - [ ] Implements max iterations limit (prevent infinite loops)
 - [ ] Handles provider errors gracefully
-- [ ] Registers custom observability events
 - [ ] Supports streaming via async generators
 
 ---
