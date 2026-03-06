@@ -95,8 +95,17 @@ mod tests {
                 path: PathBuf::from("/tmp/echo-tool.wasm"),
             },
         };
-        assert_eq!(manifest.transport, Transport::Wasm);
-        assert_eq!(manifest.module_type, ModuleType::Tool);
+        assert_eq!(
+            manifest,
+            ModuleManifest {
+                transport: Transport::Wasm,
+                module_type: ModuleType::Tool,
+                artifact: ModuleArtifact::WasmBytes {
+                    bytes: vec![0, 1, 2],
+                    path: PathBuf::from("/tmp/echo-tool.wasm"),
+                },
+            }
+        );
     }
 
     #[test]
