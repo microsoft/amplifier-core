@@ -19,53 +19,6 @@ __version__: str
 RUST_AVAILABLE: bool
 
 # ---------------------------------------------------------------------------
-# Event constants
-# ---------------------------------------------------------------------------
-
-SESSION_START: str
-SESSION_END: str
-SESSION_FORK: str
-SESSION_RESUME: str
-PROMPT_SUBMIT: str
-PROMPT_COMPLETE: str
-PLAN_START: str
-PLAN_END: str
-PROVIDER_REQUEST: str
-PROVIDER_RESPONSE: str
-PROVIDER_RETRY: str
-PROVIDER_ERROR: str
-PROVIDER_THROTTLE: str
-PROVIDER_TOOL_SEQUENCE_REPAIRED: str
-PROVIDER_RESOLVE: str
-LLM_REQUEST: str
-LLM_RESPONSE: str
-CONTENT_BLOCK_START: str
-CONTENT_BLOCK_DELTA: str
-CONTENT_BLOCK_END: str
-THINKING_DELTA: str
-THINKING_FINAL: str
-TOOL_PRE: str
-TOOL_POST: str
-TOOL_ERROR: str
-CONTEXT_PRE_COMPACT: str
-CONTEXT_POST_COMPACT: str
-CONTEXT_COMPACTION: str
-CONTEXT_INCLUDE: str
-ORCHESTRATOR_COMPLETE: str
-EXECUTION_START: str
-EXECUTION_END: str
-USER_NOTIFICATION: str
-ARTIFACT_WRITE: str
-ARTIFACT_READ: str
-POLICY_VIOLATION: str
-APPROVAL_REQUIRED: str
-APPROVAL_GRANTED: str
-APPROVAL_DENIED: str
-CANCEL_REQUESTED: str
-CANCEL_COMPLETED: str
-ALL_EVENTS: list[str]
-
-# ---------------------------------------------------------------------------
 # RustSession — wraps amplifier_core::Session
 # ---------------------------------------------------------------------------
 
