@@ -493,6 +493,7 @@ impl PySession {
     /// Rust controls the lifecycle:
     /// 1. Checks initialization flag (error if not initialized)
     /// 2. Emits pre-execution events (session:start or session:resume)
+    ///    with optional `raw` field when session.raw=true
     /// 3. Delegates orchestrator call to `_session_exec.run_orchestrator()`
     ///    via `into_future` (Python handles mount point access + kwargs)
     /// 4. Checks cancellation after execution
@@ -512,32 +513,27 @@ impl PySession {
         // Step 2: Prepare the Python orchestrator coroutine (we have the GIL here)
         let helper = py.import("amplifier_core._session_exec")?;
         let run_fn = helper.getattr("run_orchestrator")?;
-        let debug_fn = helper.getattr("emit_debug_events")?;
+        let raw_fn = helper.getattr("emit_raw_field_if_configured")?;
 
         // Prepare the orchestrator call coroutine
         let orch_coro = run_fn.call1((self.coordinator.bind(py), &prompt))?;
         let orch_coro_py: Py<PyAny> = orch_coro.unbind();
 
-        // Determine event names based on is_resumed
-        let (event_base, event_debug, event_raw) = if self.is_resumed {
-            (
-                "session:resume",
-                "session:resume:debug",
-                "session:resume:raw",
-            )
+        // Determine event name based on is_resumed
+        let event_base = if self.is_resumed {
+            "session:resume"
         } else {
-            ("session:start", "session:start:debug", "session:start:raw")
+            "session:start"
         };
 
-        // Prepare debug events coroutine
-        let debug_coro = debug_fn.call1((
+        // Prepare raw-field emission coroutine (no-op if session.raw=false)
+        let raw_coro = raw_fn.call1((
             self.coordinator.bind(py),
             self.config.bind(py),
             &self.cached_session_id,
-            event_debug,
-            event_raw,
+            event_base,
         ))?;
-        let debug_coro_py: Py<PyAny> = debug_coro.unbind();
+        let debug_coro_py: Py<PyAny> = raw_coro.unbind();
 
         // Get the inner HookRegistry for direct Rust emit (avoids PyO3 Future/coroutine mismatch:
         // calling a #[pymethods] fn that uses future_into_py returns a Future object, but
@@ -2632,35 +2628,14 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compute_delay, m)?)?;
 
     // -----------------------------------------------------------------------
-    // Event constants — expose all 51 canonical events from amplifier_core
+    // Event constants — expose all 41 canonical events from amplifier_core
     // -----------------------------------------------------------------------
 
     // Session lifecycle
     m.add("SESSION_START", amplifier_core::events::SESSION_START)?;
-    m.add(
-        "SESSION_START_DEBUG",
-        amplifier_core::events::SESSION_START_DEBUG,
-    )?;
-    m.add(
-        "SESSION_START_RAW",
-        amplifier_core::events::SESSION_START_RAW,
-    )?;
     m.add("SESSION_END", amplifier_core::events::SESSION_END)?;
     m.add("SESSION_FORK", amplifier_core::events::SESSION_FORK)?;
-    m.add(
-        "SESSION_FORK_DEBUG",
-        amplifier_core::events::SESSION_FORK_DEBUG,
-    )?;
-    m.add("SESSION_FORK_RAW", amplifier_core::events::SESSION_FORK_RAW)?;
     m.add("SESSION_RESUME", amplifier_core::events::SESSION_RESUME)?;
-    m.add(
-        "SESSION_RESUME_DEBUG",
-        amplifier_core::events::SESSION_RESUME_DEBUG,
-    )?;
-    m.add(
-        "SESSION_RESUME_RAW",
-        amplifier_core::events::SESSION_RESUME_RAW,
-    )?;
 
     // Prompt lifecycle
     m.add("PROMPT_SUBMIT", amplifier_core::events::PROMPT_SUBMIT)?;
@@ -2688,19 +2663,9 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?;
     m.add("PROVIDER_RESOLVE", amplifier_core::events::PROVIDER_RESOLVE)?;
 
-    // LLM request/response
+    // LLM events
     m.add("LLM_REQUEST", amplifier_core::events::LLM_REQUEST)?;
-    m.add(
-        "LLM_REQUEST_DEBUG",
-        amplifier_core::events::LLM_REQUEST_DEBUG,
-    )?;
-    m.add("LLM_REQUEST_RAW", amplifier_core::events::LLM_REQUEST_RAW)?;
     m.add("LLM_RESPONSE", amplifier_core::events::LLM_RESPONSE)?;
-    m.add(
-        "LLM_RESPONSE_DEBUG",
-        amplifier_core::events::LLM_RESPONSE_DEBUG,
-    )?;
-    m.add("LLM_RESPONSE_RAW", amplifier_core::events::LLM_RESPONSE_RAW)?;
 
     // Content block events
     m.add(
