@@ -62,7 +62,7 @@ pub enum ModuleResolverError {
     UnknownWasmInterface { path: PathBuf },
 
     /// WASM component exports multiple Amplifier interfaces (ambiguous).
-    #[error("WASM component at {path} exports multiple Amplifier module interfaces ({found:?}). A component should implement exactly one module type.")]
+    #[error("WASM component at {path} exports multiple Amplifier module interfaces ({}). A component should implement exactly one module type.", found.join(", "))]
     AmbiguousWasmInterface { path: PathBuf, found: Vec<String> },
 
     /// Failed to parse `amplifier.toml`.
