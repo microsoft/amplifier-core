@@ -17,7 +17,7 @@ use crate::models::ModuleType;
 use crate::transport::Transport;
 
 /// Describes a resolved module: what transport, what type, and where the artifact is.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ModuleManifest {
     /// Transport to use for loading (Python, WASM, gRPC).
     pub transport: Transport,
@@ -28,7 +28,7 @@ pub struct ModuleManifest {
 }
 
 /// The loadable artifact for a resolved module.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ModuleArtifact {
     /// Raw WASM component bytes, plus the path they were read from.
     WasmBytes { bytes: Vec<u8>, path: PathBuf },
@@ -119,6 +119,35 @@ mod tests {
             }
             _ => panic!("expected PythonModule variant"),
         }
+    }
+
+    #[test]
+    fn module_resolver_error_ambiguous_displays_found_interfaces() {
+        let err = ModuleResolverError::AmbiguousWasmInterface {
+            path: PathBuf::from("/tmp/multi.wasm"),
+            found: vec![
+                "amplifier:modules/tool".into(),
+                "amplifier:modules/hook-handler".into(),
+            ],
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("/tmp/multi.wasm"));
+        assert!(msg.contains("amplifier:modules/tool, amplifier:modules/hook-handler"));
+    }
+
+    #[test]
+    fn module_manifest_supports_equality() {
+        let a = ModuleManifest {
+            transport: Transport::Wasm,
+            module_type: ModuleType::Tool,
+            artifact: ModuleArtifact::GrpcEndpoint("http://localhost:50051".into()),
+        };
+        let b = ModuleManifest {
+            transport: Transport::Wasm,
+            module_type: ModuleType::Tool,
+            artifact: ModuleArtifact::GrpcEndpoint("http://localhost:50051".into()),
+        };
+        assert_eq!(a, b);
     }
 
     #[test]
