@@ -17,3 +17,5 @@ pub mod wasm_context;
 pub mod wasm_hook;
 #[cfg(feature = "wasm")]
 pub mod wasm_tool;
+#[cfg(feature = "wasm")]
+pub mod wasm_provider;
