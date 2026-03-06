@@ -415,7 +415,7 @@ pub trait Provider {
 /// ```
 #[macro_export]
 macro_rules! export_provider {
-    ($provider_type:ty) => {
+    ($provider_type:ident) => {
         static __AMPLIFIER_PROVIDER: $crate::__macro_support::OnceLock<$provider_type> =
             $crate::__macro_support::OnceLock::new();
 
@@ -424,6 +424,49 @@ macro_rules! export_provider {
             __AMPLIFIER_PROVIDER
                 .get_or_init(|| <$provider_type as ::std::default::Default>::default())
         }
+
+        // ----- WASM target: Component Model exports -----
+
+        #[cfg(target_arch = "wasm32")]
+        impl bindings::exports::amplifier::modules::provider::Guest for $provider_type {
+            fn get_info() -> ::std::vec::Vec<u8> {
+                let info = <$provider_type as $crate::Provider>::get_info(get_provider());
+                $crate::__macro_support::serde_json::to_vec(&info)
+                    .expect("ProviderInfo serialization must not fail")
+            }
+
+            fn list_models() -> ::core::result::Result<::std::vec::Vec<u8>, ::std::string::String> {
+                let models = <$provider_type as $crate::Provider>::list_models(get_provider())?;
+                $crate::__macro_support::serde_json::to_vec(&models)
+                    .map_err(|e| e.to_string())
+            }
+
+            fn complete(
+                request: ::std::vec::Vec<u8>,
+            ) -> ::core::result::Result<::std::vec::Vec<u8>, ::std::string::String> {
+                let req: $crate::Value =
+                    $crate::__macro_support::serde_json::from_slice(&request)
+                        .map_err(|e| e.to_string())?;
+                let response = <$provider_type as $crate::Provider>::complete(get_provider(), req)?;
+                $crate::__macro_support::serde_json::to_vec(&response)
+                    .map_err(|e| e.to_string())
+            }
+
+            fn parse_tool_calls(
+                response: ::std::vec::Vec<u8>,
+            ) -> ::core::result::Result<::std::vec::Vec<u8>, ::std::string::String> {
+                let resp: $crate::ChatResponse =
+                    $crate::__macro_support::serde_json::from_slice(&response)
+                        .map_err(|e| e.to_string())?;
+                let calls =
+                    <$provider_type as $crate::Provider>::parse_tool_calls(get_provider(), &resp);
+                $crate::__macro_support::serde_json::to_vec(&calls)
+                    .map_err(|e| e.to_string())
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        bindings::export!($provider_type with_types_in bindings);
     };
 }
 
@@ -1559,6 +1602,41 @@ mod wasm_fixture_tests {
             &bytes[0..4],
             b"\0asm",
             "auto-approve.wasm does not start with WASM magic bytes"
+        );
+    }
+
+    #[test]
+    fn test_echo_provider_wasm_fixture_exists_and_has_valid_size() {
+        // The echo-provider.wasm fixture must exist and be > 1000 bytes.
+        let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/wasm/echo-provider.wasm");
+        assert!(
+            fixture_path.exists(),
+            "echo-provider.wasm fixture not found at {:?}",
+            fixture_path
+        );
+        let metadata = std::fs::metadata(&fixture_path).expect("failed to read file metadata");
+        assert!(
+            metadata.len() > 1000,
+            "echo-provider.wasm is too small: {} bytes (expected > 1000)",
+            metadata.len()
+        );
+    }
+
+    #[test]
+    fn test_echo_provider_wasm_fixture_has_wasm_magic_bytes() {
+        // Verify the file starts with the WASM magic number (\0asm).
+        let fixture_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/wasm/echo-provider.wasm");
+        let bytes = std::fs::read(&fixture_path).expect("failed to read wasm file");
+        assert!(
+            bytes.len() >= 4,
+            "echo-provider.wasm too small to contain magic bytes"
+        );
+        assert_eq!(
+            &bytes[0..4],
+            b"\0asm",
+            "echo-provider.wasm does not start with WASM magic bytes"
         );
     }
 }
