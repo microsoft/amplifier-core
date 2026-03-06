@@ -23,7 +23,6 @@ def test_events_reexport_provider_throttle():
 def test_events_reexport_all_events():
     from amplifier_core.events import ALL_EVENTS
 
-    # CP-V: 10 tiered :debug/:raw constants removed — 41 canonical events remain
     assert len(ALL_EVENTS) == 41
 
 

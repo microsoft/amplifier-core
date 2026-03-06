@@ -30,24 +30,15 @@ def test_all_event_constants_in_all_events():
 
 
 def test_events_follow_naming_convention():
-    """Verify all events follow namespace:action convention.
-
-    CP-V: The :debug and :raw detail tiers have been removed.
-    All events now follow the two-part namespace:action pattern only.
-    """
+    """Verify all events follow namespace:action convention."""
     for event in events.ALL_EVENTS:
         assert ":" in event, f"Event {event} missing namespace separator ':'"
         parts = event.split(":")
         assert len(parts) >= 2, (
             f"Event {event} should follow namespace:action convention"
         )
-        # CP-V: No more :debug or :raw tiers — all events must be exactly 2 parts
-        # (namespace:action). The only exception is provider:tool_sequence_repaired
-        # which uses underscores within the action portion (not a third colon-part).
-        assert len(parts) == 2, (
-            f"Event {event} has more than 2 ':' parts — "
-            f"verbosity tiers (:debug/:raw) were removed in CP-V"
-        )
+        # All events must be exactly 2 parts (namespace:action)
+        assert len(parts) == 2, f"Event {event} has more than 2 ':' parts"
         namespace = parts[0]
         action = parts[1]
         assert namespace, f"Event {event} has empty namespace"

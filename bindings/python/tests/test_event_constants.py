@@ -4,7 +4,6 @@ import pytest
 
 
 # All 41 event constant names that should be importable from _engine
-# CP-V BREAKING CHANGE: 10 tiered :debug/:raw constants have been removed.
 ALL_EVENT_NAMES = [
     "SESSION_START",
     "SESSION_END",
@@ -47,20 +46,6 @@ ALL_EVENT_NAMES = [
     "APPROVAL_DENIED",
     "CANCEL_REQUESTED",
     "CANCEL_COMPLETED",
-]
-
-# CP-V: these constants were removed — verify they are gone
-REMOVED_EVENT_NAMES = [
-    "SESSION_START_DEBUG",
-    "SESSION_START_RAW",
-    "SESSION_FORK_DEBUG",
-    "SESSION_FORK_RAW",
-    "SESSION_RESUME_DEBUG",
-    "SESSION_RESUME_RAW",
-    "LLM_REQUEST_DEBUG",
-    "LLM_REQUEST_RAW",
-    "LLM_RESPONSE_DEBUG",
-    "LLM_RESPONSE_RAW",
 ]
 
 
@@ -108,7 +93,7 @@ class TestAllEventsList:
     def test_all_events_count(self):
         from amplifier_core.events import ALL_EVENTS
 
-        assert len(ALL_EVENTS) == 41, f"Expected 41 events after CP-V, got {len(ALL_EVENTS)}"
+        assert len(ALL_EVENTS) == 41, f"Expected 41 events, got {len(ALL_EVENTS)}"
 
     def test_all_events_contains_all_constants(self):
         import amplifier_core.events as events

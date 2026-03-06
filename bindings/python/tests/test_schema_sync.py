@@ -119,7 +119,6 @@ def test_event_constants_match():
     assert TOOL_ERROR == "tool:error"
     assert CANCEL_REQUESTED == "cancel:requested"
     assert CANCEL_COMPLETED == "cancel:completed"
-    # CP-V: 10 tiered :debug/:raw constants removed — 41 canonical events remain
     assert len(ALL_EVENTS) == 41
 
 

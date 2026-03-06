@@ -70,9 +70,8 @@ async def emit_raw_field_if_configured(
 ) -> None:
     """Emit the base session event with an optional raw field.
 
-    CP-V: The old 3-tier emission (base, :debug, :raw) has been collapsed to a
-    single base emission. When session.raw=true, a redacted copy of the full
-    config is included as the 'raw' field on the base event.
+    When session.raw=true, a redacted copy of the full config is included
+    as the 'raw' field on the base event.
 
     This helper is called from the Rust PyO3 bridge's execute() path and
     handles the Python utilities (redact_secrets) needed for raw payloads.

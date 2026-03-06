@@ -2,15 +2,10 @@
 
 All constants are defined in the Rust kernel and re-exported here
 for backward compatibility.
-
-CP-V BREAKING CHANGE: The 10 tiered :debug and :raw event constants
-(SESSION_START_DEBUG, SESSION_START_RAW, SESSION_FORK_DEBUG, etc.) have been
-removed. Callers that subscribed to those event names will no longer receive
-events. Use session.raw: true in config to get raw payloads on the base events.
 """
 
 from amplifier_core._engine import (
-    # Session lifecycle (base events only — no :debug or :raw tiers)
+    # Session lifecycle
     SESSION_START,
     SESSION_END,
     SESSION_FORK,
@@ -29,7 +24,7 @@ from amplifier_core._engine import (
     PROVIDER_THROTTLE,
     PROVIDER_TOOL_SEQUENCE_REPAIRED,
     PROVIDER_RESOLVE,
-    # LLM events (base events only — no :debug or :raw tiers)
+    # LLM events
     LLM_REQUEST,
     LLM_RESPONSE,
     # Content block events
@@ -67,9 +62,6 @@ from amplifier_core._engine import (
     CANCEL_COMPLETED,
 )
 
-# Build ALL_EVENTS locally from the 41 remaining constants.
-# Do NOT import ALL_EVENTS from _engine — the compiled extension may still list
-# 51 entries if it hasn't been rebuilt since CP-V. This list is authoritative.
 ALL_EVENTS: list[str] = [
     SESSION_START,
     SESSION_END,

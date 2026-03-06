@@ -519,7 +519,7 @@ impl PySession {
         let orch_coro = run_fn.call1((self.coordinator.bind(py), &prompt))?;
         let orch_coro_py: Py<PyAny> = orch_coro.unbind();
 
-        // Determine event name based on is_resumed (CP-V: single base event, no tiers)
+        // Determine event name based on is_resumed
         let event_base = if self.is_resumed {
             "session:resume"
         } else {
@@ -2629,10 +2629,9 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // -----------------------------------------------------------------------
     // Event constants — expose all 41 canonical events from amplifier_core
-    // CP-V BREAKING CHANGE: 10 tiered :debug/:raw constants removed.
     // -----------------------------------------------------------------------
 
-    // Session lifecycle (base events only — no :debug or :raw tiers)
+    // Session lifecycle
     m.add("SESSION_START", amplifier_core::events::SESSION_START)?;
     m.add("SESSION_END", amplifier_core::events::SESSION_END)?;
     m.add("SESSION_FORK", amplifier_core::events::SESSION_FORK)?;
@@ -2664,7 +2663,7 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?;
     m.add("PROVIDER_RESOLVE", amplifier_core::events::PROVIDER_RESOLVE)?;
 
-    // LLM request/response (base events only — no :debug or :raw tiers)
+    // LLM events
     m.add("LLM_REQUEST", amplifier_core::events::LLM_REQUEST)?;
     m.add("LLM_RESPONSE", amplifier_core::events::LLM_RESPONSE)?;
 

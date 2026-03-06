@@ -156,7 +156,6 @@ pub const CANCEL_COMPLETED: &str = "cancel:completed";
 ///
 /// This slice contains every event constant defined in this module,
 /// matching the order used in the Python `ALL_EVENTS` list.
-/// The 10 tiered `:debug` / `:raw` constants were removed in CP-V.
 pub const ALL_EVENTS: &[&str] = &[
     SESSION_START,
     SESSION_END,
@@ -344,7 +343,7 @@ mod tests {
         assert_eq!(
             ALL_EVENTS.len(),
             41,
-            "41 canonical events after CP-V verbosity collapse (removed 10 :debug/:raw constants)"
+            "expected 41 canonical events"
         );
     }
 

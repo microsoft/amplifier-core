@@ -19,7 +19,7 @@ __version__: str
 RUST_AVAILABLE: bool
 
 # ---------------------------------------------------------------------------
-# Event constants — 41 canonical events (CP-V: 10 :debug/:raw tiers removed)
+# Event constants
 # ---------------------------------------------------------------------------
 
 SESSION_START: str
