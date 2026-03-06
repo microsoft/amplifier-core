@@ -32,6 +32,7 @@ pub mod retry;
 pub mod session;
 pub mod testing;
 pub mod traits;
+pub mod module_resolver;
 pub mod transport;
 #[cfg(feature = "wasm")]
 pub mod wasm_engine;
