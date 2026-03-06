@@ -340,11 +340,7 @@ mod tests {
 
     #[test]
     fn all_events_count() {
-        assert_eq!(
-            ALL_EVENTS.len(),
-            41,
-            "expected 41 canonical events"
-        );
+        assert_eq!(ALL_EVENTS.len(), 41, "expected 41 canonical events");
     }
 
     #[test]

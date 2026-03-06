@@ -242,12 +242,12 @@ def test_session_exec_is_thin_helper():
     """_session_exec.py must still exist as a thin boundary helper called by Rust.
 
     Rust's PySession::execute() imports amplifier_core._session_exec and calls
-    run_orchestrator() and emit_debug_events(). CANNOT be deleted.
+    run_orchestrator() and emit_raw_field_if_configured(). CANNOT be deleted.
     """
-    from amplifier_core._session_exec import run_orchestrator, emit_debug_events
+    from amplifier_core._session_exec import run_orchestrator, emit_raw_field_if_configured
 
     assert callable(run_orchestrator)
-    assert callable(emit_debug_events)
+    assert callable(emit_raw_field_if_configured)
 
 
 def test_collect_helper_is_boundary_helper():
