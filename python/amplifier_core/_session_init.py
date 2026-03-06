@@ -159,44 +159,22 @@ async def initialize_session(
 
     # Emit session:fork event if this is a child session
     if parent_id:
-        from .events import SESSION_FORK, SESSION_FORK_DEBUG, SESSION_FORK_RAW
-        from .utils import redact_secrets, truncate_values
-
-        await coordinator.hooks.emit(
-            SESSION_FORK,
-            {
-                "parent": parent_id,
-                "session_id": session_id,
-            },
-        )
+        from .events import SESSION_FORK
+        from .utils import redact_secrets
 
         session_config = config.get("session", {})
-        debug = session_config.get("debug", False)
-        raw_debug = session_config.get("raw_debug", False)
+        session_metadata = session_config.get("metadata", {})
+        raw = session_config.get("raw", False)
 
-        if debug:
-            mount_plan_safe = redact_secrets(truncate_values(config))
-            await coordinator.hooks.emit(
-                SESSION_FORK_DEBUG,
-                {
-                    "lvl": "DEBUG",
-                    "parent": parent_id,
-                    "session_id": session_id,
-                    "mount_plan": mount_plan_safe,
-                },
-            )
-
-        if debug and raw_debug:
-            mount_plan_redacted = redact_secrets(config)
-            await coordinator.hooks.emit(
-                SESSION_FORK_RAW,
-                {
-                    "lvl": "DEBUG",
-                    "parent": parent_id,
-                    "session_id": session_id,
-                    "mount_plan": mount_plan_redacted,
-                },
-            )
+        payload: dict = {
+            "parent": parent_id,
+            "session_id": session_id,
+        }
+        if session_metadata:
+            payload["metadata"] = session_metadata
+        if raw:
+            payload["raw"] = redact_secrets(config)
+        await coordinator.hooks.emit(SESSION_FORK, payload)
 
     logger.info(f"Session {session_id} initialized successfully")
 
