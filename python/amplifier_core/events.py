@@ -7,15 +7,9 @@ for backward compatibility.
 from amplifier_core._engine import (
     # Session lifecycle
     SESSION_START,
-    SESSION_START_DEBUG,
-    SESSION_START_RAW,
     SESSION_END,
     SESSION_FORK,
-    SESSION_FORK_DEBUG,
-    SESSION_FORK_RAW,
     SESSION_RESUME,
-    SESSION_RESUME_DEBUG,
-    SESSION_RESUME_RAW,
     # Prompt lifecycle
     PROMPT_SUBMIT,
     PROMPT_COMPLETE,
@@ -32,11 +26,7 @@ from amplifier_core._engine import (
     PROVIDER_RESOLVE,
     # LLM events
     LLM_REQUEST,
-    LLM_REQUEST_DEBUG,
-    LLM_REQUEST_RAW,
     LLM_RESPONSE,
-    LLM_RESPONSE_DEBUG,
-    LLM_RESPONSE_RAW,
     # Content block events
     CONTENT_BLOCK_START,
     CONTENT_BLOCK_DELTA,
@@ -70,21 +60,14 @@ from amplifier_core._engine import (
     # Cancellation lifecycle
     CANCEL_REQUESTED,
     CANCEL_COMPLETED,
-    # Aggregate list
     ALL_EVENTS,
 )
 
 __all__ = [
     "SESSION_START",
-    "SESSION_START_DEBUG",
-    "SESSION_START_RAW",
     "SESSION_END",
     "SESSION_FORK",
-    "SESSION_FORK_DEBUG",
-    "SESSION_FORK_RAW",
     "SESSION_RESUME",
-    "SESSION_RESUME_DEBUG",
-    "SESSION_RESUME_RAW",
     "PROMPT_SUBMIT",
     "PROMPT_COMPLETE",
     "PLAN_START",
@@ -97,11 +80,7 @@ __all__ = [
     "PROVIDER_TOOL_SEQUENCE_REPAIRED",
     "PROVIDER_RESOLVE",
     "LLM_REQUEST",
-    "LLM_REQUEST_DEBUG",
-    "LLM_REQUEST_RAW",
     "LLM_RESPONSE",
-    "LLM_RESPONSE_DEBUG",
-    "LLM_RESPONSE_RAW",
     "CONTENT_BLOCK_START",
     "CONTENT_BLOCK_DELTA",
     "CONTENT_BLOCK_END",

@@ -119,7 +119,7 @@ def test_event_constants_match():
     assert TOOL_ERROR == "tool:error"
     assert CANCEL_REQUESTED == "cancel:requested"
     assert CANCEL_COMPLETED == "cancel:completed"
-    assert len(ALL_EVENTS) == 51
+    assert len(ALL_EVENTS) == 41
 
 
 def test_hook_result_json_roundtrip():

@@ -11,7 +11,7 @@ from typing import Any
 from .coordinator import ModuleCoordinator
 from .loader import ModuleLoader
 from .models import SessionStatus
-from .utils import redact_secrets, truncate_values
+from .utils import redact_secrets
 
 if TYPE_CHECKING:
     from .approval import ApprovalSystem
@@ -272,44 +272,20 @@ class AmplifierSession:
 
             # Emit session:fork event if this is a child session
             if self.parent_id:
-                from .events import SESSION_FORK, SESSION_FORK_DEBUG, SESSION_FORK_RAW
+                from .events import SESSION_FORK
 
-                await self.coordinator.hooks.emit(
-                    SESSION_FORK,
-                    {
-                        "parent": self.parent_id,
-                        "session_id": self.session_id,
-                    },
-                )
-
-                # Debug config from mount plan
                 session_config = self.config.get("session", {})
-                debug = session_config.get("debug", False)
-                raw_debug = session_config.get("raw_debug", False)
+                session_metadata = session_config.get("metadata", {})
+                raw = session_config.get("raw", False)
 
-                if debug:
-                    mount_plan_safe = redact_secrets(truncate_values(self.config))
-                    await self.coordinator.hooks.emit(
-                        SESSION_FORK_DEBUG,
-                        {
-                            "lvl": "DEBUG",
-                            "parent": self.parent_id,
-                            "session_id": self.session_id,
-                            "mount_plan": mount_plan_safe,
-                        },
-                    )
-
-                if debug and raw_debug:
-                    mount_plan_redacted = redact_secrets(self.config)
-                    await self.coordinator.hooks.emit(
-                        SESSION_FORK_RAW,
-                        {
-                            "lvl": "DEBUG",
-                            "parent": self.parent_id,
-                            "session_id": self.session_id,
-                            "mount_plan": mount_plan_redacted,
-                        },
-                    )
+                payload: dict = {
+                    "parent": self.parent_id,
+                    "session_id": self.session_id,
+                    **({"metadata": session_metadata} if session_metadata else {}),
+                }
+                if raw:
+                    payload["raw"] = redact_secrets(self.config)
+                await self.coordinator.hooks.emit(SESSION_FORK, payload)
 
             logger.info(f"Session {self.session_id} initialized successfully")
 
@@ -330,59 +306,24 @@ class AmplifierSession:
         if not self._initialized:
             await self.initialize()
 
-        from .events import (
-            SESSION_RESUME,
-            SESSION_RESUME_DEBUG,
-            SESSION_RESUME_RAW,
-            SESSION_START,
-            SESSION_START_DEBUG,
-            SESSION_START_RAW,
-        )
+        from .events import SESSION_RESUME, SESSION_START
 
         # Choose event type based on whether this is a new or resumed session
-        if self._is_resumed:
-            event_base = SESSION_RESUME
-            event_debug = SESSION_RESUME_DEBUG
-            event_raw = SESSION_RESUME_RAW
-        else:
-            event_base = SESSION_START
-            event_debug = SESSION_START_DEBUG
-            event_raw = SESSION_START_RAW
+        event_base = SESSION_RESUME if self._is_resumed else SESSION_START
 
         # Emit session lifecycle event from kernel (single source of truth)
-        await self.coordinator.hooks.emit(
-            event_base,
-            {
-                "session_id": self.session_id,
-                "parent_id": self.parent_id,
-            },
-        )
-
         session_config = self.config.get("session", {})
-        debug = session_config.get("debug", False)
-        raw_debug = session_config.get("raw_debug", False)
+        session_metadata = session_config.get("metadata", {})
+        raw = session_config.get("raw", False)
 
-        if debug:
-            mount_plan_safe = redact_secrets(truncate_values(self.config))
-            await self.coordinator.hooks.emit(
-                event_debug,
-                {
-                    "lvl": "DEBUG",
-                    "session_id": self.session_id,
-                    "mount_plan": mount_plan_safe,
-                },
-            )
-
-        if debug and raw_debug:
-            mount_plan_redacted = redact_secrets(self.config)
-            await self.coordinator.hooks.emit(
-                event_raw,
-                {
-                    "lvl": "DEBUG",
-                    "session_id": self.session_id,
-                    "mount_plan": mount_plan_redacted,
-                },
-            )
+        payload: dict = {
+            "session_id": self.session_id,
+            "parent_id": self.parent_id,
+            **({"metadata": session_metadata} if session_metadata else {}),
+        }
+        if raw:
+            payload["raw"] = redact_secrets(self.config)
+        await self.coordinator.hooks.emit(event_base, payload)
 
         orchestrator = self.coordinator.get("orchestrator")
         if not orchestrator:
@@ -457,6 +398,23 @@ class AmplifierSession:
     async def cleanup(self: "AmplifierSession") -> None:
         """Clean up session resources."""
         try:
+            # Emit SESSION_END before coordinator cleanup (matches Rust behavior)
+            if self._initialized:
+                try:
+                    from .events import SESSION_END
+
+                    await self.coordinator.hooks.emit(
+                        SESSION_END,
+                        {
+                            "session_id": self.session_id,
+                            "status": self.status.status,
+                        },
+                    )
+                except Exception:
+                    logger.debug(
+                        "Failed to emit SESSION_END during cleanup", exc_info=True
+                    )
+
             await self.coordinator.cleanup()
         finally:
             # Clean up sys.path modifications - must always run even if
