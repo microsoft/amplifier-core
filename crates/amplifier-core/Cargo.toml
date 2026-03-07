@@ -26,5 +26,9 @@ wasmtime-wasi = { version = "42", optional = true }
 default = []
 wasm = ["wasmtime", "wasmtime-wasi"]
 
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
 [build-dependencies]
 tonic-build = "0.12"
