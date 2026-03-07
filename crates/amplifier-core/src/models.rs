@@ -804,6 +804,10 @@ mod tests {
             serde_json::to_value(ModuleType::Resolver).unwrap(),
             json!("resolver")
         );
+        assert_eq!(
+            serde_json::to_value(ModuleType::Approval).unwrap(),
+            json!("approval")
+        );
     }
 
     #[test]
