@@ -974,6 +974,23 @@ endpoint = "http://localhost:9999"
         }
     }
 
+    /// Resolve the echo-tool fixture source directory via amplifier.toml manifest.
+    /// The source directory contains an amplifier.toml with transport = "wasm" and type = "tool".
+    #[test]
+    fn resolve_fixture_via_amplifier_toml() {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let fixture_src = manifest_dir.join("../../tests/fixtures/wasm/src/echo-tool");
+        assert!(
+            fixture_src.exists(),
+            "fixture source dir should exist: {}",
+            fixture_src.display()
+        );
+
+        let manifest = resolve_module(&fixture_src).expect("should resolve via amplifier.toml");
+        assert_eq!(manifest.transport, Transport::Wasm);
+        assert_eq!(manifest.module_type, ModuleType::Tool);
+    }
+
     #[cfg(feature = "wasm")]
     #[test]
     fn load_module_resolver_type_errors() {

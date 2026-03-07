@@ -1,0 +1,3 @@
+[module]
+transport = "wasm"
+type = "provider"
