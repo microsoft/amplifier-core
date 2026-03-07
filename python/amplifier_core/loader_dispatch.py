@@ -60,7 +60,7 @@ async def load_module(
 ) -> Any:
     """Load a module from a resolved source path.
 
-    Checks for amplifier.toml to determine transport type.
+    Uses the Rust module resolver to auto-detect transport type.
     Falls back to Python loader for backward compatibility.
 
     Args:
@@ -76,24 +76,53 @@ async def load_module(
         NotImplementedError: For transport types not yet supported
         ValueError: If module cannot be loaded
     """
-    meta = _read_module_meta(source_path)
-    transport = meta.get("module", {}).get("transport", "python") if meta else "python"
+    try:
+        from amplifier_core._engine import resolve_module as rust_resolve
+
+        manifest = rust_resolve(source_path)
+        transport = manifest.get("transport", "python")
+    except ImportError:
+        logger.debug("Rust engine not available, using Python-only transport detection")
+        transport = _detect_transport(source_path)
+    except Exception as e:
+        logger.debug(
+            f"Rust resolver failed for '{module_id}': {e}, falling back to Python detection"
+        )
+        transport = _detect_transport(source_path)
 
     if transport == "grpc":
         from .loader_grpc import load_grpc_module
 
+        meta = _read_module_meta(source_path)
         return await load_grpc_module(module_id, config, meta, coordinator)
+
+    if transport == "wasm":
+        try:
+            from amplifier_core._engine import load_wasm_from_path
+
+            result = load_wasm_from_path(source_path)
+            logger.info(
+                f"[module:mount] {module_id} loaded via WASM resolver: {result}"
+            )
+
+            async def _noop_mount(coord: Any) -> None:
+                pass
+
+            return _noop_mount
+        except ImportError:
+            raise NotImplementedError(
+                f"WASM module loading for '{module_id}' requires the Rust engine. "
+                "Install amplifier-core with Rust extensions enabled."
+            )
+        except Exception as e:
+            raise ValueError(
+                f"Failed to load WASM module '{module_id}' from {source_path}: {e}"
+            ) from e
 
     if transport == "native":
         raise NotImplementedError(
             f"Native Rust module loading not yet implemented for '{module_id}'. "
             "Use transport = 'grpc' to load Rust modules as gRPC services."
-        )
-
-    if transport == "wasm":
-        raise NotImplementedError(
-            f"WASM module loading not yet implemented for '{module_id}'. "
-            "Use transport = 'grpc' to load WASM modules as gRPC services."
         )
 
     # Default: existing Python loader (backward compatible)

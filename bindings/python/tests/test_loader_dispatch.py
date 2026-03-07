@@ -1,7 +1,11 @@
 """Tests for the polyglot loader dispatch module."""
 
 import os
+import sys
 import tempfile
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 def test_dispatch_module_exists():
@@ -81,3 +85,65 @@ def test_dispatch_reads_grpc_endpoint():
         meta = _read_module_meta(tmpdir)
         assert meta["module"]["transport"] == "grpc"
         assert meta["grpc"]["endpoint"] == "localhost:50052"
+
+
+@pytest.mark.asyncio
+async def test_load_module_uses_rust_loader_for_wasm_transport():
+    """load_module calls load_wasm_from_path and returns callable when Rust resolver detects wasm."""
+    from amplifier_core.loader_dispatch import load_module
+
+    fake_engine = MagicMock()
+    fake_engine.resolve_module.return_value = {"transport": "wasm", "name": "test-wasm"}
+    fake_engine.load_wasm_from_path.return_value = b"wasm-bytes"
+
+    coordinator = MagicMock()
+    coordinator.loader = None
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch.dict(sys.modules, {"amplifier_core._engine": fake_engine}):
+            result = await load_module("test-wasm", {}, tmpdir, coordinator)
+
+    assert callable(result)
+    fake_engine.load_wasm_from_path.assert_called_once_with(tmpdir)
+
+
+@pytest.mark.asyncio
+async def test_load_module_wasm_without_rust_engine_raises_not_implemented():
+    """load_module raises NotImplementedError for wasm when Rust engine is not available."""
+    from amplifier_core.loader_dispatch import load_module
+
+    coordinator = MagicMock()
+    coordinator.loader = None
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Write an amplifier.toml so Python fallback detects wasm
+        toml_path = os.path.join(tmpdir, "amplifier.toml")
+        with open(toml_path, "w") as f:
+            f.write('[module]\nname = "test"\ntype = "tool"\ntransport = "wasm"\n')
+
+        # Setting sys.modules entry to None makes any "from pkg import X" raise ImportError
+        with patch.dict(sys.modules, {"amplifier_core._engine": None}):
+            with pytest.raises(NotImplementedError, match="Rust engine"):
+                await load_module("test-wasm", {}, tmpdir, coordinator)
+
+
+@pytest.mark.asyncio
+async def test_load_module_falls_back_when_rust_resolver_raises():
+    """load_module falls back to Python transport detection when Rust resolver raises."""
+    from amplifier_core.loader_dispatch import load_module
+
+    fake_engine = MagicMock()
+    fake_engine.resolve_module.side_effect = RuntimeError("resolver blew up")
+
+    coordinator = MagicMock()
+    coordinator.loader = None
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # No amplifier.toml → Python detection returns "python" → tries Python loader
+        with patch.dict(sys.modules, {"amplifier_core._engine": fake_engine}):
+            # Python loader itself will fail (no real coordinator), but we just need
+            # to confirm it tried the Python fallback path (not raise from Rust error).
+            # TypeError is raised when the MagicMock coordinator's source_resolver
+            # returns a MagicMock that can't be awaited.
+            with pytest.raises((TypeError, ValueError)):
+                await load_module("test-mod", {}, tmpdir, coordinator)

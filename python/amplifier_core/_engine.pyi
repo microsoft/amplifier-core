@@ -331,6 +331,32 @@ class RetryConfig:
 # Retry utility functions (PyO3 bridge)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Module resolver functions (PyO3 bridge — Task 7/8)
+# ---------------------------------------------------------------------------
+
+def resolve_module(source_path: str) -> dict[str, Any]:
+    """Resolve a module's manifest from its filesystem path.
+
+    Reads the amplifier.toml in the given directory and returns a dict
+    containing at minimum a ``"transport"`` key (e.g. ``"python"``,
+    ``"grpc"``, ``"wasm"``, or ``"native"``).
+
+    Raises:
+        ValueError: If the path cannot be resolved or the manifest is invalid.
+    """
+    ...
+
+def load_wasm_from_path(source_path: str) -> bytes:
+    """Load a WASM module from the given filesystem path.
+
+    Returns the raw WASM bytes for the module found at ``source_path``.
+
+    Raises:
+        ValueError: If the path does not contain a valid WASM module.
+    """
+    ...
+
 def classify_error_message(message: str) -> str:
     """Classify an error message string into an error category.
 
