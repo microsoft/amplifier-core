@@ -423,6 +423,11 @@ pub fn load_module(
 ) -> Result<LoadedModule, Box<dyn std::error::Error + Send + Sync>> {
     use crate::models::ModuleType;
 
+    // Resolver modules are metadata-only — they cannot be loaded as runtime modules
+    if manifest.module_type == ModuleType::Resolver {
+        return Err("Resolver modules are not loadable as runtime modules".into());
+    }
+
     match &manifest.transport {
         Transport::Python | Transport::Native => {
             let package_name = match &manifest.artifact {
@@ -478,8 +483,9 @@ pub fn load_module(
                     let orch = crate::transport::load_wasm_orchestrator(bytes, engine, coord)?;
                     Ok(LoadedModule::Orchestrator(orch))
                 }
-                ModuleType::Resolver => Err(
-                    "Resolver modules are not loadable via WASM transport".into(),
+                // Resolver is rejected by the early-return guard above; this arm is unreachable.
+                ModuleType::Resolver => unreachable!(
+                    "Resolver modules are rejected before transport dispatch"
                 ),
             }
         }
@@ -966,5 +972,18 @@ endpoint = "http://localhost:9999"
             }
             other => panic!("expected PythonDelegated, got {:?}", other.variant_name()),
         }
+    }
+
+    #[cfg(feature = "wasm")]
+    #[test]
+    fn load_module_resolver_type_errors() {
+        let manifest = ModuleManifest {
+            transport: Transport::Python,
+            module_type: ModuleType::Resolver,
+            artifact: ModuleArtifact::PythonModule("some_resolver".into()),
+        };
+        let engine = make_engine();
+        let result = load_module(&manifest, engine, None);
+        assert!(result.is_err());
     }
 }
