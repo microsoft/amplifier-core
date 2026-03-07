@@ -10,7 +10,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-amplifier-core = { path = "../../crates/amplifier-core" }
+amplifier-core = { path = "../../crates/amplifier-core", features = ["wasm"] }
 napi = { version = "2", features = ["async", "serde-json", "napi9"] }
 napi-derive = "2"
 tokio = { version = "1", features = ["rt-multi-thread"] }
