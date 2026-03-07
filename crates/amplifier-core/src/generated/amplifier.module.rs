@@ -326,12 +326,12 @@ pub struct Usage {
     pub completion_tokens: i32,
     #[prost(int32, tag = "3")]
     pub total_tokens: i32,
-    #[prost(int32, tag = "4")]
-    pub reasoning_tokens: i32,
-    #[prost(int32, tag = "5")]
-    pub cache_read_tokens: i32,
-    #[prost(int32, tag = "6")]
-    pub cache_creation_tokens: i32,
+    #[prost(int32, optional, tag = "4")]
+    pub reasoning_tokens: ::core::option::Option<i32>,
+    #[prost(int32, optional, tag = "5")]
+    pub cache_read_tokens: ::core::option::Option<i32>,
+    #[prost(int32, optional, tag = "6")]
+    pub cache_creation_tokens: ::core::option::Option<i32>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Degradation {
@@ -419,8 +419,8 @@ pub struct HookResult {
     #[prost(string, repeated, tag = "8")]
     pub approval_options: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// Default: 300.0 seconds (5 minutes).
-    #[prost(double, tag = "9")]
-    pub approval_timeout: f64,
+    #[prost(double, optional, tag = "9")]
+    pub approval_timeout: ::core::option::Option<f64>,
     #[prost(enumeration = "ApprovalDefault", tag = "10")]
     pub approval_default: i32,
     #[prost(bool, tag = "11")]
@@ -474,8 +474,8 @@ pub struct ApprovalRequest {
     pub details_json: ::prost::alloc::string::String,
     #[prost(string, tag = "4")]
     pub risk_level: ::prost::alloc::string::String,
-    #[prost(double, tag = "5")]
-    pub timeout: f64,
+    #[prost(double, optional, tag = "5")]
+    pub timeout: ::core::option::Option<f64>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ApprovalResponse {

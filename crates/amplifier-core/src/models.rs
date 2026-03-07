@@ -86,6 +86,7 @@ pub enum ModuleType {
     Context,
     Hook,
     Resolver,
+    Approval,
 }
 
 /// Session state.
@@ -802,6 +803,10 @@ mod tests {
         assert_eq!(
             serde_json::to_value(ModuleType::Resolver).unwrap(),
             json!("resolver")
+        );
+        assert_eq!(
+            serde_json::to_value(ModuleType::Approval).unwrap(),
+            json!("approval")
         );
     }
 

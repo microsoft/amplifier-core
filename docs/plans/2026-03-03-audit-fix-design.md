@@ -180,12 +180,16 @@ All `log::warn!()` — data integrity issues at wire boundaries. No behavioral c
 
 These are acknowledged incomplete gRPC protocol implementations, not bugs with silent fallbacks. They require proto schema changes and are Phase 2/4 work items per the cross-language SDK roadmap. **Document, don't fix.**
 
-| Finding | File | Gap | Action |
-|---------|------|-----|--------|
-| S-1 | `grpc_context.rs` | Message fields (role, name, tool_call_id, metadata) zeroed | `log::debug!()` + `// TODO(grpc-v2):` comment |
-| S-2 | `grpc_context.rs` | BlockContent variants → Null | `log::debug!()` when non-TextContent encountered + `// TODO(grpc-v2):` comment |
-| S-3 | `grpc_context.rs` | `provider_name` not transmitted | `log::debug!()` + `// TODO(grpc-v2):` comment |
-| S-4 | `grpc_orchestrator.rs` | 5 orchestrator parameters discarded | `log::debug!()` + `// TODO(grpc-v2):` comment |
+> **✅ RESOLVED (2026-03-05):** All S-1 through S-4 structural gaps were fully fixed in the gRPC Phase 2 debt fix work
+> (`docs/plans/2026-03-04-grpc-v2-debt-fix-design.md`). All `TODO(grpc-v2)` markers have been removed from source code.
+> The table below reflects the original action taken; actual fixes are described in the debt fix design and implementation docs.
+
+| Finding | File | Gap | Resolution |
+|---------|------|-----|------------|
+| S-1 | `grpc_context.rs` | Message fields (role, name, tool_call_id, metadata) zeroed | Fixed: full bidirectional conversion implemented |
+| S-2 | `grpc_context.rs` | BlockContent variants → Null | Fixed: all BlockContent variants converted |
+| S-3 | `grpc_context.rs` | `provider_name` not transmitted | Fixed: provider_name transmitted via proto field |
+| S-4 | `grpc_orchestrator.rs` | 5 orchestrator parameters discarded | Fixed: remote orchestrators access these via KernelService RPCs using session_id |
 
 **Log level: `debug`**, not `warn`. These are known limitations, not unexpected failures. An operator running at `debug` level sees them; normal operation stays quiet.
 

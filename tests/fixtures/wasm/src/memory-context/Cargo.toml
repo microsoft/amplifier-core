@@ -1,0 +1,21 @@
+[package]
+name = "memory-context"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+amplifier-guest = { path = "../../../../../crates/amplifier-guest" }
+serde_json = "1"
+wit-bindgen-rt = "0.41"
+
+[package.metadata.component]
+package = "amplifier:memory-context"
+
+[package.metadata.component.target]
+world = "context-module"
+path = "wit"
+
+[workspace]

@@ -1,0 +1,20 @@
+{
+  "name": "amplifier-core",
+  "version": "1.0.10",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "build": "napi build --release --platform",
+    "build:debug": "napi build --platform",
+    "test": "vitest run"
+  },
+  "napi": {
+    "name": "amplifier-core",
+    "triples": {}
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2",
+    "vitest": "^3",
+    "typescript": "^5"
+  }
+}
