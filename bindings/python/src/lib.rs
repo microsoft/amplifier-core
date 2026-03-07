@@ -2660,6 +2660,8 @@ fn resolve_module(py: Python<'_>, path: String) -> PyResult<Py<PyDict>> {
 /// Load a WASM module from a resolved manifest path.
 ///
 /// Returns a dict with "status" = "loaded" and "module_type" on success.
+/// NOTE: This function loads into a throwaway test coordinator. For production
+/// use, prefer `load_and_mount_wasm` which mounts into a real coordinator.
 #[pyfunction]
 fn load_wasm_from_path(py: Python<'_>, path: String) -> PyResult<Py<PyDict>> {
     let manifest = amplifier_core::module_resolver::resolve_module(std::path::Path::new(&path))
@@ -2686,6 +2688,188 @@ fn load_wasm_from_path(py: Python<'_>, path: String) -> PyResult<Py<PyDict>> {
 }
 
 // ---------------------------------------------------------------------------
+// PyWasmTool — thin Python wrapper around a Rust Arc<dyn Tool>
+// ---------------------------------------------------------------------------
+
+/// Python-visible wrapper for a WASM-loaded tool module.
+///
+/// Bridges the Rust `Arc<dyn Tool>` trait object into Python's tool protocol,
+/// so WASM tools can be mounted into a coordinator's `mount_points["tools"]`
+/// dict alongside native Python tool modules.
+///
+/// Exposes: `name` (property), `get_spec()` (sync), `execute(input)` (async).
+#[pyclass(name = "WasmTool")]
+struct PyWasmTool {
+    inner: Arc<dyn amplifier_core::traits::Tool>,
+}
+
+// Safety: Arc<dyn Tool> is Send+Sync (required by the Tool trait bound).
+unsafe impl Send for PyWasmTool {}
+unsafe impl Sync for PyWasmTool {}
+
+#[pymethods]
+impl PyWasmTool {
+    /// The tool's unique name (e.g., "echo-tool").
+    #[getter]
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    /// The tool's human-readable description.
+    #[getter]
+    fn description(&self) -> &str {
+        self.inner.description()
+    }
+
+    /// Return the tool specification as a Python dict.
+    ///
+    /// The spec contains `name`, `description`, and `input_schema` (JSON Schema).
+    fn get_spec(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let spec = self.inner.get_spec();
+        let json_str = serde_json::to_string(&spec)
+            .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Failed to serialize ToolSpec: {e}")))?;
+        let json_mod = py.import("json")?;
+        let dict = json_mod.call_method1("loads", (&json_str,))?;
+        Ok(dict.unbind())
+    }
+
+    /// Execute the tool with JSON input and return the result.
+    ///
+    /// Async method — returns a coroutine that resolves to a dict with
+    /// `success` (bool), `output` (any), and optional `error` (str).
+    fn execute<'py>(
+        &self,
+        py: Python<'py>,
+        input: Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+
+        // Convert Python input to serde_json::Value
+        let json_mod = py.import("json")?;
+        let serializable = try_model_dump(&input);
+        let json_str: String = json_mod
+            .call_method1("dumps", (&serializable,))?
+            .extract()?;
+        let value: Value = serde_json::from_str(&json_str)
+            .map_err(|e| PyErr::new::<PyValueError, _>(format!("Invalid JSON input: {e}")))?;
+
+        wrap_future_as_coroutine(
+            py,
+            pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                let result = inner.execute(value).await.map_err(|e| {
+                    PyErr::new::<PyRuntimeError, _>(format!("Tool execution failed: {e}"))
+                })?;
+
+                // Convert ToolResult to Python dict
+                let result_json = serde_json::to_string(&result).map_err(|e| {
+                    PyErr::new::<PyRuntimeError, _>(format!(
+                        "Failed to serialize ToolResult: {e}"
+                    ))
+                })?;
+
+                Python::try_attach(|py| -> PyResult<Py<PyAny>> {
+                    let json_mod = py.import("json")?;
+                    let dict = json_mod.call_method1("loads", (&result_json,))?;
+                    Ok(dict.unbind())
+                })
+                .ok_or_else(|| {
+                    PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
+                })?
+            }),
+        )
+    }
+
+    fn __repr__(&self) -> String {
+        format!("<WasmTool '{}'>", self.inner.name())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// load_and_mount_wasm — load WASM module and mount into a real coordinator
+// ---------------------------------------------------------------------------
+
+/// Load a WASM module from a filesystem path and mount it into a coordinator.
+///
+/// Unlike `load_wasm_from_path` (which loads into a throwaway test coordinator),
+/// this function mounts the loaded module directly into the given coordinator's
+/// Python-visible `mount_points` dict, making it available for orchestrator use.
+///
+/// Currently supports mounting:
+/// - **tool** modules → `mount_points["tools"][name]` as a `WasmTool` wrapper
+/// - Other module types are loaded and validated, returning their info for
+///   Python-side mounting (hooks are registered differently, etc.)
+///
+/// Returns a dict with:
+/// - `"status"`: `"mounted"` if mounted, `"loaded"` if loaded but not auto-mounted
+/// - `"module_type"`: the detected module type string
+/// - `"name"`: the module name (for tool modules)
+///
+/// # Errors
+///
+/// Returns `ValueError` if the path doesn't contain a WASM module.
+/// Returns `RuntimeError` if engine creation or module loading fails.
+#[pyfunction]
+fn load_and_mount_wasm(
+    py: Python<'_>,
+    coordinator: &PyCoordinator,
+    path: String,
+) -> PyResult<Py<PyDict>> {
+    let manifest = amplifier_core::module_resolver::resolve_module(std::path::Path::new(&path))
+        .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("{e}")))?;
+
+    if manifest.transport != amplifier_core::transport::Transport::Wasm {
+        return Err(PyErr::new::<PyValueError, _>(format!(
+            "load_and_mount_wasm only handles WASM modules, got transport '{:?}'",
+            manifest.transport
+        )));
+    }
+
+    let engine = amplifier_core::wasm_engine::WasmEngine::new()
+        .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("WASM engine creation failed: {e}")))?;
+
+    // Use the real coordinator's inner Arc<Coordinator> for orchestrator modules
+    let rust_coordinator = coordinator.inner.clone();
+    let loaded = amplifier_core::module_resolver::load_module(
+        &manifest,
+        engine.inner(),
+        Some(rust_coordinator),
+    )
+    .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Module loading failed: {e}")))?;
+
+    let dict = PyDict::new(py);
+    dict.set_item("module_type", loaded.variant_name())?;
+
+    match loaded {
+        amplifier_core::module_resolver::LoadedModule::Tool(tool) => {
+            let tool_name = tool.name().to_string();
+            // Wrap in PyWasmTool and mount into coordinator's mount_points["tools"]
+            let wrapper = Py::new(py, PyWasmTool { inner: tool })?;
+            let mp = coordinator.mount_points.bind(py);
+            let tools_any = mp.get_item("tools")?.ok_or_else(|| {
+                PyErr::new::<PyRuntimeError, _>("mount_points missing 'tools'")
+            })?;
+            let tools_dict = tools_any.cast::<PyDict>()?;
+            tools_dict.set_item(&tool_name, &wrapper)?;
+            dict.set_item("status", "mounted")?;
+            dict.set_item("name", &tool_name)?;
+        }
+        amplifier_core::module_resolver::LoadedModule::PythonDelegated { package_name } => {
+            // Signal to caller: this is a Python module, handle via importlib
+            dict.set_item("status", "delegate_to_python")?;
+            dict.set_item("package_name", package_name)?;
+        }
+        _ => {
+            // Hook, Context, Approval, Provider, Orchestrator —
+            // loaded and validated, but not auto-mounted. The Python
+            // caller should handle mounting based on module_type.
+            dict.set_item("status", "loaded")?;
+        }
+    }
+
+    Ok(dict.unbind())
+}
+
+// ---------------------------------------------------------------------------
 // Module registration
 // ---------------------------------------------------------------------------
 
@@ -2703,10 +2887,12 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCoordinator>()?;
     m.add_class::<PyProviderError>()?;
     m.add_class::<PyRetryConfig>()?;
+    m.add_class::<PyWasmTool>()?;
     m.add_function(wrap_pyfunction!(classify_error_message, m)?)?;
     m.add_function(wrap_pyfunction!(compute_delay, m)?)?;
     m.add_function(wrap_pyfunction!(resolve_module, m)?)?;
     m.add_function(wrap_pyfunction!(load_wasm_from_path, m)?)?;
+    m.add_function(wrap_pyfunction!(load_and_mount_wasm, m)?)?;
 
     // -----------------------------------------------------------------------
     // Event constants — expose all 41 canonical events from amplifier_core
@@ -2927,5 +3113,34 @@ mod tests {
         log::info!("test log from bindings crate");
         // pyo3_log::init exists as a function — returns ResetHandle
         let _: fn() -> pyo3_log::ResetHandle = pyo3_log::init;
+    }
+
+    /// Verify PyWasmTool wrapper type exists and can hold an Arc<dyn Tool>.
+    ///
+    /// PyWasmTool bridges WASM-loaded Rust trait objects into Python mount_points.
+    /// Without this wrapper, WASM modules load into throwaway coordinators and are
+    /// never visible to the Python session.
+    #[test]
+    fn py_wasm_tool_type_exists() {
+        fn _assert_type_compiles(_: &PyWasmTool) {}
+    }
+
+    /// Document the contract for load_and_mount_wasm:
+    ///
+    /// - Accepts a PyCoordinator reference and a filesystem path
+    /// - Resolves the module manifest (auto-detects module type via amplifier.toml or .wasm inspection)
+    /// - Loads the WASM module via WasmEngine
+    /// - For tool modules: wraps in PyWasmTool and mounts into coordinator.mount_points["tools"]
+    /// - For other types: returns module info for Python-side mounting
+    /// - Returns a status dict with "status", "module_type", and optional "name" keys
+    ///
+    /// The actual function requires the Python GIL; this test documents the contract
+    /// and verifies the function compiles. Integration tests (Task 2) verify end-to-end.
+    #[test]
+    fn load_and_mount_wasm_contract() {
+        // Verify the function exists as a callable with the expected signature.
+        // It's a #[pyfunction] so we can't call it without the GIL, but we can
+        // verify the symbol compiles.
+        let _exists = load_and_mount_wasm as fn(Python<'_>, &PyCoordinator, String) -> PyResult<Py<PyDict>>;
     }
 }
