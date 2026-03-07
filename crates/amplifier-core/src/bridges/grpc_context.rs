@@ -28,6 +28,8 @@ use tonic::transport::Channel;
 use crate::errors::ContextError;
 use crate::generated::amplifier_module;
 use crate::generated::amplifier_module::context_service_client::ContextServiceClient;
+use crate::generated::conversions::{native_message_to_proto, proto_message_to_native};
+use crate::messages::Message;
 use crate::traits::{ContextManager, Provider};
 
 /// A bridge that wraps a remote gRPC `ContextService` as a native [`ContextManager`].
@@ -49,41 +51,56 @@ impl GrpcContextBridge {
         })
     }
 
-    // TODO(grpc-v2): Message fields (role, name, tool_call_id, metadata) are not yet
-    // transmitted through the gRPC bridge. The native Value may contain these fields
-    // but they are zeroed in the proto message. Full Message conversion requires
-    // proto schema updates (Phase 4).
+    /// Convert a [`Value`] (JSON message from context storage) to a proto
+    /// [`amplifier_module::Message`].
+    ///
+    /// If the value can be deserialized as a native [`Message`], the full
+    /// typed conversion via [`native_message_to_proto`] is used — preserving
+    /// `role`, `name`, `tool_call_id`, `metadata`, and all `ContentBlock`
+    /// variants.  Values that don't parse as a `Message` (e.g. plain strings
+    /// stored by older code) fall back to the text-only encoding with a
+    /// warning log.
     fn value_to_proto_message(message: &Value) -> amplifier_module::Message {
-        log::debug!(
-            "Converting Value to proto Message — role, name, tool_call_id, metadata_json are not yet transmitted"
-        );
-        let json_string = serde_json::to_string(message).unwrap_or_else(|e| {
-            log::warn!("Failed to serialize context message to JSON: {e} — using empty string");
-            String::new()
-        });
-        amplifier_module::Message {
-            role: 0, // ROLE_UNSPECIFIED — TODO(grpc-v2): map from native message role
-            content: Some(amplifier_module::message::Content::TextContent(json_string)),
-            name: String::new(), // TODO(grpc-v2): extract from native message
-            tool_call_id: String::new(), // TODO(grpc-v2): extract from native message
-            metadata_json: String::new(), // TODO(grpc-v2): extract from native message
+        match serde_json::from_value::<Message>(message.clone()) {
+            Ok(native_msg) => native_message_to_proto(native_msg),
+            Err(e) => {
+                log::warn!(
+                    "Failed to parse context message as Message, using text-only fallback: {e}"
+                );
+                let json_string = serde_json::to_string(message).unwrap_or_else(|ser_err| {
+                    log::warn!(
+                        "Failed to serialize context message to JSON: {ser_err} — using empty string"
+                    );
+                    String::new()
+                });
+                amplifier_module::Message {
+                    role: 0,
+                    content: Some(amplifier_module::message::Content::TextContent(json_string)),
+                    name: String::new(),
+                    tool_call_id: String::new(),
+                    metadata_json: String::new(),
+                }
+            }
         }
     }
 
-    // TODO(grpc-v2): Only TextContent is handled. BlockContent and other variants
-    // are mapped to Null, losing data. Full ContentBlock conversion requires Phase 4.
+    /// Convert a proto [`amplifier_module::Message`] back to a [`Value`].
+    ///
+    /// Uses [`proto_message_to_native`] to get a fully-typed [`Message`] (all
+    /// `ContentBlock` variants, `role`, `name`, `tool_call_id`, `metadata`)
+    /// and then serialises it to JSON via `serde_json::to_value`.  Returns
+    /// [`Value::Null`] only when conversion fails (proto message has no
+    /// content, or serialisation errors).
     fn proto_message_to_value(msg: &amplifier_module::Message) -> Value {
-        match &msg.content {
-            Some(amplifier_module::message::Content::TextContent(text)) => {
-                serde_json::from_str(text).unwrap_or(Value::String(text.clone()))
-            }
-            Some(_other) => {
-                log::debug!(
-                    "Non-TextContent message variant encountered — mapping to Null (not yet supported)"
-                );
+        match proto_message_to_native(msg.clone()) {
+            Ok(native_msg) => serde_json::to_value(native_msg).unwrap_or_else(|e| {
+                log::warn!("Failed to serialise native Message to Value: {e}");
+                Value::Null
+            }),
+            Err(e) => {
+                log::warn!("Failed to convert proto Message to native: {e}");
                 Value::Null
             }
-            None => Value::Null,
         }
     }
 }
@@ -117,17 +134,16 @@ impl ContextManager for GrpcContextBridge {
     fn get_messages_for_request(
         &self,
         token_budget: Option<i64>,
-        _provider: Option<Arc<dyn Provider>>,
+        provider: Option<Arc<dyn Provider>>,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<Value>, ContextError>> + Send + '_>> {
         Box::pin(async move {
-            // TODO(grpc-v2): provider_name parameter is not transmitted to the remote
-            // context manager. The _provider parameter is accepted but unused.
-            log::debug!(
-                "get_messages_for_request: provider_name is not transmitted through gRPC bridge"
-            );
+            let provider_name = provider
+                .as_ref()
+                .map(|p| p.name().to_string())
+                .unwrap_or_default();
             let request = amplifier_module::GetMessagesForRequestParams {
                 token_budget: token_budget.unwrap_or(0) as i32,
-                provider_name: String::new(), // TODO(grpc-v2): extract from _provider param
+                provider_name,
             };
 
             let response = {
@@ -234,46 +250,55 @@ mod tests {
         }
     }
 
-    // ── S-1 regression: value_to_proto_message structural gaps ─────────────
+    // -- S-1: value_to_proto_message fallback for non-Message values ------------
 
-    /// value_to_proto_message stores JSON as TextContent and zeroes all other fields.
+    /// A plain JSON value that cannot be parsed as a Message falls back to the
+    /// text-only encoding with ROLE_UNSPECIFIED and empty ancillary fields.
     #[test]
-    fn value_to_proto_message_text_content_and_zeroed_fields() {
+    fn value_to_proto_message_non_message_value_falls_back_to_text() {
         let val = Value::String("hello".to_string());
         let msg = GrpcContextBridge::value_to_proto_message(&val);
-        assert_eq!(msg.role, 0, "role should be ROLE_UNSPECIFIED (0)");
-        assert_eq!(msg.name, "", "name should be empty");
-        assert_eq!(msg.tool_call_id, "", "tool_call_id should be empty");
-        assert_eq!(msg.metadata_json, "", "metadata_json should be empty");
+        assert_eq!(msg.role, 0, "fallback role must be ROLE_UNSPECIFIED (0)");
+        assert_eq!(msg.name, "", "fallback name must be empty");
+        assert_eq!(msg.tool_call_id, "", "fallback tool_call_id must be empty");
+        assert_eq!(
+            msg.metadata_json, "",
+            "fallback metadata_json must be empty"
+        );
         match msg.content {
             Some(amplifier_module::message::Content::TextContent(text)) => {
                 assert_eq!(text, "\"hello\"");
             }
-            other => panic!("expected TextContent, got {other:?}"),
+            other => panic!("expected TextContent fallback, got {other:?}"),
         }
     }
 
-    // ── S-2 regression: proto_message_to_value structural gaps ─────────────
+    // -- S-2: proto_message_to_value fidelity ----------------------------------
 
-    /// TextContent round-trips through proto_message_to_value correctly.
+    /// A properly-encoded proto Message (role + TextContent) roundtrips through
+    /// proto_message_to_value — role and content are preserved faithfully.
     #[test]
     fn proto_message_to_value_text_content_roundtrip() {
-        let json = r#"{"role":"user","content":"hi"}"#;
-        let msg = amplifier_module::Message {
-            role: 0,
-            content: Some(amplifier_module::message::Content::TextContent(
-                json.to_string(),
-            )),
-            name: String::new(),
-            tool_call_id: String::new(),
-            metadata_json: String::new(),
+        use crate::messages::{Message, MessageContent, Role};
+        use std::collections::HashMap;
+
+        // Build the proto message via native_message_to_proto (same path the bridge uses).
+        let native = Message {
+            role: Role::User,
+            content: MessageContent::Text("hi".into()),
+            name: None,
+            tool_call_id: None,
+            metadata: None,
+            extensions: HashMap::new(),
         };
-        let val = GrpcContextBridge::proto_message_to_value(&msg);
+        let proto = crate::generated::conversions::native_message_to_proto(native);
+        let val = GrpcContextBridge::proto_message_to_value(&proto);
         assert_eq!(val["role"], "user");
         assert_eq!(val["content"], "hi");
     }
 
-    /// None content maps to Value::Null.
+    /// A proto Message with no content (content == None) maps to Value::Null
+    /// because proto_message_to_native returns Err for missing content.
     #[test]
     fn proto_message_to_value_none_content_is_null() {
         let msg = amplifier_module::Message {
@@ -286,12 +311,12 @@ mod tests {
         assert_eq!(GrpcContextBridge::proto_message_to_value(&msg), Value::Null);
     }
 
-    /// BlockContent (non-TextContent variant) maps to Value::Null — data loss documented
-    /// by TODO(grpc-v2) in the implementation.
+    /// A proto Message with an empty BlockContent list is decoded to a proper
+    /// JSON Value — no longer silently dropped as Null.
     #[test]
-    fn proto_message_to_value_block_content_is_null() {
+    fn proto_message_to_value_empty_block_content_is_not_null() {
         let msg = amplifier_module::Message {
-            role: 0,
+            role: amplifier_module::Role::User as i32,
             content: Some(amplifier_module::message::Content::BlockContent(
                 amplifier_module::ContentBlockList { blocks: vec![] },
             )),
@@ -299,10 +324,69 @@ mod tests {
             tool_call_id: String::new(),
             metadata_json: String::new(),
         };
+        let val = GrpcContextBridge::proto_message_to_value(&msg);
+        assert_ne!(val, Value::Null, "BlockContent must produce a proper Value");
+        assert_eq!(val["role"], "user");
+        assert_eq!(val["content"], serde_json::json!([]));
+    }
+
+    // -- Full-fidelity tests ---------------------------------------------------
+
+    /// value_to_proto_message must preserve role, name, and tool_call_id when
+    /// the incoming Value is a well-formed serialised Message.
+    #[test]
+    fn value_to_proto_message_preserves_role_name_and_tool_call_id() {
+        use crate::messages::{Message, MessageContent, Role};
+        use std::collections::HashMap;
+
+        let native = Message {
+            role: Role::Assistant,
+            content: MessageContent::Text("hello".into()),
+            name: Some("alice".into()),
+            tool_call_id: Some("call_123".into()),
+            metadata: None,
+            extensions: HashMap::new(),
+        };
+        let val = serde_json::to_value(&native).expect("serialise Message to Value");
+        let proto = GrpcContextBridge::value_to_proto_message(&val);
+
+        // role must NOT be 0 (ROLE_UNSPECIFIED) — it should be Assistant
+        assert_ne!(proto.role, 0, "role must not be ROLE_UNSPECIFIED");
+        assert_eq!(proto.name, "alice", "name must be preserved");
         assert_eq!(
-            GrpcContextBridge::proto_message_to_value(&msg),
-            Value::Null,
-            "BlockContent must map to Null until grpc-v2 phase"
+            proto.tool_call_id, "call_123",
+            "tool_call_id must be preserved"
         );
+    }
+
+    /// proto_message_to_value must produce a proper JSON Value (not Null) when
+    /// the proto message carries BlockContent with actual blocks.
+    #[test]
+    fn proto_message_to_value_block_content_preserved() {
+        let msg = amplifier_module::Message {
+            role: amplifier_module::Role::Assistant as i32,
+            content: Some(amplifier_module::message::Content::BlockContent(
+                amplifier_module::ContentBlockList {
+                    blocks: vec![amplifier_module::ContentBlock {
+                        block: Some(amplifier_module::content_block::Block::TextBlock(
+                            amplifier_module::TextBlock {
+                                text: "hello from block".into(),
+                            },
+                        )),
+                        visibility: 0,
+                    }],
+                },
+            )),
+            name: String::new(),
+            tool_call_id: String::new(),
+            metadata_json: String::new(),
+        };
+        let val = GrpcContextBridge::proto_message_to_value(&msg);
+        assert_ne!(val, Value::Null, "BlockContent must NOT become Null");
+        // The role field should be correct
+        assert_eq!(val["role"], "assistant");
+        // content should be an array with one block
+        assert!(val["content"].is_array());
+        assert_eq!(val["content"].as_array().unwrap().len(), 1);
     }
 }

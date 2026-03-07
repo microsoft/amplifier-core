@@ -69,7 +69,7 @@ mod tests {
             ephemeral: true,
             approval_prompt: "Allow this action?".into(),
             approval_options: vec!["yes".into(), "no".into(), "always".into()],
-            approval_timeout: 300.0,
+            approval_timeout: Some(300.0),
             approval_default: ApprovalDefault::Deny as i32,
             suppress_output: false,
             user_message: "Action requires approval".into(),
@@ -88,7 +88,7 @@ mod tests {
         assert!(result.ephemeral);
         assert_eq!(result.approval_prompt, "Allow this action?");
         assert_eq!(result.approval_options.len(), 3);
-        assert!((result.approval_timeout - 300.0).abs() < f64::EPSILON);
+        assert_eq!(result.approval_timeout, Some(300.0));
         assert_eq!(result.approval_default, ApprovalDefault::Deny as i32);
         assert!(!result.suppress_output);
         assert_eq!(result.user_message, "Action requires approval");
@@ -173,16 +173,16 @@ mod tests {
             prompt_tokens: 100,
             completion_tokens: 50,
             total_tokens: 150,
-            reasoning_tokens: 20,
-            cache_read_tokens: 30,
-            cache_creation_tokens: 10,
+            reasoning_tokens: Some(20),
+            cache_read_tokens: Some(30),
+            cache_creation_tokens: Some(10),
         };
         assert_eq!(usage.prompt_tokens, 100);
         assert_eq!(usage.completion_tokens, 50);
         assert_eq!(usage.total_tokens, 150);
-        assert_eq!(usage.reasoning_tokens, 20);
-        assert_eq!(usage.cache_read_tokens, 30);
-        assert_eq!(usage.cache_creation_tokens, 10);
+        assert_eq!(usage.reasoning_tokens, Some(20));
+        assert_eq!(usage.cache_read_tokens, Some(30));
+        assert_eq!(usage.cache_creation_tokens, Some(10));
     }
 
     #[test]
@@ -210,13 +210,13 @@ mod tests {
             action: "execute".into(),
             details_json: r#"{"command":"rm -rf /tmp/test"}"#.into(),
             risk_level: "high".into(),
-            timeout: 120.0,
+            timeout: Some(120.0),
         };
         assert_eq!(request.tool_name, "bash");
         assert_eq!(request.action, "execute");
         assert_eq!(request.details_json, r#"{"command":"rm -rf /tmp/test"}"#);
         assert_eq!(request.risk_level, "high");
-        assert!((request.timeout - 120.0).abs() < f64::EPSILON);
+        assert_eq!(request.timeout, Some(120.0));
 
         let response = ApprovalResponse {
             approved: true,

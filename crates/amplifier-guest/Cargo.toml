@@ -1,0 +1,10 @@
+[package]
+name = "amplifier-guest"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+prost = "0.13"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wit-bindgen = "0.41"

@@ -1,0 +1,150 @@
+// WIT interface definitions for Amplifier WASM modules.
+//
+// Defines the contract between host (kernel) and guest (WASM modules).
+// All complex types are serialized as protobuf bytes (list<u8>) to avoid
+// duplicating the full proto schema in WIT. The canonical proto definitions
+// live in proto/amplifier_module.proto.
+
+package amplifier:modules@1.0.0;
+
+// ---------------------------------------------------------------------------
+// Tier 1: Pure-compute interfaces (no host imports required)
+// ---------------------------------------------------------------------------
+
+/// Tool module interface — exposes a single tool to the kernel.
+interface tool {
+    /// Return the tool specification (ToolSpec proto, serialized).
+    get-spec: func() -> list<u8>;
+
+    /// Execute the tool with proto-serialized input (ToolExecuteRequest).
+    /// Returns proto-serialized ToolExecuteResponse on success.
+    execute: func(input: list<u8>) -> result<list<u8>, string>;
+}
+
+/// Hook handler interface — responds to lifecycle events.
+interface hook-handler {
+    /// Handle a lifecycle event (HookHandleRequest proto, serialized).
+    /// Returns proto-serialized HookResult on success.
+    handle: func(event: list<u8>) -> result<list<u8>, string>;
+}
+
+/// Context manager interface — owns conversation memory policy.
+interface context-manager {
+    /// Append a message to the context (Message proto, serialized).
+    add-message: func(message: list<u8>) -> result<_, string>;
+
+    /// Get all messages (raw, uncompacted). Returns GetMessagesResponse proto.
+    get-messages: func() -> result<list<u8>, string>;
+
+    /// Get messages for an LLM request (compacted). Accepts
+    /// GetMessagesForRequestParams proto, returns GetMessagesResponse proto.
+    get-messages-for-request: func(params: list<u8>) -> result<list<u8>, string>;
+
+    /// Replace the entire message list (SetMessagesRequest proto).
+    set-messages: func(messages: list<u8>) -> result<_, string>;
+
+    /// Clear all messages from context.
+    clear: func() -> result<_, string>;
+}
+
+/// Approval provider interface — human-in-the-loop approval gate.
+interface approval-provider {
+    /// Request approval from the user (ApprovalRequest proto, serialized).
+    /// Returns proto-serialized ApprovalResponse on success.
+    request-approval: func(request: list<u8>) -> result<list<u8>, string>;
+}
+
+// ---------------------------------------------------------------------------
+// Tier 2: Interfaces that may need host imports or network access
+// ---------------------------------------------------------------------------
+
+/// Provider interface — LLM completions in any language.
+interface provider {
+    /// Return provider metadata (ProviderInfo proto, serialized).
+    get-info: func() -> list<u8>;
+
+    /// List available models. Returns ListModelsResponse proto.
+    list-models: func() -> result<list<u8>, string>;
+
+    /// Generate a completion (ChatRequest proto → ChatResponse proto).
+    complete: func(request: list<u8>) -> result<list<u8>, string>;
+
+    /// Extract tool calls from a response (ChatResponse proto →
+    /// ParseToolCallsResponse proto).
+    parse-tool-calls: func(response: list<u8>) -> result<list<u8>, string>;
+}
+
+/// Orchestrator interface — high-level agent-loop execution.
+interface orchestrator {
+    /// Run the agent loop (OrchestratorExecuteRequest proto →
+    /// OrchestratorExecuteResponse proto).
+    execute: func(request: list<u8>) -> result<list<u8>, string>;
+}
+
+// ---------------------------------------------------------------------------
+// Host interface: kernel callbacks available to guest modules
+// ---------------------------------------------------------------------------
+
+/// Kernel service interface — host-provided callbacks for guest modules.
+/// Orchestrator and provider modules import this to call back into the kernel.
+interface kernel-service {
+    /// Execute a tool by name (ExecuteToolRequest proto → ToolResult proto).
+    execute-tool: func(request: list<u8>) -> result<list<u8>, string>;
+
+    /// Complete with a named provider (CompleteWithProviderRequest proto →
+    /// ChatResponse proto).
+    complete-with-provider: func(request: list<u8>) -> result<list<u8>, string>;
+
+    /// Emit a hook event (EmitHookRequest proto → HookResult proto).
+    emit-hook: func(request: list<u8>) -> result<list<u8>, string>;
+
+    /// Get conversation messages (GetMessagesRequest proto →
+    /// GetMessagesResponse proto).
+    get-messages: func(request: list<u8>) -> result<list<u8>, string>;
+
+    /// Add a message to conversation (KernelAddMessageRequest proto).
+    add-message: func(request: list<u8>) -> result<_, string>;
+
+    /// Look up a registered capability (GetCapabilityRequest proto →
+    /// GetCapabilityResponse proto).
+    get-capability: func(request: list<u8>) -> result<list<u8>, string>;
+
+    /// Register a capability (RegisterCapabilityRequest proto).
+    register-capability: func(request: list<u8>) -> result<_, string>;
+}
+
+// ---------------------------------------------------------------------------
+// World definitions — one per module type
+// ---------------------------------------------------------------------------
+
+/// Tier 1: Pure-compute tool module.
+world tool-module {
+    export tool;
+}
+
+/// Tier 1: Pure-compute hook handler module.
+world hook-module {
+    export hook-handler;
+}
+
+/// Tier 1: Pure-compute context manager module.
+world context-module {
+    export context-manager;
+}
+
+/// Tier 1: Pure-compute approval provider module.
+world approval-module {
+    export approval-provider;
+}
+
+/// Tier 2: Provider module — needs outbound HTTP for LLM API calls.
+world provider-module {
+    import wasi:http/outgoing-handler@0.2.0;
+    export provider;
+}
+
+/// Tier 2: Orchestrator module — needs kernel callbacks for the agent loop.
+world orchestrator-module {
+    import kernel-service;
+    export orchestrator;
+}

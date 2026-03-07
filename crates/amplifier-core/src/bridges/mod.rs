@@ -10,4 +10,14 @@ pub mod grpc_orchestrator;
 pub mod grpc_provider;
 pub mod grpc_tool;
 #[cfg(feature = "wasm")]
+pub mod wasm_approval;
+#[cfg(feature = "wasm")]
+pub mod wasm_context;
+#[cfg(feature = "wasm")]
+pub mod wasm_hook;
+#[cfg(feature = "wasm")]
+pub mod wasm_orchestrator;
+#[cfg(feature = "wasm")]
+pub mod wasm_provider;
+#[cfg(feature = "wasm")]
 pub mod wasm_tool;

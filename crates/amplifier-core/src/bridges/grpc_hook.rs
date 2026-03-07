@@ -51,7 +51,9 @@ impl GrpcHookBridge {
     }
 
     /// Convert a proto `HookResult` to a native [`models::HookResult`].
-    fn proto_to_native_hook_result(proto: amplifier_module::HookResult) -> models::HookResult {
+    pub(crate) fn proto_to_native_hook_result(
+        proto: amplifier_module::HookResult,
+    ) -> models::HookResult {
         let action = match amplifier_module::HookAction::try_from(proto.action) {
             Ok(amplifier_module::HookAction::Continue) => models::HookAction::Continue,
             Ok(amplifier_module::HookAction::Modify) => models::HookAction::Modify,
@@ -178,7 +180,7 @@ impl GrpcHookBridge {
             ephemeral: proto.ephemeral,
             approval_prompt,
             approval_options,
-            approval_timeout: proto.approval_timeout,
+            approval_timeout: proto.approval_timeout.unwrap_or(300.0),
             approval_default,
             suppress_output: proto.suppress_output,
             user_message,
@@ -244,7 +246,7 @@ mod tests {
             ephemeral: false,
             approval_prompt: String::new(),
             approval_options: vec![],
-            approval_timeout: 0.0,
+            approval_timeout: None,
             approval_default: 0,
             suppress_output: false,
             user_message: String::new(),
