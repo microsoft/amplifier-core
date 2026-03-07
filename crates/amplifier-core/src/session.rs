@@ -19,6 +19,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use serde_json::Value;
 
@@ -138,7 +139,7 @@ impl SessionConfig {
 pub struct Session {
     session_id: String,
     parent_id: Option<String>,
-    coordinator: Coordinator,
+    coordinator: Arc<Coordinator>,
     initialized: AtomicBool,
     status: SessionState,
     is_resumed: bool,
@@ -158,7 +159,7 @@ impl Session {
         parent_id: Option<String>,
     ) -> Self {
         let id = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let coordinator = Coordinator::new(config.config);
+        let coordinator = Arc::new(Coordinator::new(config.config));
 
         // Set default fields for all hook events
         coordinator.hooks().set_default_fields(serde_json::json!({
@@ -222,9 +223,27 @@ impl Session {
         &self.coordinator
     }
 
-    /// Mutable reference to the coordinator (for mounting modules).
+    /// Mutable reference to the coordinator (for mounting modules during setup).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the coordinator `Arc` has already been shared via
+    /// [`coordinator_shared()`](Self::coordinator_shared). Call this only
+    /// during the setup phase, before sharing the coordinator with other
+    /// services (e.g. `KernelServiceImpl`).
     pub fn coordinator_mut(&mut self) -> &mut Coordinator {
-        &mut self.coordinator
+        Arc::get_mut(&mut self.coordinator)
+            .expect("coordinator_mut() called after Arc was shared — only call during setup")
+    }
+
+    /// Clone of the shared `Arc<Coordinator>`, for passing to services that
+    /// need long-lived access to the coordinator (e.g. `KernelServiceImpl`).
+    ///
+    /// After calling this method, [`coordinator_mut()`](Self::coordinator_mut)
+    /// will panic because the Arc is no longer uniquely owned.  Mount all
+    /// modules via `coordinator_mut()` *before* calling this.
+    pub fn coordinator_shared(&self) -> Arc<Coordinator> {
+        Arc::clone(&self.coordinator)
     }
 
     /// Mark the session as initialized.
@@ -804,5 +823,59 @@ mod tests {
     fn session_config_from_json_invalid() {
         let result = SessionConfig::from_json("not json");
         assert!(result.is_err());
+    }
+
+    // ---------------------------------------------------------------
+    // Task 9: Arc<Coordinator> — coordinator_shared()
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn coordinator_shared_returns_arc_to_same_coordinator() {
+        let config = SessionConfig::minimal("loop-basic", "context-simple");
+        let session = Session::new(config, None, None);
+
+        // Two calls should return Arcs pointing to the same allocation
+        let arc1 = session.coordinator_shared();
+        let arc2 = session.coordinator_shared();
+        assert!(
+            Arc::ptr_eq(&arc1, &arc2),
+            "coordinator_shared() should return clones of the same Arc"
+        );
+
+        // The Arc should behave like the coordinator
+        assert!(arc1.tools().is_empty());
+    }
+
+    #[test]
+    fn coordinator_and_coordinator_mut_still_work() {
+        let config = SessionConfig::minimal("loop-basic", "context-simple");
+        let mut session = Session::new(config, None, None);
+
+        // coordinator_mut() should still work for mounting modules
+        session
+            .coordinator_mut()
+            .mount_tool("echo", Arc::new(FakeTool::new("echo", "echoes")));
+
+        // coordinator() should see the change
+        let tools = session.coordinator().tools();
+        assert_eq!(tools.len(), 1);
+        assert!(tools.contains_key("echo"));
+    }
+
+    #[test]
+    fn coordinator_shared_reflects_mounted_modules() {
+        let config = SessionConfig::minimal("loop-basic", "context-simple");
+        let mut session = Session::new(config, None, None);
+
+        // Mount a tool via coordinator_mut()
+        session
+            .coordinator_mut()
+            .mount_tool("search", Arc::new(FakeTool::new("search", "searches")));
+
+        // The shared Arc should see the same state
+        let shared = session.coordinator_shared();
+        let tools = shared.tools();
+        assert_eq!(tools.len(), 1);
+        assert!(tools.contains_key("search"));
     }
 }

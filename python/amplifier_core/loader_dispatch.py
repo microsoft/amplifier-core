@@ -55,18 +55,18 @@ def _detect_transport(source_path: str) -> str:
 async def load_module(
     module_id: str,
     config: dict[str, Any] | None,
-    source_path: str,
+    source_path: str | None,
     coordinator: Any,
 ) -> Any:
     """Load a module from a resolved source path.
 
-    Checks for amplifier.toml to determine transport type.
+    Uses the Rust module resolver to auto-detect transport type.
     Falls back to Python loader for backward compatibility.
 
     Args:
         module_id: Module identifier (e.g., "tool-database")
         config: Optional module configuration dict
-        source_path: Resolved filesystem path to the module
+        source_path: Resolved filesystem path to the module (or None)
         coordinator: The coordinator instance (RustCoordinator or ModuleCoordinator)
 
     Returns:
@@ -76,24 +76,52 @@ async def load_module(
         NotImplementedError: For transport types not yet supported
         ValueError: If module cannot be loaded
     """
-    meta = _read_module_meta(source_path)
-    transport = meta.get("module", {}).get("transport", "python") if meta else "python"
+    # No source path means we can't detect transport — fall through to Python loader
+    if source_path is None:
+        from .loader import ModuleLoader
+
+        loader = coordinator.loader or ModuleLoader(coordinator=coordinator)
+        return await loader.load(module_id, config, source_hint=None)
+
+    try:
+        from amplifier_core._engine import resolve_module as rust_resolve
+
+        manifest = rust_resolve(source_path)
+        transport = manifest.get("transport", "python")
+    except ImportError:
+        logger.debug("Rust engine not available, using Python-only transport detection")
+        transport = _detect_transport(source_path)
+    except Exception as e:
+        logger.debug(
+            f"Rust resolver failed for '{module_id}': {e}, falling back to Python detection"
+        )
+        transport = _detect_transport(source_path)
 
     if transport == "grpc":
         from .loader_grpc import load_grpc_module
 
+        meta = _read_module_meta(source_path)
         return await load_grpc_module(module_id, config, meta, coordinator)
+
+    if transport == "wasm":
+        try:
+            from amplifier_core._engine import load_and_mount_wasm
+
+            async def _wasm_mount(coord: Any) -> None:
+                result = load_and_mount_wasm(coord, source_path)
+                logger.info(f"[module:mount] {module_id} mounted via WASM: {result}")
+
+            return _wasm_mount
+        except ImportError:
+            raise NotImplementedError(
+                f"WASM module loading for '{module_id}' requires the Rust engine. "
+                "Install amplifier-core with Rust extensions enabled."
+            )
 
     if transport == "native":
         raise NotImplementedError(
             f"Native Rust module loading not yet implemented for '{module_id}'. "
             "Use transport = 'grpc' to load Rust modules as gRPC services."
-        )
-
-    if transport == "wasm":
-        raise NotImplementedError(
-            f"WASM module loading not yet implemented for '{module_id}'. "
-            "Use transport = 'grpc' to load WASM modules as gRPC services."
         )
 
     # Default: existing Python loader (backward compatible)

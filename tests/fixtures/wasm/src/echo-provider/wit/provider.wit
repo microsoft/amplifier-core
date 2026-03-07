@@ -1,0 +1,26 @@
+// Minimal WIT for provider-module world.
+// Extracted from the main amplifier-modules.wit without the WASI HTTP import,
+// since the echo-provider is a pure-compute fixture (no real HTTP needed).
+
+package amplifier:modules@1.0.0;
+
+/// Provider interface — LLM completions in any language.
+interface provider {
+    /// Return provider metadata (ProviderInfo proto, serialized).
+    get-info: func() -> list<u8>;
+
+    /// List available models. Returns ListModelsResponse proto.
+    list-models: func() -> result<list<u8>, string>;
+
+    /// Generate a completion (ChatRequest proto → ChatResponse proto).
+    complete: func(request: list<u8>) -> result<list<u8>, string>;
+
+    /// Extract tool calls from a response (ChatResponse proto →
+    /// ParseToolCallsResponse proto).
+    parse-tool-calls: func(response: list<u8>) -> result<list<u8>, string>;
+}
+
+/// Tier 2: Provider module (echo variant — no HTTP import needed).
+world provider-module {
+    export provider;
+}

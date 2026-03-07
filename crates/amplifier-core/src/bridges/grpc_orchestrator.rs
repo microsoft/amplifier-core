@@ -12,7 +12,7 @@
 //! use amplifier_core::traits::Orchestrator;
 //! use std::sync::Arc;
 //!
-//! let bridge = GrpcOrchestratorBridge::connect("http://localhost:50051").await?;
+//! let bridge = GrpcOrchestratorBridge::connect("http://localhost:50051", "session-abc").await?;
 //! let orchestrator: Arc<dyn Orchestrator> = Arc::new(bridge);
 //! # Ok(())
 //! # }
@@ -36,26 +36,39 @@ use crate::traits::{ContextManager, Orchestrator, Provider, Tool};
 /// The client is held behind a [`tokio::sync::Mutex`] because
 /// `OrchestratorServiceClient` methods take `&mut self` and we need to hold
 /// the lock across `.await` points.
+///
+/// `session_id` is set at construction time and transmitted with every
+/// `execute` call so the remote orchestrator can route KernelService
+/// callbacks back to the correct session.
 pub struct GrpcOrchestratorBridge {
     client: tokio::sync::Mutex<OrchestratorServiceClient<Channel>>,
+    session_id: String,
 }
 
 impl GrpcOrchestratorBridge {
     /// Connect to a remote orchestrator service.
-    pub async fn connect(endpoint: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    ///
+    /// # Arguments
+    ///
+    /// * `endpoint` — gRPC endpoint URL (e.g. `"http://localhost:50051"`).
+    /// * `session_id` — Session identifier used for KernelService callback routing.
+    pub async fn connect(
+        endpoint: &str,
+        session_id: &str,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let client = OrchestratorServiceClient::connect(endpoint.to_string()).await?;
 
         Ok(Self {
             client: tokio::sync::Mutex::new(client),
+            session_id: session_id.to_string(),
         })
     }
 }
 
 impl Orchestrator for GrpcOrchestratorBridge {
-    // TODO(grpc-v2): 5 parameters (context, providers, tools, hooks, coordinator)
-    // are accepted by the Orchestrator trait but not transmitted through the gRPC
-    // bridge. The remote orchestrator must access these via the KernelService
-    // callback channel instead. Full parameter passing requires proto schema updates.
+    // Remote orchestrators access these subsystems via KernelService callbacks
+    // using session_id routing. The parameters are intentionally not serialized
+    // over gRPC.
     fn execute(
         &self,
         prompt: String,
@@ -72,7 +85,7 @@ impl Orchestrator for GrpcOrchestratorBridge {
             );
             let request = amplifier_module::OrchestratorExecuteRequest {
                 prompt,
-                session_id: String::new(), // TODO(grpc-v2): pass session_id for callback routing
+                session_id: self.session_id.clone(),
             };
 
             let response = {
@@ -115,8 +128,8 @@ mod tests {
     // ── S-4 regression: execute() discards 5 parameters ──────────────────────
 
     /// execute() discards 5 parameters; the structural gap must be documented
-    /// with TODO(grpc-v2) comments and a log::debug!() call so the loss is
-    /// visible at runtime and flagged for the grpc-v2 phase.
+    /// with a clear doc comment and a log::debug!() call so the loss is
+    /// visible at runtime.
     ///
     /// NOTE: we split at the `#[cfg(test)]` boundary so the test assertions
     /// themselves (which reference the searched tokens as string literals) do
@@ -131,16 +144,43 @@ mod tests {
             .expect("source must contain an impl section before #[cfg(test)]");
 
         assert!(
-            impl_source.contains("// TODO(grpc-v2):"),
-            "execute() impl must contain a // TODO(grpc-v2): comment documenting discarded parameters"
-        );
-        assert!(
             impl_source.contains("log::debug!("),
             "execute() impl must contain a log::debug!() call for discarded parameters"
         );
         assert!(
-            impl_source.contains("session_id: String::new()"),
-            "session_id field must be present and empty (grpc-v2 placeholder)"
+            impl_source.contains("KernelService"),
+            "execute() impl must reference KernelService in the explanation of discarded parameters"
+        );
+    }
+
+    /// session_id must be stored in the struct and used in execute().
+    ///
+    /// This test verifies that the session_id placeholder (String::new()) has
+    /// been replaced with an actual field that is set at construction time and
+    /// threaded through the gRPC request for callback routing.
+    ///
+    /// NOTE: we split at the `#[cfg(test)]` boundary so the test assertions
+    /// themselves (which reference the searched tokens as string literals) do
+    /// not produce false positives.
+    #[test]
+    fn session_id_is_stored_and_used_in_execute() {
+        let full_source = include_str!("grpc_orchestrator.rs");
+        let impl_source = full_source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("source must contain an impl section before #[cfg(test)]");
+
+        assert!(
+            impl_source.contains("    session_id: String,"),
+            "GrpcOrchestratorBridge struct must declare a `session_id: String` field"
+        );
+        assert!(
+            impl_source.contains("self.session_id"),
+            "execute() must use self.session_id (not a hardcoded placeholder)"
+        );
+        assert!(
+            !impl_source.contains("session_id: String::new()"),
+            "session_id: String::new() placeholder must be removed; use self.session_id instead"
         );
     }
 }
