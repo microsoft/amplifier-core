@@ -974,12 +974,12 @@ endpoint = "http://localhost:9999"
         }
     }
 
-    /// Resolve the echo-tool fixture source directory via amplifier.toml manifest.
-    /// The source directory contains an amplifier.toml with transport = "wasm" and type = "tool".
-    #[test]
-    fn resolve_fixture_via_amplifier_toml() {
+    /// Helper: resolve a fixture source directory via its amplifier.toml manifest and
+    /// assert the expected transport and module type.  Mirrors the `assert_detects` helper
+    /// used for the WASM auto-detection path.
+    fn assert_resolves_toml(fixture_dir: &str, expected: ModuleType) {
         let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let fixture_src = manifest_dir.join("../../tests/fixtures/wasm/src/echo-tool");
+        let fixture_src = manifest_dir.join(format!("../../tests/fixtures/wasm/src/{fixture_dir}"));
         assert!(
             fixture_src.exists(),
             "fixture source dir should exist: {}",
@@ -988,7 +988,37 @@ endpoint = "http://localhost:9999"
 
         let manifest = resolve_module(&fixture_src).expect("should resolve via amplifier.toml");
         assert_eq!(manifest.transport, Transport::Wasm);
-        assert_eq!(manifest.module_type, ModuleType::Tool);
+        assert_eq!(manifest.module_type, expected);
+    }
+
+    #[test]
+    fn resolve_fixture_via_amplifier_toml() {
+        assert_resolves_toml("echo-tool", ModuleType::Tool);
+    }
+
+    #[test]
+    fn resolve_fixture_via_amplifier_toml_hook() {
+        assert_resolves_toml("deny-hook", ModuleType::Hook);
+    }
+
+    #[test]
+    fn resolve_fixture_via_amplifier_toml_context() {
+        assert_resolves_toml("memory-context", ModuleType::Context);
+    }
+
+    #[test]
+    fn resolve_fixture_via_amplifier_toml_approval() {
+        assert_resolves_toml("auto-approve", ModuleType::Approval);
+    }
+
+    #[test]
+    fn resolve_fixture_via_amplifier_toml_provider() {
+        assert_resolves_toml("echo-provider", ModuleType::Provider);
+    }
+
+    #[test]
+    fn resolve_fixture_via_amplifier_toml_orchestrator() {
+        assert_resolves_toml("passthrough-orchestrator", ModuleType::Orchestrator);
     }
 
     #[cfg(feature = "wasm")]
