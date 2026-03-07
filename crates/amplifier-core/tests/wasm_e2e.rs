@@ -344,3 +344,37 @@ async fn orchestrator_calls_kernel() {
         "orchestrator should return a non-empty response, got empty string"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Test 8: Calculator tool — loads and resolves from examples/wasm-modules/
+// ---------------------------------------------------------------------------
+
+/// Load `calculator-tool.wasm` from the examples directory via `load_wasm_tool`
+/// and verify that spec.name == "calculator".
+///
+/// This proves the developer authoring workflow: a fresh project using the
+/// amplifier-guest SDK compiles, produces a valid .wasm component, and loads
+/// correctly through the standard transport pipeline.
+#[test]
+fn calculator_tool_loads_and_resolves() {
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let path = manifest.join("../../examples/wasm-modules/calculator-tool.wasm");
+    let bytes = std::fs::read(&path)
+        .unwrap_or_else(|e| panic!("calculator-tool.wasm not found at {}: {}", path.display(), e));
+
+    let engine = make_engine();
+    let tool = load_wasm_tool(&bytes, engine).expect("load_wasm_tool should succeed");
+
+    assert_eq!(
+        tool.name(),
+        "calculator",
+        "spec.name should be 'calculator'"
+    );
+
+    let spec = tool.get_spec();
+    assert_eq!(spec.name, "calculator", "spec.name mismatch");
+    assert!(
+        spec.description.is_some(),
+        "spec.description should be set"
+    );
+}
