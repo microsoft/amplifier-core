@@ -11,7 +11,7 @@ name = "_engine"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-amplifier-core = { path = "../../crates/amplifier-core" }
+amplifier-core = { path = "../../crates/amplifier-core", features = ["wasm"] }
 pyo3 = { version = "0.28.2", features = ["generate-import-lib"] }
 pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
 pyo3-log = "0.13"
