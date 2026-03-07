@@ -252,8 +252,76 @@ pub fn detect_python_package(dir: &Path) -> Option<String> {
 ///
 /// Inspects the directory at `path` and returns a `ModuleManifest`
 /// describing the transport, module type, and artifact location.
-pub fn resolve_module(_path: &Path) -> Result<ModuleManifest, ModuleResolverError> {
-    todo!("Task 5 implements this")
+///
+/// Detection order (first match wins):
+/// 1. `amplifier.toml` — explicit manifest
+/// 2. `.wasm` file — auto-detected via Component Model metadata
+/// 3. Python package (`__init__.py`) — fallback with `ModuleType::Tool`
+/// 4. Error (`NoArtifactFound`)
+pub fn resolve_module(path: &Path) -> Result<ModuleManifest, ModuleResolverError> {
+    // Step 1: path must exist
+    if !path.exists() {
+        return Err(ModuleResolverError::PathNotFound {
+            path: path.to_path_buf(),
+        });
+    }
+
+    // Step 2: amplifier.toml takes priority
+    let toml_path = path.join("amplifier.toml");
+    if toml_path.is_file() {
+        let content = std::fs::read_to_string(&toml_path).map_err(|e| ModuleResolverError::Io {
+            path: toml_path.clone(),
+            source: e,
+        })?;
+        return parse_amplifier_toml(&content, path);
+    }
+
+    // Step 3: .wasm file detection
+    if let Some(wasm_path) = scan_for_wasm_file(path) {
+        let bytes = std::fs::read(&wasm_path).map_err(|e| ModuleResolverError::Io {
+            path: wasm_path.clone(),
+            source: e,
+        })?;
+
+        #[cfg(feature = "wasm")]
+        {
+            let engine = crate::wasm_engine::WasmEngine::new()
+                .map_err(|e| ModuleResolverError::WasmLoadError {
+                    path: wasm_path.clone(),
+                    reason: e.to_string(),
+                })?
+                .inner();
+            let module_type = detect_wasm_module_type(&bytes, engine, &wasm_path)?;
+            return Ok(ModuleManifest {
+                transport: Transport::Wasm,
+                module_type,
+                artifact: ModuleArtifact::WasmBytes {
+                    bytes,
+                    path: wasm_path,
+                },
+            });
+        }
+
+        #[cfg(not(feature = "wasm"))]
+        return Err(ModuleResolverError::WasmLoadError {
+            path: wasm_path,
+            reason: "WASM support not enabled".to_string(),
+        });
+    }
+
+    // Step 4: Python package fallback
+    if let Some(pkg_name) = detect_python_package(path) {
+        return Ok(ModuleManifest {
+            transport: Transport::Python,
+            module_type: ModuleType::Tool,
+            artifact: ModuleArtifact::PythonModule(pkg_name),
+        });
+    }
+
+    // Step 5: nothing found
+    Err(ModuleResolverError::NoArtifactFound {
+        path: path.to_path_buf(),
+    })
 }
 
 /// Errors from module resolution.
@@ -659,5 +727,77 @@ endpoint = "http://localhost:50051"
 
         let result = detect_python_package(dir.path());
         assert_eq!(result, None);
+    }
+
+    // --- resolve_module tests ---
+
+    #[test]
+    fn resolve_module_with_amplifier_toml() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let toml_content = r#"
+[module]
+transport = "grpc"
+type = "tool"
+
+[grpc]
+endpoint = "http://localhost:9999"
+"#;
+        std::fs::write(dir.path().join("amplifier.toml"), toml_content).expect("write toml");
+        // Also add a .wasm file to prove TOML takes priority
+        std::fs::write(dir.path().join("echo-tool.wasm"), b"fake").expect("write wasm");
+
+        let manifest = resolve_module(dir.path()).expect("should resolve");
+        assert_eq!(manifest.transport, Transport::Grpc);
+        assert_eq!(manifest.module_type, ModuleType::Tool);
+        match manifest.artifact {
+            ModuleArtifact::GrpcEndpoint(ref ep) => assert_eq!(ep, "http://localhost:9999"),
+            _ => panic!("expected GrpcEndpoint"),
+        }
+    }
+
+    #[test]
+    fn resolve_module_with_python_package() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        std::fs::write(dir.path().join("__init__.py"), b"# package").expect("write");
+
+        let manifest = resolve_module(dir.path()).expect("should resolve");
+        assert_eq!(manifest.transport, Transport::Python);
+    }
+
+    #[test]
+    fn resolve_module_empty_dir_errors() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let result = resolve_module(dir.path());
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("could not detect"));
+    }
+
+    #[test]
+    fn resolve_module_nonexistent_path_errors() {
+        let result = resolve_module(Path::new("/tmp/nonexistent-module-path-xyz"));
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("does not exist"));
+    }
+
+    #[cfg(feature = "wasm")]
+    #[test]
+    fn resolve_module_with_real_wasm_fixture() {
+        // Create a temp dir and copy a real fixture into it
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wasm_bytes = fixture_bytes("echo-tool.wasm");
+        std::fs::write(dir.path().join("echo-tool.wasm"), &wasm_bytes).expect("write wasm");
+
+        let manifest = resolve_module(dir.path()).expect("should resolve");
+        assert_eq!(manifest.transport, Transport::Wasm);
+        assert_eq!(manifest.module_type, ModuleType::Tool);
+        match &manifest.artifact {
+            ModuleArtifact::WasmBytes { bytes, path } => {
+                assert!(!bytes.is_empty());
+                assert!(path.to_string_lossy().contains("echo-tool.wasm"));
+            }
+            _ => panic!("expected WasmBytes"),
+        }
     }
 }
