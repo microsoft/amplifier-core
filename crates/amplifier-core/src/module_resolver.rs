@@ -12,9 +12,76 @@
 //! 4. Error
 
 use std::path::{Path, PathBuf};
+#[cfg(feature = "wasm")]
+use std::sync::Arc;
 
 use crate::models::ModuleType;
 use crate::transport::Transport;
+
+/// Known WASM Component Model interface prefixes mapped to module types.
+///
+/// Export names in a WASM component include a version suffix (e.g., `@1.0.0`),
+/// so we match using `starts_with` against these prefixes.
+#[cfg(feature = "wasm")]
+const KNOWN_INTERFACES: &[(&str, ModuleType)] = &[
+    ("amplifier:modules/tool", ModuleType::Tool),
+    ("amplifier:modules/hook-handler", ModuleType::Hook),
+    ("amplifier:modules/context-manager", ModuleType::Context),
+    (
+        "amplifier:modules/approval-provider",
+        ModuleType::Approval,
+    ),
+    ("amplifier:modules/provider", ModuleType::Provider),
+    (
+        "amplifier:modules/orchestrator",
+        ModuleType::Orchestrator,
+    ),
+];
+
+/// Detect the module type of a WASM component by inspecting its exports.
+///
+/// Loads the component using `wasmtime::component::Component::new`, iterates
+/// over its exports, and matches export names against [`KNOWN_INTERFACES`].
+///
+/// Returns `Ok(ModuleType)` if exactly one known interface is found.
+/// Returns `UnknownWasmInterface` if zero matches, `AmbiguousWasmInterface`
+/// if more than one match.
+#[cfg(feature = "wasm")]
+pub fn detect_wasm_module_type(
+    wasm_bytes: &[u8],
+    engine: Arc<wasmtime::Engine>,
+    wasm_path: &Path,
+) -> Result<ModuleType, ModuleResolverError> {
+    let component =
+        wasmtime::component::Component::new(&engine, wasm_bytes).map_err(|e| {
+            ModuleResolverError::WasmLoadError {
+                path: wasm_path.to_path_buf(),
+                reason: e.to_string(),
+            }
+        })?;
+
+    let component_type = component.component_type();
+    let mut matched: Vec<(&str, ModuleType)> = Vec::new();
+
+    for (export_name, _) in component_type.exports(&engine) {
+        for &(prefix, ref module_type) in KNOWN_INTERFACES {
+            if export_name.starts_with(prefix) {
+                matched.push((prefix, module_type.clone()));
+            }
+        }
+    }
+
+    match matched.len() {
+        0 => Err(ModuleResolverError::UnknownWasmInterface {
+            path: wasm_path.to_path_buf(),
+        }),
+        1 => Ok(matched.into_iter().next().unwrap().1),
+        _ => Err(ModuleResolverError::AmbiguousWasmInterface {
+            path: wasm_path.to_path_buf(),
+            found: matched.into_iter().map(|(prefix, _)| prefix.to_string()).collect(),
+        }),
+    }
+}
 
 /// Parse a module type string into a `ModuleType` variant.
 ///
@@ -433,6 +500,84 @@ endpoint = "http://localhost:50051"
 
         let result = scan_for_wasm_file(dir.path());
         assert!(result.is_none(), "expected None for empty directory");
+    }
+
+    #[cfg(feature = "wasm")]
+    fn fixture_path(name: &str) -> std::path::PathBuf {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        manifest.join("../../tests/fixtures/wasm").join(name)
+    }
+
+    #[cfg(feature = "wasm")]
+    fn fixture_bytes(name: &str) -> Vec<u8> {
+        let path = fixture_path(name);
+        std::fs::read(&path)
+            .unwrap_or_else(|e| panic!("fixture {name} not found at {}: {e}", path.display()))
+    }
+
+    #[cfg(feature = "wasm")]
+    fn make_engine() -> std::sync::Arc<wasmtime::Engine> {
+        crate::wasm_engine::WasmEngine::new().unwrap().inner()
+    }
+
+    #[cfg(feature = "wasm")]
+    #[test]
+    fn detect_wasm_module_type_tool() {
+        let bytes = fixture_bytes("echo-tool.wasm");
+        let path = fixture_path("echo-tool.wasm");
+        let engine = make_engine();
+        let result = detect_wasm_module_type(&bytes, engine, &path).unwrap();
+        assert_eq!(result, ModuleType::Tool);
+    }
+
+    #[cfg(feature = "wasm")]
+    #[test]
+    fn detect_wasm_module_type_hook() {
+        let bytes = fixture_bytes("deny-hook.wasm");
+        let path = fixture_path("deny-hook.wasm");
+        let engine = make_engine();
+        let result = detect_wasm_module_type(&bytes, engine, &path).unwrap();
+        assert_eq!(result, ModuleType::Hook);
+    }
+
+    #[cfg(feature = "wasm")]
+    #[test]
+    fn detect_wasm_module_type_context() {
+        let bytes = fixture_bytes("memory-context.wasm");
+        let path = fixture_path("memory-context.wasm");
+        let engine = make_engine();
+        let result = detect_wasm_module_type(&bytes, engine, &path).unwrap();
+        assert_eq!(result, ModuleType::Context);
+    }
+
+    #[cfg(feature = "wasm")]
+    #[test]
+    fn detect_wasm_module_type_approval() {
+        let bytes = fixture_bytes("auto-approve.wasm");
+        let path = fixture_path("auto-approve.wasm");
+        let engine = make_engine();
+        let result = detect_wasm_module_type(&bytes, engine, &path).unwrap();
+        assert_eq!(result, ModuleType::Approval);
+    }
+
+    #[cfg(feature = "wasm")]
+    #[test]
+    fn detect_wasm_module_type_provider() {
+        let bytes = fixture_bytes("echo-provider.wasm");
+        let path = fixture_path("echo-provider.wasm");
+        let engine = make_engine();
+        let result = detect_wasm_module_type(&bytes, engine, &path).unwrap();
+        assert_eq!(result, ModuleType::Provider);
+    }
+
+    #[cfg(feature = "wasm")]
+    #[test]
+    fn detect_wasm_module_type_orchestrator() {
+        let bytes = fixture_bytes("passthrough-orchestrator.wasm");
+        let path = fixture_path("passthrough-orchestrator.wasm");
+        let engine = make_engine();
+        let result = detect_wasm_module_type(&bytes, engine, &path).unwrap();
+        assert_eq!(result, ModuleType::Orchestrator);
     }
 
     #[test]
