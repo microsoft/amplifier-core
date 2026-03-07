@@ -521,63 +521,48 @@ endpoint = "http://localhost:50051"
     }
 
     #[cfg(feature = "wasm")]
-    #[test]
-    fn detect_wasm_module_type_tool() {
-        let bytes = fixture_bytes("echo-tool.wasm");
-        let path = fixture_path("echo-tool.wasm");
+    fn assert_detects(fixture: &str, expected: ModuleType) {
+        let bytes = fixture_bytes(fixture);
+        let path = fixture_path(fixture);
         let engine = make_engine();
         let result = detect_wasm_module_type(&bytes, engine, &path).unwrap();
-        assert_eq!(result, ModuleType::Tool);
+        assert_eq!(result, expected);
+    }
+
+    #[cfg(feature = "wasm")]
+    #[test]
+    fn detect_wasm_module_type_tool() {
+        assert_detects("echo-tool.wasm", ModuleType::Tool);
     }
 
     #[cfg(feature = "wasm")]
     #[test]
     fn detect_wasm_module_type_hook() {
-        let bytes = fixture_bytes("deny-hook.wasm");
-        let path = fixture_path("deny-hook.wasm");
-        let engine = make_engine();
-        let result = detect_wasm_module_type(&bytes, engine, &path).unwrap();
-        assert_eq!(result, ModuleType::Hook);
+        assert_detects("deny-hook.wasm", ModuleType::Hook);
     }
 
     #[cfg(feature = "wasm")]
     #[test]
     fn detect_wasm_module_type_context() {
-        let bytes = fixture_bytes("memory-context.wasm");
-        let path = fixture_path("memory-context.wasm");
-        let engine = make_engine();
-        let result = detect_wasm_module_type(&bytes, engine, &path).unwrap();
-        assert_eq!(result, ModuleType::Context);
+        assert_detects("memory-context.wasm", ModuleType::Context);
     }
 
     #[cfg(feature = "wasm")]
     #[test]
     fn detect_wasm_module_type_approval() {
-        let bytes = fixture_bytes("auto-approve.wasm");
-        let path = fixture_path("auto-approve.wasm");
-        let engine = make_engine();
-        let result = detect_wasm_module_type(&bytes, engine, &path).unwrap();
-        assert_eq!(result, ModuleType::Approval);
+        assert_detects("auto-approve.wasm", ModuleType::Approval);
     }
 
     #[cfg(feature = "wasm")]
     #[test]
     fn detect_wasm_module_type_provider() {
-        let bytes = fixture_bytes("echo-provider.wasm");
-        let path = fixture_path("echo-provider.wasm");
-        let engine = make_engine();
-        let result = detect_wasm_module_type(&bytes, engine, &path).unwrap();
-        assert_eq!(result, ModuleType::Provider);
+        assert_detects("echo-provider.wasm", ModuleType::Provider);
     }
 
     #[cfg(feature = "wasm")]
     #[test]
     fn detect_wasm_module_type_orchestrator() {
-        let bytes = fixture_bytes("passthrough-orchestrator.wasm");
-        let path = fixture_path("passthrough-orchestrator.wasm");
-        let engine = make_engine();
-        let result = detect_wasm_module_type(&bytes, engine, &path).unwrap();
-        assert_eq!(result, ModuleType::Orchestrator);
+        assert_detects("passthrough-orchestrator.wasm", ModuleType::Orchestrator);
     }
 
     #[test]
