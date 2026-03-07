@@ -36,13 +36,14 @@ async def initialize_session(
         session_id: The session ID.
         parent_id: The parent session ID (or None).
     """
-    # Get or create the loader from the coordinator
-    loader = coordinator.loader
-    if loader is None:
+    # Import the polyglot dispatch layer (falls through to ModuleLoader for Python)
+    from .loader_dispatch import load_module
+
+    # Ensure a ModuleLoader exists on the coordinator (used internally by loader_dispatch)
+    if coordinator.loader is None:
         from .loader import ModuleLoader
 
-        loader = ModuleLoader(coordinator=coordinator)
-        coordinator.loader = loader
+        coordinator.loader = ModuleLoader(coordinator=coordinator)
 
     # Load orchestrator (required)
     orchestrator_spec = config.get("session", {}).get("orchestrator", "loop-basic")
@@ -57,10 +58,11 @@ async def initialize_session(
 
     logger.info(f"Loading orchestrator: {orchestrator_id}")
     try:
-        orchestrator_mount = await loader.load(
+        orchestrator_mount = await load_module(
             orchestrator_id,
             orchestrator_config,
-            source_hint=orchestrator_source,
+            source_path=orchestrator_source,
+            coordinator=coordinator,
         )
         cleanup = await orchestrator_mount(coordinator)
         if cleanup:
@@ -83,8 +85,11 @@ async def initialize_session(
 
     logger.info(f"Loading context manager: {context_id}")
     try:
-        context_mount = await loader.load(
-            context_id, context_config, source_hint=context_source
+        context_mount = await load_module(
+            context_id,
+            context_config,
+            source_path=context_source,
+            coordinator=coordinator,
         )
         cleanup = await context_mount(coordinator)
         if cleanup:
@@ -101,10 +106,11 @@ async def initialize_session(
             continue
         try:
             logger.info(f"Loading provider: {module_id}")
-            provider_mount = await loader.load(
+            provider_mount = await load_module(
                 module_id,
                 provider_config.get("config", {}),
-                source_hint=provider_config.get("source"),
+                source_path=provider_config.get("source"),
+                coordinator=coordinator,
             )
             cleanup = await provider_mount(coordinator)
             if cleanup:
@@ -122,10 +128,11 @@ async def initialize_session(
             continue
         try:
             logger.info(f"Loading tool: {module_id}")
-            tool_mount = await loader.load(
+            tool_mount = await load_module(
                 module_id,
                 tool_config.get("config", {}),
-                source_hint=tool_config.get("source"),
+                source_path=tool_config.get("source"),
+                coordinator=coordinator,
             )
             cleanup = await tool_mount(coordinator)
             if cleanup:
@@ -143,10 +150,11 @@ async def initialize_session(
             continue
         try:
             logger.info(f"Loading hook: {module_id}")
-            hook_mount = await loader.load(
+            hook_mount = await load_module(
                 module_id,
                 hook_config.get("config", {}),
-                source_hint=hook_config.get("source"),
+                source_path=hook_config.get("source"),
+                coordinator=coordinator,
             )
             cleanup = await hook_mount(coordinator)
             if cleanup:

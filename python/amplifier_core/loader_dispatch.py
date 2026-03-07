@@ -55,7 +55,7 @@ def _detect_transport(source_path: str) -> str:
 async def load_module(
     module_id: str,
     config: dict[str, Any] | None,
-    source_path: str,
+    source_path: str | None,
     coordinator: Any,
 ) -> Any:
     """Load a module from a resolved source path.
@@ -66,7 +66,7 @@ async def load_module(
     Args:
         module_id: Module identifier (e.g., "tool-database")
         config: Optional module configuration dict
-        source_path: Resolved filesystem path to the module
+        source_path: Resolved filesystem path to the module (or None)
         coordinator: The coordinator instance (RustCoordinator or ModuleCoordinator)
 
     Returns:
@@ -76,6 +76,13 @@ async def load_module(
         NotImplementedError: For transport types not yet supported
         ValueError: If module cannot be loaded
     """
+    # No source path means we can't detect transport — fall through to Python loader
+    if source_path is None:
+        from .loader import ModuleLoader
+
+        loader = coordinator.loader or ModuleLoader(coordinator=coordinator)
+        return await loader.load(module_id, config, source_hint=None)
+
     try:
         from amplifier_core._engine import resolve_module as rust_resolve
 
