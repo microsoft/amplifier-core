@@ -86,6 +86,7 @@ pub enum ModuleType {
     Context,
     Hook,
     Resolver,
+    Approval,
 }
 
 /// Session state.
