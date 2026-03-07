@@ -362,6 +362,23 @@ transport = "grpc"
     }
 
     #[test]
+    fn parse_toml_unknown_module_type_errors() {
+        let toml_content = r#"
+[module]
+transport = "grpc"
+type = "foobar"
+
+[grpc]
+endpoint = "http://localhost:50051"
+"#;
+        let path = Path::new("/modules/my-tool");
+        let result = parse_amplifier_toml(toml_content, path);
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("unknown module type: foobar"));
+    }
+
+    #[test]
     fn parse_toml_missing_module_section_errors() {
         let toml_content = r#"
 [grpc]
