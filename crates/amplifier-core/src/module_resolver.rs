@@ -359,6 +359,137 @@ pub enum ModuleResolverError {
     },
 }
 
+/// A fully-loaded module, ready for use.
+///
+/// Returned by [`load_module`] after dispatch to the appropriate transport bridge.
+/// The `PythonDelegated` variant is a signal to the Python host that it should
+/// load the module itself via importlib.
+#[cfg(feature = "wasm")]
+pub enum LoadedModule {
+    /// A loaded tool module.
+    Tool(Arc<dyn crate::traits::Tool>),
+    /// A loaded hook handler module.
+    Hook(Arc<dyn crate::traits::HookHandler>),
+    /// A loaded context manager module.
+    Context(Arc<dyn crate::traits::ContextManager>),
+    /// A loaded approval provider module.
+    Approval(Arc<dyn crate::traits::ApprovalProvider>),
+    /// A loaded provider module.
+    Provider(Arc<dyn crate::traits::Provider>),
+    /// A loaded orchestrator module.
+    Orchestrator(Arc<dyn crate::traits::Orchestrator>),
+    /// Python/Native module — the Python host should load this via importlib.
+    PythonDelegated {
+        /// The Python package name to import.
+        package_name: String,
+    },
+}
+
+#[cfg(feature = "wasm")]
+impl LoadedModule {
+    /// Returns the variant name as a static string (for diagnostics).
+    pub fn variant_name(&self) -> &'static str {
+        match self {
+            LoadedModule::Tool(_) => "Tool",
+            LoadedModule::Hook(_) => "Hook",
+            LoadedModule::Context(_) => "Context",
+            LoadedModule::Approval(_) => "Approval",
+            LoadedModule::Provider(_) => "Provider",
+            LoadedModule::Orchestrator(_) => "Orchestrator",
+            LoadedModule::PythonDelegated { .. } => "PythonDelegated",
+        }
+    }
+}
+
+/// Load a module artifact into a runtime type, dispatching on transport and module type.
+///
+/// For `Transport::Wasm`, reads bytes from the manifest artifact, then dispatches to
+/// the appropriate `load_wasm_*` function based on `module_type`.
+///
+/// For `Transport::Python` or `Transport::Native`, returns
+/// [`LoadedModule::PythonDelegated`] as a signal to the Python host to handle loading
+/// itself via importlib.
+///
+/// For `Transport::Grpc`, returns an error — gRPC loading is async and must be done
+/// directly with [`crate::transport::load_grpc_tool`] or
+/// [`crate::transport::load_grpc_orchestrator`].
+///
+/// `coordinator` is required only for `ModuleType::Orchestrator` WASM modules.
+#[cfg(feature = "wasm")]
+pub fn load_module(
+    manifest: &ModuleManifest,
+    engine: Arc<wasmtime::Engine>,
+    coordinator: Option<Arc<crate::coordinator::Coordinator>>,
+) -> Result<LoadedModule, Box<dyn std::error::Error + Send + Sync>> {
+    use crate::models::ModuleType;
+
+    match &manifest.transport {
+        Transport::Python | Transport::Native => {
+            let package_name = match &manifest.artifact {
+                ModuleArtifact::PythonModule(name) => name.clone(),
+                other => {
+                    return Err(format!(
+                        "expected PythonModule artifact for Python/Native transport, got {:?}",
+                        other
+                    )
+                    .into())
+                }
+            };
+            Ok(LoadedModule::PythonDelegated { package_name })
+        }
+
+        Transport::Wasm => {
+            let bytes = match &manifest.artifact {
+                ModuleArtifact::WasmBytes { bytes, .. } => bytes,
+                other => {
+                    return Err(format!(
+                        "expected WasmBytes artifact for WASM transport, got {:?}",
+                        other
+                    )
+                    .into())
+                }
+            };
+
+            match &manifest.module_type {
+                ModuleType::Tool => {
+                    let tool = crate::transport::load_wasm_tool(bytes, engine)?;
+                    Ok(LoadedModule::Tool(tool))
+                }
+                ModuleType::Hook => {
+                    let hook = crate::transport::load_wasm_hook(bytes, engine)?;
+                    Ok(LoadedModule::Hook(hook))
+                }
+                ModuleType::Context => {
+                    let ctx = crate::transport::load_wasm_context(bytes, engine)?;
+                    Ok(LoadedModule::Context(ctx))
+                }
+                ModuleType::Approval => {
+                    let approval = crate::transport::load_wasm_approval(bytes, engine)?;
+                    Ok(LoadedModule::Approval(approval))
+                }
+                ModuleType::Provider => {
+                    let provider = crate::transport::load_wasm_provider(bytes, engine)?;
+                    Ok(LoadedModule::Provider(provider))
+                }
+                ModuleType::Orchestrator => {
+                    let coord = coordinator.ok_or(
+                        "Orchestrator WASM module requires a Coordinator but none was provided",
+                    )?;
+                    let orch = crate::transport::load_wasm_orchestrator(bytes, engine, coord)?;
+                    Ok(LoadedModule::Orchestrator(orch))
+                }
+                ModuleType::Resolver => Err(
+                    "Resolver modules are not loadable via WASM transport".into(),
+                ),
+            }
+        }
+
+        Transport::Grpc => Err(
+            "gRPC module loading requires async runtime. Use load_grpc_tool() / load_grpc_orchestrator() directly.".into(),
+        ),
+    }
+}
+
 /// Scan a directory for the first `.wasm` file.
 ///
 /// Reads the directory entries at `dir`, returning the path to the first
@@ -798,6 +929,42 @@ endpoint = "http://localhost:9999"
                 assert!(path.to_string_lossy().contains("echo-tool.wasm"));
             }
             _ => panic!("expected WasmBytes"),
+        }
+    }
+
+    #[cfg(feature = "wasm")]
+    #[tokio::test]
+    async fn load_module_wasm_tool() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wasm_bytes = fixture_bytes("echo-tool.wasm");
+        std::fs::write(dir.path().join("echo-tool.wasm"), &wasm_bytes).expect("write wasm");
+
+        let manifest = resolve_module(dir.path()).expect("should resolve");
+        let engine = make_engine();
+        let coordinator = std::sync::Arc::new(crate::coordinator::Coordinator::new_for_test());
+        let result = load_module(&manifest, engine, Some(coordinator));
+        assert!(result.is_ok());
+        match result.unwrap() {
+            LoadedModule::Tool(tool) => assert_eq!(tool.name(), "echo-tool"),
+            other => panic!("expected Tool, got {:?}", other.variant_name()),
+        }
+    }
+
+    #[cfg(feature = "wasm")]
+    #[test]
+    fn load_module_python_returns_signal() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        std::fs::write(dir.path().join("__init__.py"), b"# package").expect("write");
+
+        let manifest = resolve_module(dir.path()).expect("should resolve");
+        let engine = make_engine();
+        let result = load_module(&manifest, engine, None);
+        assert!(result.is_ok());
+        match result.unwrap() {
+            LoadedModule::PythonDelegated { package_name } => {
+                assert!(!package_name.is_empty());
+            }
+            other => panic!("expected PythonDelegated, got {:?}", other.variant_name()),
         }
     }
 }
