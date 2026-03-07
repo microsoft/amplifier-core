@@ -16,6 +16,110 @@ use std::path::{Path, PathBuf};
 use crate::models::ModuleType;
 use crate::transport::Transport;
 
+/// Parse a module type string into a `ModuleType` variant.
+///
+/// Accepts lowercase strings: "orchestrator", "provider", "tool", "context",
+/// "hook", "resolver", "approval". Returns `None` for unrecognized strings.
+pub fn parse_module_type(s: &str) -> Option<ModuleType> {
+    match s {
+        "orchestrator" => Some(ModuleType::Orchestrator),
+        "provider" => Some(ModuleType::Provider),
+        "tool" => Some(ModuleType::Tool),
+        "context" => Some(ModuleType::Context),
+        "hook" => Some(ModuleType::Hook),
+        "resolver" => Some(ModuleType::Resolver),
+        "approval" => Some(ModuleType::Approval),
+        _ => None,
+    }
+}
+
+/// Parse an `amplifier.toml` file content into a `ModuleManifest`.
+///
+/// The TOML must have a `[module]` section with `transport` and `type` fields.
+/// For gRPC transport, a `[grpc]` section with `endpoint` is required.
+/// For WASM transport, optional `artifact` field specifies the wasm filename
+/// (defaults to `module.wasm`). For Python/Native transport, derive package
+/// name from directory name.
+pub fn parse_amplifier_toml(
+    content: &str,
+    module_path: &Path,
+) -> Result<ModuleManifest, ModuleResolverError> {
+    let doc: toml::Table = toml::from_str(content).map_err(|e| {
+        ModuleResolverError::TomlParseError {
+            path: module_path.to_path_buf(),
+            reason: e.to_string(),
+        }
+    })?;
+
+    let module_section = doc.get("module").and_then(|v| v.as_table()).ok_or_else(|| {
+        ModuleResolverError::TomlParseError {
+            path: module_path.to_path_buf(),
+            reason: "missing [module] section".to_string(),
+        }
+    })?;
+
+    let transport_str = module_section
+        .get("transport")
+        .and_then(|v| v.as_str())
+        .unwrap_or("python");
+    let transport = Transport::from_str(transport_str);
+
+    let type_str = module_section
+        .get("type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ModuleResolverError::TomlParseError {
+            path: module_path.to_path_buf(),
+            reason: "missing 'type' field in [module] section".to_string(),
+        })?;
+
+    let module_type = parse_module_type(type_str).ok_or_else(|| {
+        ModuleResolverError::TomlParseError {
+            path: module_path.to_path_buf(),
+            reason: format!("unknown module type: {type_str}"),
+        }
+    })?;
+
+    let artifact = match transport {
+        Transport::Grpc => {
+            let endpoint = doc
+                .get("grpc")
+                .and_then(|v| v.as_table())
+                .and_then(|t| t.get("endpoint"))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ModuleResolverError::TomlParseError {
+                    path: module_path.to_path_buf(),
+                    reason: "gRPC transport requires [grpc] section with 'endpoint' field"
+                        .to_string(),
+                })?;
+            ModuleArtifact::GrpcEndpoint(endpoint.to_string())
+        }
+        Transport::Wasm => {
+            let wasm_filename = module_section
+                .get("artifact")
+                .and_then(|v| v.as_str())
+                .unwrap_or("module.wasm");
+            let wasm_path = module_path.join(wasm_filename);
+            ModuleArtifact::WasmBytes {
+                bytes: Vec::new(),
+                path: wasm_path,
+            }
+        }
+        Transport::Python | Transport::Native => {
+            let dir_name = module_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            ModuleArtifact::PythonModule(dir_name)
+        }
+    };
+
+    Ok(ModuleManifest {
+        transport,
+        module_type,
+        artifact,
+    })
+}
+
 /// Describes a resolved module: what transport, what type, and where the artifact is.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModuleManifest {
@@ -169,5 +273,104 @@ mod tests {
         assert!(msg.contains(".wasm"));
         assert!(msg.contains("amplifier.toml"));
         assert!(msg.contains("__init__.py"));
+    }
+
+    // --- parse_amplifier_toml tests ---
+
+    #[test]
+    fn parse_toml_grpc_transport() {
+        let toml_content = r#"
+[module]
+transport = "grpc"
+type = "tool"
+
+[grpc]
+endpoint = "http://localhost:50051"
+"#;
+        let path = Path::new("/modules/my-tool");
+        let manifest = parse_amplifier_toml(toml_content, path).unwrap();
+        assert_eq!(manifest.transport, Transport::Grpc);
+        assert_eq!(manifest.module_type, ModuleType::Tool);
+        assert_eq!(
+            manifest.artifact,
+            ModuleArtifact::GrpcEndpoint("http://localhost:50051".into())
+        );
+    }
+
+    #[test]
+    fn parse_toml_wasm_transport() {
+        let toml_content = r#"
+[module]
+transport = "wasm"
+type = "hook"
+artifact = "my-hook.wasm"
+"#;
+        let path = Path::new("/modules/my-hook");
+        let manifest = parse_amplifier_toml(toml_content, path).unwrap();
+        assert_eq!(manifest.transport, Transport::Wasm);
+        assert_eq!(manifest.module_type, ModuleType::Hook);
+        match &manifest.artifact {
+            ModuleArtifact::WasmBytes { path: wasm_path, .. } => {
+                assert_eq!(wasm_path, &PathBuf::from("/modules/my-hook/my-hook.wasm"));
+            }
+            other => panic!("expected WasmBytes, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_toml_python_transport() {
+        let toml_content = r#"
+[module]
+transport = "python"
+type = "provider"
+"#;
+        let path = Path::new("/modules/my-provider");
+        let manifest = parse_amplifier_toml(toml_content, path).unwrap();
+        assert_eq!(manifest.transport, Transport::Python);
+        assert_eq!(manifest.module_type, ModuleType::Provider);
+        assert_eq!(
+            manifest.artifact,
+            ModuleArtifact::PythonModule("my-provider".into())
+        );
+    }
+
+    #[test]
+    fn parse_toml_grpc_missing_endpoint_errors() {
+        let toml_content = r#"
+[module]
+transport = "grpc"
+type = "tool"
+"#;
+        let path = Path::new("/modules/my-tool");
+        let result = parse_amplifier_toml(toml_content, path);
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("endpoint"));
+    }
+
+    #[test]
+    fn parse_toml_missing_type_errors() {
+        let toml_content = r#"
+[module]
+transport = "grpc"
+"#;
+        let path = Path::new("/modules/my-tool");
+        let result = parse_amplifier_toml(toml_content, path);
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("type"));
+    }
+
+    #[test]
+    fn parse_toml_missing_module_section_errors() {
+        let toml_content = r#"
+[grpc]
+endpoint = "http://localhost:50051"
+"#;
+        let path = Path::new("/modules/my-tool");
+        let result = parse_amplifier_toml(toml_content, path);
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("module"));
     }
 }
