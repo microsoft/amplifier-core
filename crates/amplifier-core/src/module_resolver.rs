@@ -100,7 +100,7 @@ pub fn parse_amplifier_toml(
                 .unwrap_or("module.wasm");
             let wasm_path = module_path.join(wasm_filename);
             ModuleArtifact::WasmBytes {
-                bytes: Vec::new(),
+                bytes: Vec::new(), // bytes loaded later by the transport layer
                 path: wasm_path,
             }
         }
