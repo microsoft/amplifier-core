@@ -89,12 +89,11 @@ def test_dispatch_reads_grpc_endpoint():
 
 @pytest.mark.asyncio
 async def test_load_module_uses_rust_loader_for_wasm_transport():
-    """load_module calls load_wasm_from_path and returns callable when Rust resolver detects wasm."""
+    """load_module imports load_and_mount_wasm and returns a deferred mount callable when Rust resolver detects wasm."""
     from amplifier_core.loader_dispatch import load_module
 
     fake_engine = MagicMock()
     fake_engine.resolve_module.return_value = {"transport": "wasm", "name": "test-wasm"}
-    fake_engine.load_wasm_from_path.return_value = b"wasm-bytes"
 
     coordinator = MagicMock()
     coordinator.loader = None
@@ -104,7 +103,8 @@ async def test_load_module_uses_rust_loader_for_wasm_transport():
             result = await load_module("test-wasm", {}, tmpdir, coordinator)
 
     assert callable(result)
-    fake_engine.load_wasm_from_path.assert_called_once_with(tmpdir)
+    # load_and_mount_wasm is NOT called during load_module — it's deferred to mount time.
+    # The mount function captures load_and_mount_wasm and calls it when invoked.
 
 
 @pytest.mark.asyncio

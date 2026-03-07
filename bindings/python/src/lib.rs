@@ -2657,6 +2657,31 @@ fn resolve_module(py: Python<'_>, path: String) -> PyResult<Py<PyDict>> {
     Ok(dict.unbind())
 }
 
+/// Ensure WASM bytes are loaded from disk when `amplifier.toml` deferred loading.
+///
+/// `parse_amplifier_toml` stores `bytes: Vec::new()` with a path, deferring
+/// the actual file read to the transport layer.  This helper fills in the
+/// bytes before handing the manifest to `load_module`.
+fn ensure_wasm_bytes_loaded(
+    manifest: &mut amplifier_core::module_resolver::ModuleManifest,
+) -> PyResult<()> {
+    if let amplifier_core::module_resolver::ModuleArtifact::WasmBytes {
+        ref mut bytes,
+        ref path,
+    } = manifest.artifact
+    {
+        if bytes.is_empty() && path.is_file() {
+            *bytes = std::fs::read(path).map_err(|e| {
+                PyErr::new::<PyRuntimeError, _>(format!(
+                    "Failed to read WASM bytes from {}: {e}",
+                    path.display()
+                ))
+            })?;
+        }
+    }
+    Ok(())
+}
+
 /// Load a WASM module from a resolved manifest path.
 ///
 /// Returns a dict with "status" = "loaded" and "module_type" on success.
@@ -2664,7 +2689,7 @@ fn resolve_module(py: Python<'_>, path: String) -> PyResult<Py<PyDict>> {
 /// use, prefer `load_and_mount_wasm` which mounts into a real coordinator.
 #[pyfunction]
 fn load_wasm_from_path(py: Python<'_>, path: String) -> PyResult<Py<PyDict>> {
-    let manifest = amplifier_core::module_resolver::resolve_module(std::path::Path::new(&path))
+    let mut manifest = amplifier_core::module_resolver::resolve_module(std::path::Path::new(&path))
         .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("{e}")))?;
 
     if manifest.transport != amplifier_core::transport::Transport::Wasm {
@@ -2673,6 +2698,8 @@ fn load_wasm_from_path(py: Python<'_>, path: String) -> PyResult<Py<PyDict>> {
             manifest.transport
         )));
     }
+
+    ensure_wasm_bytes_loaded(&mut manifest)?;
 
     let engine = amplifier_core::wasm_engine::WasmEngine::new()
         .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("WASM engine creation failed: {e}")))?;
@@ -2814,7 +2841,7 @@ fn load_and_mount_wasm(
     coordinator: &PyCoordinator,
     path: String,
 ) -> PyResult<Py<PyDict>> {
-    let manifest = amplifier_core::module_resolver::resolve_module(std::path::Path::new(&path))
+    let mut manifest = amplifier_core::module_resolver::resolve_module(std::path::Path::new(&path))
         .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("{e}")))?;
 
     if manifest.transport != amplifier_core::transport::Transport::Wasm {
@@ -2823,6 +2850,8 @@ fn load_and_mount_wasm(
             manifest.transport
         )));
     }
+
+    ensure_wasm_bytes_loaded(&mut manifest)?;
 
     let engine = amplifier_core::wasm_engine::WasmEngine::new()
         .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("WASM engine creation failed: {e}")))?;

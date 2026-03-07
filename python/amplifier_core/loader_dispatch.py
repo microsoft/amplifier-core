@@ -105,26 +105,18 @@ async def load_module(
 
     if transport == "wasm":
         try:
-            from amplifier_core._engine import load_wasm_from_path
+            from amplifier_core._engine import load_and_mount_wasm
 
-            result = load_wasm_from_path(source_path)
-            logger.info(
-                f"[module:mount] {module_id} loaded via WASM resolver: {result}"
-            )
+            async def _wasm_mount(coord: Any) -> None:
+                result = load_and_mount_wasm(coord, source_path)
+                logger.info(f"[module:mount] {module_id} mounted via WASM: {result}")
 
-            async def _noop_mount(coord: Any) -> None:
-                pass
-
-            return _noop_mount
+            return _wasm_mount
         except ImportError:
             raise NotImplementedError(
                 f"WASM module loading for '{module_id}' requires the Rust engine. "
                 "Install amplifier-core with Rust extensions enabled."
             )
-        except Exception as e:
-            raise ValueError(
-                f"Failed to load WASM module '{module_id}' from {source_path}: {e}"
-            ) from e
 
     if transport == "native":
         raise NotImplementedError(
