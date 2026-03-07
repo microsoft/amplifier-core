@@ -209,6 +209,45 @@ pub enum ModuleArtifact {
     PythonModule(String),
 }
 
+/// Detect a Python package at the given directory path.
+///
+/// Checks two locations (first match wins):
+/// 1. `dir/__init__.py` — the directory itself is a package; derive name from
+///    the directory's file name, replacing dashes with underscores.
+/// 2. `dir/<subdirectory>/__init__.py` — a nested package; iterate immediate
+///    subdirectories looking for `__init__.py` and return the subdirectory name.
+///
+/// Returns the Python package name if found, or `None`.
+pub fn detect_python_package(dir: &Path) -> Option<String> {
+    // Check 1: dir itself has __init__.py
+    if dir.join("__init__.py").is_file() {
+        let name = dir
+            .file_name()?
+            .to_string_lossy()
+            .replace('-', "_");
+        return Some(name);
+    }
+
+    // Check 2: a subdirectory has __init__.py
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        if path.is_dir() && path.join("__init__.py").is_file() {
+            let name = path
+                .file_name()?
+                .to_string_lossy()
+                .to_string();
+            return Some(name);
+        }
+    }
+
+    None
+}
+
 /// Resolve a module from a filesystem path.
 ///
 /// Inspects the directory at `path` and returns a `ModuleManifest`
@@ -573,5 +612,52 @@ endpoint = "http://localhost:50051"
 
         let result = scan_for_wasm_file(dir.path());
         assert!(result.is_none(), "expected None when no .wasm files present");
+    }
+
+    // --- detect_python_package tests ---
+
+    #[test]
+    fn detect_python_package_with_init_py() {
+        // Directory itself is a Python package (has __init__.py at top level).
+        // Name derived from directory name with dashes replaced by underscores.
+        let dir = tempfile::tempdir().unwrap();
+        let pkg_dir = dir.path().join("amplifier-module-tool-bash");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(pkg_dir.join("__init__.py"), b"").unwrap();
+
+        let result = detect_python_package(&pkg_dir);
+        assert_eq!(result, Some("amplifier_module_tool_bash".to_string()));
+    }
+
+    #[test]
+    fn detect_python_package_with_nested_package() {
+        // Directory contains a subdirectory that is a Python package.
+        let dir = tempfile::tempdir().unwrap();
+        let pkg_dir = dir.path().join("my-module");
+        let nested = pkg_dir.join("amplifier_module_tool_bash");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("__init__.py"), b"").unwrap();
+
+        let result = detect_python_package(&pkg_dir);
+        assert_eq!(result, Some("amplifier_module_tool_bash".to_string()));
+    }
+
+    #[test]
+    fn detect_python_package_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let result = detect_python_package(dir.path());
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn detect_python_package_no_init_py() {
+        // Directory has files but no __init__.py anywhere.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("README.md"), b"# readme").unwrap();
+        std::fs::write(dir.path().join("main.py"), b"print('hello')").unwrap();
+
+        let result = detect_python_package(dir.path());
+        assert_eq!(result, None);
     }
 }
