@@ -185,6 +185,29 @@ pub enum ModuleResolverError {
     },
 }
 
+/// Scan a directory for the first `.wasm` file.
+///
+/// Reads the directory entries at `dir`, returning the path to the first
+/// file with a `.wasm` extension, or `None` if no such file exists.
+pub fn scan_for_wasm_file(dir: &Path) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(ext) = path.extension() {
+                if ext == "wasm" {
+                    return Some(path);
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -389,5 +412,36 @@ endpoint = "http://localhost:50051"
         assert!(result.is_err());
         let msg = format!("{}", result.unwrap_err());
         assert!(msg.contains("module"));
+    }
+
+    // --- scan_for_wasm_file tests ---
+
+    #[test]
+    fn scan_wasm_finds_wasm_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let wasm_path = dir.path().join("echo-tool.wasm");
+        std::fs::write(&wasm_path, b"fake wasm").unwrap();
+
+        let result = scan_for_wasm_file(dir.path());
+        assert!(result.is_some(), "expected to find a .wasm file");
+        assert_eq!(result.unwrap(), wasm_path);
+    }
+
+    #[test]
+    fn scan_wasm_returns_none_for_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let result = scan_for_wasm_file(dir.path());
+        assert!(result.is_none(), "expected None for empty directory");
+    }
+
+    #[test]
+    fn scan_wasm_ignores_non_wasm_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("README.md"), b"# readme").unwrap();
+        std::fs::write(dir.path().join("lib.py"), b"pass").unwrap();
+
+        let result = scan_for_wasm_file(dir.path());
+        assert!(result.is_none(), "expected None when no .wasm files present");
     }
 }
