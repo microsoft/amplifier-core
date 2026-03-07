@@ -14,13 +14,13 @@
 const { resolveModule, loadWasmFromPath } = require('../bindings/node/index.js')
 const path = require('path')
 const fs = require('fs')
-const os = require('os')
+const { tmpdir } = require('os')
 
 // The fixture directory contains multiple .wasm files; readdir order is
 // filesystem-dependent. Copy just the echo-tool fixture into a temp directory
 // so the resolver deterministically picks it.
 const fixtureBase = path.resolve(__dirname, '..', 'tests', 'fixtures', 'wasm')
-const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'amplifier-node-wasm-'))
+const fixtureDir = fs.mkdtempSync(path.join(tmpdir(), 'amplifier-node-wasm-'))
 fs.copyFileSync(
   path.join(fixtureBase, 'echo-tool.wasm'),
   path.join(fixtureDir, 'echo-tool.wasm')
@@ -41,6 +41,9 @@ try {
 
   // Success
   console.log('\nTypeScript → Napi-RS → Rust resolver → wasmtime → WASM tool pipeline: SUCCESS')
+} catch (err) {
+  console.error(err)
+  process.exit(1)
 } finally {
   fs.rmSync(fixtureDir, { recursive: true })
 }
