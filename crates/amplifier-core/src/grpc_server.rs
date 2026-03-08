@@ -865,6 +865,24 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn emit_hook_and_collect_neg_infinity_timeout_falls_back_to_default() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::EmitHookAndCollectRequest {
+            event: "test:event".to_string(),
+            data_json: String::new(),
+            timeout_seconds: f64::NEG_INFINITY,
+        });
+
+        let result = service.emit_hook_and_collect(request).await;
+        assert!(
+            result.is_ok(),
+            "NEG_INFINITY timeout should fall back to default, got: {result:?}"
+        );
+    }
+
     // -----------------------------------------------------------------------
     // RegisterCapability tests
     // -----------------------------------------------------------------------
