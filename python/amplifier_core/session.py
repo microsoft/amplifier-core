@@ -199,14 +199,59 @@ class AmplifierSession:
                     f"Cannot initialize without context manager: {_safe_exception_str(e)}"
                 )
 
+            # Validate multi-instance providers: at most ONE entry per module may omit
+            # instance_id. That one entry is the "default" instance that keeps the
+            # provider's default mount name. All additional entries need explicit instance_id.
+            _provider_module_counts: dict[str, int] = {}
+            _provider_no_id_counts: dict[str, int] = {}
+            for _pc in self.config.get("providers", []):
+                _mid = _pc.get("module", "")
+                if _mid:
+                    _provider_module_counts[_mid] = (
+                        _provider_module_counts.get(_mid, 0) + 1
+                    )
+                    if not _pc.get("instance_id"):
+                        _provider_no_id_counts[_mid] = (
+                            _provider_no_id_counts.get(_mid, 0) + 1
+                        )
+
+            for _mid, _no_id_count in _provider_no_id_counts.items():
+                if _provider_module_counts.get(_mid, 0) > 1 and _no_id_count > 1:
+                    raise ValueError(
+                        f"Multi-instance providers require explicit 'instance_id' on each "
+                        f"additional entry. Found {_no_id_count} entries for module "
+                        f"'{_mid}' without instance_id (at most 1 allowed as the default "
+                        f"instance)."
+                    )
+
             # Load providers
             for provider_config in self.config.get("providers", []):
                 module_id = provider_config.get("module")
                 if not module_id:
                     continue
+                instance_id = provider_config.get(
+                    "instance_id"
+                )  # multi-instance support
 
                 try:
-                    logger.info(f"Loading provider: {module_id}")
+                    logger.info(
+                        f"Loading provider: {module_id}"
+                        + (f" (instance: {instance_id})" if instance_id else "")
+                    )
+
+                    # Snapshot: save any existing provider at the default mount name
+                    # before loading. The new provider will self-mount there and may
+                    # overwrite a previously-loaded default instance.
+                    existing_at_default: object | None = None
+                    if instance_id:
+                        _default_name = (
+                            module_id.removeprefix("provider-")
+                            if module_id.startswith("provider-")
+                            else module_id
+                        )
+                        _snap_dict = self.coordinator.get("providers") or {}
+                        existing_at_default = _snap_dict.get(_default_name)
+
                     provider_mount = await self.loader.load(
                         module_id,
                         provider_config.get("config", {}),
@@ -215,6 +260,40 @@ class AmplifierSession:
                     cleanup = await provider_mount(self.coordinator)
                     if cleanup:
                         self.coordinator.register_cleanup(cleanup)
+
+                    # Multi-instance remapping: if instance_id specified, remap mount name
+                    if instance_id:
+                        default_name = (
+                            module_id.removeprefix("provider-")
+                            if module_id.startswith("provider-")
+                            else module_id
+                        )
+                        providers_dict = self.coordinator.get("providers") or {}
+                        if (
+                            default_name in providers_dict
+                            and default_name != instance_id
+                        ):
+                            new_instance = providers_dict[default_name]
+                            await self.coordinator.mount(
+                                "providers", new_instance, name=instance_id
+                            )
+                            # Restore the previous occupant if the self-mount overwrote it
+                            if (
+                                existing_at_default is not None
+                                and existing_at_default is not new_instance
+                            ):
+                                await self.coordinator.mount(
+                                    "providers",
+                                    existing_at_default,
+                                    name=default_name,
+                                )
+                            else:
+                                await self.coordinator.unmount(
+                                    "providers", name=default_name
+                                )
+                            logger.info(
+                                f"Remapped provider '{default_name}' -> '{instance_id}'"
+                            )
                 except Exception as e:
                     logger.warning(
                         f"Failed to load provider '{module_id}': {_safe_exception_str(e)}",
