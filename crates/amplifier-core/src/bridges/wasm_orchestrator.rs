@@ -108,6 +108,10 @@ fn register_kernel_service_imports(
             move |_caller,
                   (request_bytes,): (Vec<u8>,)|
                   -> wasmtime::Result<(Result<Vec<u8>, String>,)> {
+                debug_assert!(
+                    tokio::runtime::Handle::try_current().is_ok(),
+                    "block_on requires an active Tokio runtime — must run inside spawn_blocking"
+                );
                 let result = tokio::runtime::Handle::current().block_on(async {
                     let req: Value = serde_json::from_slice(&request_bytes)
                         .map_err(|e| format!("execute-tool: bad request: {e}"))?;
@@ -144,6 +148,10 @@ fn register_kernel_service_imports(
             move |_caller,
                   (request_bytes,): (Vec<u8>,)|
                   -> wasmtime::Result<(Result<Vec<u8>, String>,)> {
+                debug_assert!(
+                    tokio::runtime::Handle::try_current().is_ok(),
+                    "block_on requires an active Tokio runtime — must run inside spawn_blocking"
+                );
                 let result = tokio::runtime::Handle::current().block_on(async {
                     let req: Value = serde_json::from_slice(&request_bytes)
                         .map_err(|e| format!("complete-with-provider: bad request: {e}"))?;
@@ -182,6 +190,10 @@ fn register_kernel_service_imports(
             move |_caller,
                   (request_bytes,): (Vec<u8>,)|
                   -> wasmtime::Result<(Result<Vec<u8>, String>,)> {
+                debug_assert!(
+                    tokio::runtime::Handle::try_current().is_ok(),
+                    "block_on requires an active Tokio runtime — must run inside spawn_blocking"
+                );
                 let result = tokio::runtime::Handle::current().block_on(async {
                     let req: Value = serde_json::from_slice(&request_bytes)
                         .map_err(|e| format!("emit-hook: bad request: {e}"))?;
@@ -212,6 +224,10 @@ fn register_kernel_service_imports(
             move |_caller,
                   (_request_bytes,): (Vec<u8>,)|
                   -> wasmtime::Result<(Result<Vec<u8>, String>,)> {
+                debug_assert!(
+                    tokio::runtime::Handle::try_current().is_ok(),
+                    "block_on requires an active Tokio runtime — must run inside spawn_blocking"
+                );
                 let result = tokio::runtime::Handle::current().block_on(async {
                     let context = coord
                         .context()
@@ -241,6 +257,10 @@ fn register_kernel_service_imports(
             move |_caller,
                   (request_bytes,): (Vec<u8>,)|
                   -> wasmtime::Result<(Result<(), String>,)> {
+                debug_assert!(
+                    tokio::runtime::Handle::try_current().is_ok(),
+                    "block_on requires an active Tokio runtime — must run inside spawn_blocking"
+                );
                 let result = tokio::runtime::Handle::current().block_on(async {
                     let message: Value = serde_json::from_slice(&request_bytes)
                         .map_err(|e| format!("add-message: bad request: {e}"))?;
@@ -661,6 +681,24 @@ mod tests {
         assert!(
             !response.is_empty(),
             "expected non-empty response from wasm-to-wasm path, got: {response:?}"
+        );
+    }
+
+    /// Invariant: `spawn_blocking` preserves the Tokio runtime handle.
+    ///
+    /// The 5 `block_on` closures in `register_kernel_service_imports` rely on
+    /// `Handle::current()` being available. This test documents and verifies
+    /// the precondition that the `debug_assert!` guards enforce.
+    #[tokio::test]
+    async fn spawn_blocking_preserves_runtime_handle() {
+        let has_handle = tokio::task::spawn_blocking(|| {
+            tokio::runtime::Handle::try_current().is_ok()
+        })
+        .await
+        .expect("spawn_blocking should not panic");
+        assert!(
+            has_handle,
+            "block_on requires an active Tokio runtime — must run inside spawn_blocking"
         );
     }
 
