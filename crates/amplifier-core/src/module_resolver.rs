@@ -68,7 +68,7 @@ pub fn detect_wasm_module_type(
         0 => Err(ModuleResolverError::UnknownWasmInterface {
             path: wasm_path.to_path_buf(),
         }),
-        1 => Ok(matched.into_iter().next().unwrap().1),
+        1 => Ok(matched.swap_remove(0).1),
         _ => Err(ModuleResolverError::AmbiguousWasmInterface {
             path: wasm_path.to_path_buf(),
             found: matched
