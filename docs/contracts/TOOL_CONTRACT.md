@@ -4,16 +4,15 @@ module_type: tool
 contract_version: 1.0.0
 last_modified: 2025-01-29
 related_files:
-  - path: amplifier_core/interfaces.py#Tool
+  - path: ../../python/amplifier_core/interfaces.py#Tool
     relationship: protocol_definition
-    lines: 121-146
-  - path: amplifier_core/models.py#ToolResult
+  - path: ../../python/amplifier_core/models.py#ToolResult
     relationship: result_model
-  - path: amplifier_core/message_models.py#ToolCall
+  - path: ../../python/amplifier_core/message_models.py#ToolCall
     relationship: invocation_model
   - path: ../specs/MOUNT_PLAN_SPECIFICATION.md
     relationship: configuration
-  - path: amplifier_core/testing.py#MockTool
+  - path: ../../python/amplifier_core/testing.py#MockTool
     relationship: test_utilities
 canonical_example: https://github.com/microsoft/amplifier-module-tool-filesystem
 ---
@@ -37,7 +36,7 @@ Tools extend agent capabilities beyond pure conversation:
 
 ## Protocol Definition
 
-**Source**: `amplifier_core/interfaces.py` lines 121-146
+**Source**: `amplifier_core/interfaces.py` → `class Tool(Protocol)`
 
 ```python
 @runtime_checkable

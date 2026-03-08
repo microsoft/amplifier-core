@@ -4,14 +4,13 @@ module_type: provider
 contract_version: 1.0.0
 last_modified: 2025-01-29
 related_files:
-  - path: amplifier_core/interfaces.py#Provider
+  - path: ../../python/amplifier_core/interfaces.py#Provider
     relationship: protocol_definition
-    lines: 54-119
-  - path: amplifier_core/message_models.py
+  - path: ../../python/amplifier_core/message_models.py
     relationship: request_response_models
-  - path: amplifier_core/content_models.py
+  - path: ../../python/amplifier_core/content_models.py
     relationship: event_content_types
-  - path: amplifier_core/models.py#ProviderInfo
+  - path: ../../python/amplifier_core/models.py#ProviderInfo
     relationship: metadata_models
   - path: ../specs/PROVIDER_SPECIFICATION.md
     relationship: detailed_spec
@@ -19,7 +18,7 @@ related_files:
     relationship: configuration
   - path: ../specs/CONTRIBUTION_CHANNELS.md
     relationship: observability
-  - path: amplifier_core/testing.py
+  - path: ../../python/amplifier_core/testing.py
     relationship: test_utilities
 canonical_example: https://github.com/microsoft/amplifier-module-provider-anthropic
 ---
@@ -46,7 +45,7 @@ This contract document provides the quick-reference essentials. The specificatio
 
 ## Protocol Definition
 
-**Source**: `amplifier_core/interfaces.py` lines 54-119
+**Source**: `amplifier_core/interfaces.py` → `class Provider(Protocol)`
 
 ```python
 @runtime_checkable

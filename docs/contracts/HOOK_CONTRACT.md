@@ -4,10 +4,9 @@ module_type: hook
 contract_version: 1.0.0
 last_modified: 2025-01-29
 related_files:
-  - path: amplifier_core/interfaces.py#HookHandler
+  - path: ../../python/amplifier_core/interfaces.py#HookHandler
     relationship: protocol_definition
-    lines: 205-220
-  - path: amplifier_core/models.py#HookResult
+  - path: ../../python/amplifier_core/models.py#HookResult
     relationship: result_model
   - path: ../HOOKS_API.md
     relationship: detailed_api
@@ -15,7 +14,7 @@ related_files:
     relationship: configuration
   - path: ../specs/CONTRIBUTION_CHANNELS.md
     relationship: observability
-  - path: amplifier_core/testing.py#EventRecorder
+  - path: ../../python/amplifier_core/testing.py#EventRecorder
     relationship: test_utilities
 canonical_example: https://github.com/microsoft/amplifier-module-hooks-logging
 ---
@@ -52,7 +51,7 @@ This contract provides the essentials. The API reference contains full details.
 
 ## Protocol Definition
 
-**Source**: `amplifier_core/interfaces.py` lines 205-220
+**Source**: `amplifier_core/interfaces.py` → `class HookHandler(Protocol)`
 
 ```python
 @runtime_checkable
