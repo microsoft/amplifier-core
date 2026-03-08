@@ -347,31 +347,131 @@ async def test_single_module_no_instance_id_ok():
 
 
 @pytest.mark.asyncio
-async def test_duplicate_module_one_missing_instance_id_raises():
-    """Two providers with same module; one has instance_id, the other doesn't → ValueError."""
+async def test_duplicate_module_one_missing_instance_id_allowed():
+    """One entry with instance_id + one without → allowed (the no-id entry is the default).
+
+    Previously this raised ValueError with the strict "every entry needs instance_id" rule.
+    Now it's allowed: the entry without instance_id is treated as the "default" instance
+    that keeps the provider's default mount name. Only entries with explicit instance_id
+    are remapped.
+    """
+    default_instance = object()
+    named_instance = object()
+    call_count = {"n": 0}
+
+    async def mount_fn_default(coord):
+        await coord.mount("providers", default_instance, name="mock")
+        return None
+
+    async def mount_fn_named(coord):
+        await coord.mount("providers", named_instance, name="mock")
+        return None
+
+    async def load_side_effect(module_id, config=None, source_hint=None):
+        if module_id == "loop-basic":
+            return AsyncMock(return_value=None)
+        if module_id == "context-simple":
+            return AsyncMock(return_value=None)
+        if module_id == "provider-mock":
+            call_count["n"] += 1
+            return mount_fn_default if call_count["n"] == 1 else mount_fn_named
+        raise ValueError(f"Unexpected module: {module_id}")
+
+    loader = AsyncMock()
+    loader.load.side_effect = load_side_effect
+
     config = {
         "session": {"orchestrator": "loop-basic", "context": "context-simple"},
         "providers": [
-            {"module": "provider-mock", "instance_id": "mock-a"},
-            {"module": "provider-mock"},  # missing instance_id
+            {"module": "provider-mock"},  # no instance_id — default
+            {"module": "provider-mock", "instance_id": "mock-a"},  # explicit instance
         ],
     }
-
-    orch_mount_fn = AsyncMock(return_value=None)
-    ctx_mount_fn = AsyncMock(return_value=None)
-
-    loader = _make_loader(
-        {
-            "loop-basic": orch_mount_fn,
-            "context-simple": ctx_mount_fn,
-        }
-    )
 
     coordinator = TestCoordinator()
     coordinator.loader = loader
 
-    with pytest.raises(ValueError, match="instance_id"):
-        await initialize_session(config, coordinator, session_id="test", parent_id=None)
+    # Should NOT raise — one default entry is allowed
+    await initialize_session(config, coordinator, session_id="test", parent_id=None)
+
+    providers = coordinator.get("providers") or {}
+    assert "mock" in providers, f"Expected default 'mock' key, got: {list(providers)}"
+    assert "mock-a" in providers, f"Expected 'mock-a' key, got: {list(providers)}"
+    assert providers["mock"] is default_instance
+    assert providers["mock-a"] is named_instance
+
+
+@pytest.mark.asyncio
+async def test_mixed_instance_id_preserves_default_entry():
+    """One entry without instance_id + one with instance_id → BOTH mounted correctly.
+
+    Reproduces the real-world bug:
+      settings.yaml has:
+        - module: provider-anthropic          (no id — original entry)
+        - module: provider-anthropic
+          id: anthropic-sonnet               (newly added instance)
+
+    After _map_id_to_instance_id the second entry has instance_id="anthropic-sonnet".
+    The first entry has no instance_id (it's the default instance).
+
+    Expected: both "anthropic" and "anthropic-sonnet" are accessible after init.
+    """
+    first_instance = object()  # sentinel for original anthropic entry
+    second_instance = object()  # sentinel for anthropic-sonnet entry
+
+    async def mount_fn_first(coordinator):
+        await coordinator.mount("providers", first_instance, name="anthropic")
+        return None
+
+    async def mount_fn_second(coordinator):
+        await coordinator.mount("providers", second_instance, name="anthropic")
+        return None
+
+    call_count = {"n": 0}
+
+    async def load_side_effect(module_id, config=None, source_hint=None):
+        if module_id == "loop-basic":
+            return AsyncMock(return_value=None)
+        if module_id == "context-simple":
+            return AsyncMock(return_value=None)
+        if module_id == "provider-anthropic":
+            call_count["n"] += 1
+            return mount_fn_first if call_count["n"] == 1 else mount_fn_second
+        raise ValueError(f"Unexpected module: {module_id}")
+
+    loader = AsyncMock()
+    loader.load.side_effect = load_side_effect
+
+    config = {
+        "session": {"orchestrator": "loop-basic", "context": "context-simple"},
+        "providers": [
+            {"module": "provider-anthropic"},  # no instance_id
+            {
+                "module": "provider-anthropic",
+                "instance_id": "anthropic-sonnet",
+            },  # explicit
+        ],
+    }
+
+    coordinator = TestCoordinator()
+    coordinator.loader = loader
+
+    await initialize_session(config, coordinator, session_id="test", parent_id=None)
+
+    providers = coordinator.get("providers") or {}
+
+    assert "anthropic" in providers, (
+        f"Expected default 'anthropic' entry to be preserved, got: {list(providers)}"
+    )
+    assert "anthropic-sonnet" in providers, (
+        f"Expected 'anthropic-sonnet' to be mounted, got: {list(providers)}"
+    )
+    assert providers["anthropic"] is first_instance, (
+        "Expected 'anthropic' to be the first (original) instance"
+    )
+    assert providers["anthropic-sonnet"] is second_instance, (
+        "Expected 'anthropic-sonnet' to be the second instance"
+    )
 
 
 @pytest.mark.asyncio
