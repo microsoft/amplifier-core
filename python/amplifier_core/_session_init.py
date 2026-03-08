@@ -94,19 +94,24 @@ async def initialize_session(
             f"Cannot initialize without context manager: {_safe_exception_str(e)}"
         )
 
-    # Validate multi-instance providers have instance_id
+    # Validate multi-instance providers: at most ONE entry per module may omit instance_id.
+    # That one entry is the "default" instance that keeps the provider's default mount name.
+    # All additional entries must have an explicit instance_id to avoid collision.
     _provider_module_counts: dict[str, int] = {}
+    _provider_no_id_counts: dict[str, int] = {}
     for _pc in config.get("providers", []):
         _mid = _pc.get("module", "")
         if _mid:
             _provider_module_counts[_mid] = _provider_module_counts.get(_mid, 0) + 1
+            if not _pc.get("instance_id"):
+                _provider_no_id_counts[_mid] = _provider_no_id_counts.get(_mid, 0) + 1
 
-    for _pc in config.get("providers", []):
-        _mid = _pc.get("module", "")
-        if _provider_module_counts.get(_mid, 0) > 1 and not _pc.get("instance_id"):
+    for _mid, _no_id_count in _provider_no_id_counts.items():
+        if _provider_module_counts.get(_mid, 0) > 1 and _no_id_count > 1:
             raise ValueError(
-                f"Multi-instance providers require explicit 'instance_id' on each entry. "
-                f"Found multiple entries for module '{_mid}' without instance_id."
+                f"Multi-instance providers require explicit 'instance_id' on each "
+                f"additional entry. Found {_no_id_count} entries for module '{_mid}' "
+                f"without instance_id (at most 1 allowed as the default instance)."
             )
 
     # Load providers
@@ -114,12 +119,25 @@ async def initialize_session(
         module_id = provider_config.get("module")
         if not module_id:
             continue
-        instance_id = provider_config.get("instance_id")  # NEW: multi-instance support
+        instance_id = provider_config.get("instance_id")  # multi-instance support
         try:
             logger.info(
                 f"Loading provider: {module_id}"
                 + (f" (instance: {instance_id})" if instance_id else "")
             )
+
+            # Snapshot: save any existing provider at the default mount name before
+            # loading. The new provider will self-mount there and may overwrite it.
+            existing_at_default: object | None = None
+            if instance_id:
+                _default_name = (
+                    module_id.removeprefix("provider-")
+                    if module_id.startswith("provider-")
+                    else module_id
+                )
+                _snap_dict = coordinator.get("providers") or {}
+                existing_at_default = _snap_dict.get(_default_name)
+
             provider_mount = await loader.load(
                 module_id,
                 provider_config.get("config", {}),
@@ -138,9 +156,18 @@ async def initialize_session(
                 )
                 providers_dict = coordinator.get("providers") or {}
                 if default_name in providers_dict and default_name != instance_id:
-                    instance = providers_dict[default_name]
-                    await coordinator.mount("providers", instance, name=instance_id)
-                    await coordinator.unmount("providers", name=default_name)
+                    new_instance = providers_dict[default_name]
+                    await coordinator.mount("providers", new_instance, name=instance_id)
+                    # Restore the previous occupant if the self-mount overwrote it
+                    if (
+                        existing_at_default is not None
+                        and existing_at_default is not new_instance
+                    ):
+                        await coordinator.mount(
+                            "providers", existing_at_default, name=default_name
+                        )
+                    else:
+                        await coordinator.unmount("providers", name=default_name)
                     logger.info(
                         f"Remapped provider '{default_name}' -> '{instance_id}'"
                     )
