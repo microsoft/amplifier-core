@@ -28,11 +28,14 @@ pub mod grpc_server;
 pub mod hooks;
 pub mod messages;
 pub mod models;
+pub mod module_resolver;
 pub mod retry;
 pub mod session;
 pub mod testing;
 pub mod traits;
 pub mod transport;
+#[cfg(feature = "wasm")]
+pub mod wasm_engine;
 
 // ---------------------------------------------------------------------------
 // Re-exports — consumers write `use amplifier_core::Tool`, not

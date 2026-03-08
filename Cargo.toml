@@ -1,7 +1,9 @@
 [workspace]
 members = [
     "crates/amplifier-core",
+    "crates/amplifier-guest",
     "bindings/python",
+    "bindings/node",
 ]
 resolver = "2"
 

@@ -15,14 +15,20 @@ uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"
 log = "0.4"
+toml = "0.8"
 prost = "0.13"
 tonic = "0.12"
 tokio-stream = { version = "0.1", features = ["net"] }
-wasmtime = { version = "29", optional = true }
+wasmtime = { version = "42", optional = true, features = ["component-model"] }
+wasmtime-wasi = { version = "42", optional = true }
 
 [features]
 default = []
-wasm = ["wasmtime"]
+wasm = ["wasmtime", "wasmtime-wasi"]
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [build-dependencies]
 tonic-build = "0.12"

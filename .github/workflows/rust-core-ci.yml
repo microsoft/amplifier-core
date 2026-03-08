@@ -19,11 +19,32 @@ jobs:
       - name: Run Rust tests
         run: cargo test -p amplifier-core --verbose
       - name: Check workspace
-        run: cargo check --workspace
+        run: cargo check -p amplifier-core -p amplifier-core-py
       - name: Rustfmt
-        run: cargo fmt --check
+        run: cargo fmt -p amplifier-core -p amplifier-core-py --check
       - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy -p amplifier-core -p amplifier-core-py -- -D warnings
+
+  node-tests:
+    name: Node.js Binding Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Build native module
+        working-directory: bindings/node
+        run: |
+          npm install
+          npm run build
+      - name: Run tests
+        working-directory: bindings/node
+        run: npx vitest run
+      - name: Clippy (Node binding)
+        run: cargo clippy -p amplifier-core-node -- -D warnings
 
   python-tests:
     name: Python Tests (${{ matrix.python-version }})

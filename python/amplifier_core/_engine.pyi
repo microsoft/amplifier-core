@@ -331,6 +331,50 @@ class RetryConfig:
 # Retry utility functions (PyO3 bridge)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Module resolver functions (PyO3 bridge — Task 7/8)
+# ---------------------------------------------------------------------------
+
+def resolve_module(source_path: str) -> dict[str, Any]:
+    """Resolve a module's manifest from its filesystem path.
+
+    Reads the amplifier.toml in the given directory and returns a dict
+    containing at minimum a ``"transport"`` key (e.g. ``"python"``,
+    ``"grpc"``, ``"wasm"``, or ``"native"``).
+
+    Raises:
+        ValueError: If the path cannot be resolved or the manifest is invalid.
+    """
+    ...
+
+def load_wasm_from_path(source_path: str) -> dict[str, Any]:
+    """Load a WASM module from the given filesystem path.
+
+    Returns a dict with ``"status"`` and ``"module_type"`` on success.
+
+    Raises:
+        ValueError: If the path does not contain a valid WASM module.
+    """
+    ...
+
+def load_and_mount_wasm(coordinator: RustCoordinator, path: str) -> dict[str, Any]:
+    """Load a WASM module and mount it into a coordinator's mount_points.
+
+    Unlike ``load_wasm_from_path`` (which loads into a throwaway coordinator),
+    this function mounts the loaded module directly into the given coordinator's
+    ``mount_points`` dict, making it available for orchestrator use.
+
+    Returns a dict with:
+    - ``"status"``: ``"mounted"`` if mounted, ``"loaded"`` if loaded but not auto-mounted
+    - ``"module_type"``: the detected module type string
+    - ``"name"``: the module name (for tool modules)
+
+    Raises:
+        ValueError: If the path doesn't contain a WASM module.
+        RuntimeError: If engine creation or module loading fails.
+    """
+    ...
+
 def classify_error_message(message: str) -> str:
     """Classify an error message string into an error category.
 
