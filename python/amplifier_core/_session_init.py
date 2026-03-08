@@ -99,8 +99,12 @@ async def initialize_session(
         module_id = provider_config.get("module")
         if not module_id:
             continue
+        instance_id = provider_config.get("instance_id")  # NEW: multi-instance support
         try:
-            logger.info(f"Loading provider: {module_id}")
+            logger.info(
+                f"Loading provider: {module_id}"
+                + (f" (instance: {instance_id})" if instance_id else "")
+            )
             provider_mount = await loader.load(
                 module_id,
                 provider_config.get("config", {}),
@@ -109,6 +113,22 @@ async def initialize_session(
             cleanup = await provider_mount(coordinator)
             if cleanup:
                 coordinator.register_cleanup(cleanup)
+
+            # Multi-instance remapping: if instance_id specified, remap mount name
+            if instance_id:
+                default_name = (
+                    module_id.removeprefix("provider-")
+                    if module_id.startswith("provider-")
+                    else module_id
+                )
+                providers_dict = coordinator.get("providers") or {}
+                if default_name in providers_dict and default_name != instance_id:
+                    instance = providers_dict[default_name]
+                    await coordinator.mount("providers", instance, name=instance_id)
+                    await coordinator.unmount("providers", name=default_name)
+                    logger.info(
+                        f"Remapped provider '{default_name}' -> '{instance_id}'"
+                    )
         except Exception as e:
             logger.warning(
                 f"Failed to load provider '{module_id}': {_safe_exception_str(e)}",
