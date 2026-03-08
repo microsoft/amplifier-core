@@ -97,39 +97,6 @@ pub(crate) fn create_linker_and_store(
     Ok((linker, store))
 }
 
-/// Look up a typed function export from a component instance.
-///
-/// Component Model exports may be at the root level or nested inside an
-/// exported interface instance. This helper tries:
-/// 1. Direct root-level export by `func_name`
-/// 2. Nested inside the [`INTERFACE_NAME`] exported instance
-fn get_typed_func_from_instance<Params, Results>(
-    instance: &wasmtime::component::Instance,
-    store: &mut Store<WasmState>,
-    func_name: &str,
-) -> Result<wasmtime::component::TypedFunc<Params, Results>, Box<dyn std::error::Error + Send + Sync>>
-where
-    Params: wasmtime::component::Lower + wasmtime::component::ComponentNamedList,
-    Results: wasmtime::component::Lift + wasmtime::component::ComponentNamedList,
-{
-    // Try direct root-level export first.
-    if let Ok(f) = instance.get_typed_func::<Params, Results>(&mut *store, func_name) {
-        return Ok(f);
-    }
-
-    // Try nested inside the interface-exported instance.
-    let iface_idx = instance
-        .get_export_index(&mut *store, None, INTERFACE_NAME)
-        .ok_or_else(|| format!("export instance '{INTERFACE_NAME}' not found"))?;
-    let func_idx = instance
-        .get_export_index(&mut *store, Some(&iface_idx), func_name)
-        .ok_or_else(|| format!("export function '{func_name}' not found in '{INTERFACE_NAME}'"))?;
-    let func = instance
-        .get_typed_func::<Params, Results>(&mut *store, &func_idx)
-        .map_err(|e| format!("typed func lookup failed for '{func_name}': {e}"))?;
-    Ok(func)
-}
-
 /// Helper: call the `get-spec` export on a fresh component instance.
 fn call_get_spec(
     engine: &Engine,
@@ -138,7 +105,7 @@ fn call_get_spec(
     let (linker, mut store) = create_linker_and_store(engine, &super::WasmLimits::default())?;
     let instance = linker.instantiate(&mut store, component)?;
 
-    let func = get_typed_func_from_instance::<(), (Vec<u8>,)>(&instance, &mut store, "get-spec")?;
+    let func = super::get_typed_func::<(), (Vec<u8>,)>(&instance, &mut store, "get-spec", INTERFACE_NAME)?;
     let (spec_bytes,) = func.call(&mut store, ())?;
     Ok(spec_bytes)
 }
@@ -152,8 +119,8 @@ fn call_execute(
     let (linker, mut store) = create_linker_and_store(engine, &super::WasmLimits::default())?;
     let instance = linker.instantiate(&mut store, component)?;
 
-    let func = get_typed_func_from_instance::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(
-        &instance, &mut store, "execute",
+    let func = super::get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(
+        &instance, &mut store, "execute", INTERFACE_NAME,
     )?;
     let (result,) = func.call(&mut store, (input_bytes,))?;
     match result {

@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use wasmtime::component::{Component, Linker};
-use wasmtime::{Engine, Store};
+use wasmtime::Engine;
 
 use crate::coordinator::Coordinator;
 use crate::errors::{AmplifierError, SessionError};
@@ -28,10 +28,6 @@ const KERNEL_SERVICE_INTERFACE: &str = "amplifier:modules/kernel-service@1.0.0";
 
 /// WIT interface name for the orchestrator export.
 const ORCHESTRATOR_INTERFACE: &str = "amplifier:modules/orchestrator@1.0.0";
-
-/// Shorthand for the typed function returned by the orchestrator `execute` export.
-type OrchestratorExecuteFunc =
-    wasmtime::component::TypedFunc<(Vec<u8>,), (Result<Vec<u8>, String>,)>;
 
 /// A bridge that loads a WASM Component and exposes it as a native [`Orchestrator`].
 ///
@@ -341,39 +337,6 @@ fn register_kernel_service_imports(
 }
 
 // ---------------------------------------------------------------------------
-// Execute export lookup
-// ---------------------------------------------------------------------------
-
-/// Look up the `execute` export from an orchestrator component instance.
-///
-/// Tries:
-/// 1. Direct root-level export by `"execute"`
-/// 2. Nested inside the [`ORCHESTRATOR_INTERFACE`] exported instance
-fn get_execute_func(
-    instance: &wasmtime::component::Instance,
-    store: &mut Store<WasmState>,
-) -> Result<OrchestratorExecuteFunc, Box<dyn std::error::Error + Send + Sync>> {
-    // Try root-level first.
-    if let Ok(f) =
-        instance.get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(&mut *store, "execute")
-    {
-        return Ok(f);
-    }
-
-    // Try nested inside the interface-exported instance.
-    let iface_idx = instance
-        .get_export_index(&mut *store, None, ORCHESTRATOR_INTERFACE)
-        .ok_or_else(|| format!("export instance '{ORCHESTRATOR_INTERFACE}' not found"))?;
-    let func_idx = instance
-        .get_export_index(&mut *store, Some(&iface_idx), "execute")
-        .ok_or_else(|| format!("export 'execute' not found in '{ORCHESTRATOR_INTERFACE}'"))?;
-    let func = instance
-        .get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(&mut *store, &func_idx)
-        .map_err(|e| format!("typed func lookup failed for 'execute': {e}"))?;
-    Ok(func)
-}
-
-// ---------------------------------------------------------------------------
 // Synchronous WASM call (for spawn_blocking)
 // ---------------------------------------------------------------------------
 
@@ -395,7 +358,9 @@ fn call_execute_sync(
     register_kernel_service_imports(&mut linker, coordinator)?;
 
     let instance = linker.instantiate(&mut store, component)?;
-    let func = get_execute_func(&instance, &mut store)?;
+    let func = super::get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(
+        &instance, &mut store, "execute", ORCHESTRATOR_INTERFACE,
+    )?;
     let (result,) = func.call(&mut store, (request_bytes,))?;
     match result {
         Ok(bytes) => Ok(bytes),

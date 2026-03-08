@@ -13,14 +13,14 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use wasmtime::component::Component;
-use wasmtime::{Engine, Store};
+use wasmtime::Engine;
 
 use crate::errors::ProviderError;
 use crate::messages::{ChatRequest, ChatResponse, ToolCall};
 use crate::models::{ModelInfo, ProviderInfo};
 use crate::traits::Provider;
 
-use super::wasm_tool::{create_linker_and_store, WasmState};
+use super::wasm_tool::create_linker_and_store;
 
 /// The WIT interface name used by `cargo component` for provider exports.
 const INTERFACE_NAME: &str = "amplifier:modules/provider@1.0.0";
@@ -41,38 +41,6 @@ fn wasm_provider_error(message: String) -> ProviderError {
     }
 }
 
-/// Look up a typed function export from the provider component instance.
-///
-/// Tries:
-/// 1. Direct root-level export by `func_name`
-/// 2. Nested inside the [`INTERFACE_NAME`] exported instance
-fn get_provider_func<Params, Results>(
-    instance: &wasmtime::component::Instance,
-    store: &mut Store<WasmState>,
-    func_name: &str,
-) -> WasmResult<wasmtime::component::TypedFunc<Params, Results>>
-where
-    Params: wasmtime::component::Lower + wasmtime::component::ComponentNamedList,
-    Results: wasmtime::component::Lift + wasmtime::component::ComponentNamedList,
-{
-    // Try direct root-level export first.
-    if let Ok(f) = instance.get_typed_func::<Params, Results>(&mut *store, func_name) {
-        return Ok(f);
-    }
-
-    // Try nested inside the interface-exported instance.
-    let iface_idx = instance
-        .get_export_index(&mut *store, None, INTERFACE_NAME)
-        .ok_or_else(|| format!("export instance '{INTERFACE_NAME}' not found"))?;
-    let func_idx = instance
-        .get_export_index(&mut *store, Some(&iface_idx), func_name)
-        .ok_or_else(|| format!("export function '{func_name}' not found in '{INTERFACE_NAME}'"))?;
-    let func = instance
-        .get_typed_func::<Params, Results>(&mut *store, &func_idx)
-        .map_err(|e| format!("typed func lookup failed for '{func_name}': {e}"))?;
-    Ok(func)
-}
-
 /// Helper: call `get-info` on a fresh component instance.
 ///
 /// Returns raw JSON bytes representing the provider's `ProviderInfo`.
@@ -81,7 +49,7 @@ fn call_get_info(engine: &Engine, component: &Component) -> WasmResult<Vec<u8>> 
     let (linker, mut store) = create_linker_and_store(engine, &super::WasmLimits::default())?;
     let instance = linker.instantiate(&mut store, component)?;
 
-    let func = get_provider_func::<(), (Vec<u8>,)>(&instance, &mut store, "get-info")?;
+    let func = super::get_typed_func::<(), (Vec<u8>,)>(&instance, &mut store, "get-info", INTERFACE_NAME)?;
     let (info_bytes,) = func.call(&mut store, ())?;
     Ok(info_bytes)
 }
@@ -93,8 +61,9 @@ fn call_list_models(engine: &Engine, component: &Component) -> WasmResult<Vec<u8
     let (linker, mut store) = create_linker_and_store(engine, &super::WasmLimits::default())?;
     let instance = linker.instantiate(&mut store, component)?;
 
-    let func =
-        get_provider_func::<(), (Result<Vec<u8>, String>,)>(&instance, &mut store, "list-models")?;
+    let func = super::get_typed_func::<(), (Result<Vec<u8>, String>,)>(
+        &instance, &mut store, "list-models", INTERFACE_NAME,
+    )?;
     let (result,) = func.call(&mut store, ())?;
     match result {
         Ok(bytes) => Ok(bytes),
@@ -114,8 +83,8 @@ fn call_complete(
     let (linker, mut store) = create_linker_and_store(engine, &super::WasmLimits::default())?;
     let instance = linker.instantiate(&mut store, component)?;
 
-    let func = get_provider_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(
-        &instance, &mut store, "complete",
+    let func = super::get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(
+        &instance, &mut store, "complete", INTERFACE_NAME,
     )?;
     let (result,) = func.call(&mut store, (request_bytes,))?;
     match result {
@@ -136,10 +105,11 @@ fn call_parse_tool_calls(
     let (linker, mut store) = create_linker_and_store(engine, &super::WasmLimits::default())?;
     let instance = linker.instantiate(&mut store, component)?;
 
-    let func = get_provider_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(
+    let func = super::get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(
         &instance,
         &mut store,
         "parse-tool-calls",
+        INTERFACE_NAME,
     )?;
     let (result,) = func.call(&mut store, (response_bytes,))?;
     match result {
