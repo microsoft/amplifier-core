@@ -194,8 +194,15 @@ class ModuleLoader:
             ValueError: Module not found or failed to load
         """
         if module_id in self._loaded_modules:
-            logger.debug(f"Module '{module_id}' already loaded")
-            return self._loaded_modules[module_id]
+            logger.debug(f"Module '{module_id}' already loaded, creating fresh closure")
+            raw_fn = self._loaded_modules[module_id]
+
+            async def mount_with_config_cached(
+                coordinator: ModuleCoordinator, fn=raw_fn
+            ):
+                return await fn(coordinator, config or {})
+
+            return mount_with_config_cached
 
         try:
             # Resolve module source
@@ -214,9 +221,9 @@ class ModuleLoader:
                     logger.debug(
                         f"No source resolver mounted, using direct discovery for '{module_id}'"
                     )
-                    mount_fn = await self._load_direct(module_id, config)
-                    if mount_fn:
-                        return mount_fn
+                    mount_closure = await self._load_direct(module_id, config)
+                    if mount_closure:
+                        return mount_closure
                     raise ValueError(
                         f"Module '{module_id}' not found via entry points or filesystem"
                     )
@@ -263,16 +270,28 @@ class ModuleLoader:
                 raise resolve_error
 
             # Try to load via entry point first
-            mount_fn = self._load_entry_point(module_id, config)
-            if mount_fn:
-                self._loaded_modules[module_id] = mount_fn
-                return mount_fn
+            raw_fn = self._load_entry_point(module_id)
+            if raw_fn:
+                self._loaded_modules[module_id] = raw_fn
+
+                async def mount_with_config_ep(
+                    coordinator: ModuleCoordinator, fn=raw_fn
+                ):
+                    return await fn(coordinator, config or {})
+
+                return mount_with_config_ep
 
             # Try filesystem loading
-            mount_fn = self._load_filesystem(module_id, config)
-            if mount_fn:
-                self._loaded_modules[module_id] = mount_fn
-                return mount_fn
+            raw_fn = self._load_filesystem(module_id)
+            if raw_fn:
+                self._loaded_modules[module_id] = raw_fn
+
+                async def mount_with_config_fs(
+                    coordinator: ModuleCoordinator, fn=raw_fn
+                ):
+                    return await fn(coordinator, config or {})
+
+                return mount_with_config_fs
 
             raise ValueError(
                 f"Module '{module_id}' found at {module_path} but failed to load"
@@ -295,42 +314,49 @@ class ModuleLoader:
             config: Optional module configuration
 
         Returns:
-            Mount function if found, None otherwise
+            Mount closure (with config bound) if found, None otherwise
         """
-        # Try entry point
-        mount_fn = self._load_entry_point(module_id, config)
-        if mount_fn:
-            self._loaded_modules[module_id] = mount_fn
-            return mount_fn
+        # Try entry point — returns raw mount function (no config bound)
+        raw_fn = self._load_entry_point(module_id)
+        if raw_fn:
+            self._loaded_modules[module_id] = raw_fn  # cache raw fn, not closure
 
-        # Try filesystem
-        mount_fn = self._load_filesystem(module_id, config)
-        if mount_fn:
-            self._loaded_modules[module_id] = mount_fn
-            return mount_fn
+            async def mount_with_config_direct_ep(
+                coordinator: ModuleCoordinator, fn=raw_fn
+            ):
+                return await fn(coordinator, config or {})
+
+            return mount_with_config_direct_ep
+
+        # Try filesystem — returns raw mount function (no config bound)
+        raw_fn = self._load_filesystem(module_id)
+        if raw_fn:
+            self._loaded_modules[module_id] = raw_fn  # cache raw fn, not closure
+
+            async def mount_with_config_direct_fs(
+                coordinator: ModuleCoordinator, fn=raw_fn
+            ):
+                return await fn(coordinator, config or {})
+
+            return mount_with_config_direct_fs
 
         return None
 
-    def _load_entry_point(
-        self, module_id: str, config: dict[str, Any] | None = None
-    ) -> Callable | None:
-        """Load module via entry point."""
+    def _load_entry_point(self, module_id: str) -> Callable | None:
+        """Resolve module entry point and return the raw mount function.
+
+        Returns the raw (un-configured) mount function so callers can cache it
+        and wrap it in a fresh closure with the correct config on each use.
+        """
         try:
             eps = importlib.metadata.entry_points(group="amplifier.modules")
 
             for ep in eps:
                 if ep.name == module_id:
-                    # Load the mount function
+                    # Load the raw mount function (no config binding here)
                     mount_fn = ep.load()
                     logger.info(f"Loaded module '{module_id}' via entry point")
-
-                    # Return a wrapper that passes config
-                    async def mount_with_config(
-                        coordinator: ModuleCoordinator, fn=mount_fn
-                    ):
-                        return await fn(coordinator, config or {})
-
-                    return mount_with_config
+                    return mount_fn
 
         except Exception as e:
             logger.error(
@@ -339,25 +365,21 @@ class ModuleLoader:
 
         return None
 
-    def _load_filesystem(
-        self, module_id: str, config: dict[str, Any] | None = None
-    ) -> Callable | None:
-        """Load module from filesystem."""
+    def _load_filesystem(self, module_id: str) -> Callable | None:
+        """Resolve module from filesystem and return the raw mount function.
+
+        Returns the raw (un-configured) mount function so callers can cache it
+        and wrap it in a fresh closure with the correct config on each use.
+        """
         try:
             # Try to import the module
             module_name = f"amplifier_module_{module_id.replace('-', '_')}"
             module = importlib.import_module(module_name)
 
-            # Get the mount function
+            # Get the raw mount function (no config binding here)
             if hasattr(module, "mount"):
-                mount_fn = module.mount
                 logger.info(f"Loaded module '{module_id}' from filesystem")
-
-                # Return a wrapper that passes config
-                async def mount_with_config(coordinator: ModuleCoordinator):
-                    return await mount_fn(coordinator, config or {})
-
-                return mount_with_config
+                return module.mount
 
         except Exception as e:
             logger.debug(f"Could not load '{module_id}' from filesystem: {e}")
