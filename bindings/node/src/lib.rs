@@ -77,16 +77,6 @@ pub enum UserMessageLevel {
     Error,
 }
 
-#[napi(string_enum)]
-pub enum Role {
-    System,
-    Developer,
-    User,
-    Assistant,
-    Function,
-    Tool,
-}
-
 // ---------------------------------------------------------------------------
 // Bidirectional From conversions: HookAction <-> amplifier_core::models::HookAction
 // ---------------------------------------------------------------------------
@@ -216,20 +206,6 @@ impl From<ApprovalDefault> for core_models::ApprovalDefault {
 // ---------------------------------------------------------------------------
 
 #[napi(object)]
-pub struct JsToolResult {
-    pub success: bool,
-    pub output: Option<String>,
-    pub error: Option<String>,
-}
-
-#[napi(object)]
-pub struct JsToolSpec {
-    pub name: String,
-    pub description: Option<String>,
-    pub parameters_json: String,
-}
-
-#[napi(object)]
 pub struct JsHookResult {
     pub action: HookAction,
     pub reason: Option<String>,
@@ -243,11 +219,6 @@ pub struct JsHookResult {
     pub approval_prompt: Option<String>,
     pub approval_timeout: Option<f64>,
     pub approval_default: Option<ApprovalDefault>,
-}
-
-#[napi(object)]
-pub struct JsSessionConfig {
-    pub config_json: String,
 }
 
 // ---------------------------------------------------------------------------

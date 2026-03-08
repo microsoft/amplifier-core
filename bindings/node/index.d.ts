@@ -31,24 +31,6 @@ export const enum UserMessageLevel {
   Warning = 'Warning',
   Error = 'Error'
 }
-export const enum Role {
-  System = 'System',
-  Developer = 'Developer',
-  User = 'User',
-  Assistant = 'Assistant',
-  Function = 'Function',
-  Tool = 'Tool'
-}
-export interface JsToolResult {
-  success: boolean
-  output?: string
-  error?: string
-}
-export interface JsToolSpec {
-  name: string
-  description?: string
-  parametersJson: string
-}
 export interface JsHookResult {
   action: HookAction
   reason?: string
@@ -62,9 +44,6 @@ export interface JsHookResult {
   approvalPrompt?: string
   approvalTimeout?: number
   approvalDefault?: ApprovalDefault
-}
-export interface JsSessionConfig {
-  configJson: string
 }
 /** Structured error object returned to JS with a typed `code` property. */
 export interface JsAmplifierError {
