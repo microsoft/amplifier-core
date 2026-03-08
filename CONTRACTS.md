@@ -186,20 +186,21 @@ These types stay as Python by design — they are app-layer concerns, not kernel
 
 ## Event Constants
 
-Rust defines event names in `crates/amplifier-core/src/events.rs`. Python defines
-them as class-level constants on `HookRegistry` in `hooks.py`. They must be
-identical strings:
+Canonical event names are defined in `crates/amplifier-core/src/events.rs` (Rust)
+and re-exported in `amplifier_core.events` (Python). The full set contains 41+
+events; the table below lists the most commonly referenced ones. Always use the
+constants from the events module rather than hard-coding strings.
 
 | Event | Value |
 |-------|-------|
+| Execution start | `"execution:start"` |
+| Execution end | `"execution:end"` |
 | Session start | `"session:start"` |
 | Session end | `"session:end"` |
-| Turn start | `"turn:start"` |
-| Turn end | `"turn:end"` |
+| LLM request | `"llm:request"` |
+| LLM response | `"llm:response"` |
 | Tool pre | `"tool:pre"` |
 | Tool post | `"tool:post"` |
-| LLM pre | `"llm:pre"` |
-| LLM post | `"llm:post"` |
 | Context compaction | `"context:compaction"` |
 
 ---
