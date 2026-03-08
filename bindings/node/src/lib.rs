@@ -908,6 +908,9 @@ pub fn resolve_module(path: String) -> Result<JsModuleManifest> {
     };
 
     let (artifact_type, artifact_path, endpoint, package_name) = match &manifest.artifact {
+        amplifier_core::module_resolver::ModuleArtifact::WasmPath(path) => {
+            ("wasm", Some(path.to_string_lossy().to_string()), None, None)
+        }
         amplifier_core::module_resolver::ModuleArtifact::WasmBytes { path, .. } => {
             ("wasm", Some(path.to_string_lossy().to_string()), None, None)
         }

@@ -200,10 +200,7 @@ pub fn parse_amplifier_toml(
                 }
             }
 
-            ModuleArtifact::WasmBytes {
-                bytes: Vec::new(), // bytes loaded later by the transport layer
-                path: wasm_path,
-            }
+            ModuleArtifact::WasmPath(wasm_path)
         }
         Transport::Python | Transport::Native => {
             let dir_name = module_path
@@ -235,7 +232,15 @@ pub struct ModuleManifest {
 /// The loadable artifact for a resolved module.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModuleArtifact {
+    /// A WASM component path, not yet loaded. Bytes will be read from disk at load time.
+    ///
+    /// This is the pre-load state returned by [`parse_amplifier_toml`] for WASM transport.
+    /// [`load_module`] converts this into actual bytes before dispatch.
+    WasmPath(PathBuf),
     /// Raw WASM component bytes, plus the path they were read from.
+    ///
+    /// Used when bytes are already loaded (e.g., auto-detected via [`resolve_module`]
+    /// without an `amplifier.toml`, or when bytes are supplied directly in tests).
     WasmBytes { bytes: Vec<u8>, path: PathBuf },
     /// A gRPC endpoint URL (e.g., "http://localhost:50051").
     GrpcEndpoint(String),
@@ -471,11 +476,19 @@ pub fn load_module(
         }
 
         Transport::Wasm => {
-            let bytes = match &manifest.artifact {
+            // Resolve bytes: read from disk for WasmPath, use existing bytes for WasmBytes.
+            let owned_bytes: Vec<u8>;
+            let bytes: &[u8] = match &manifest.artifact {
+                ModuleArtifact::WasmPath(path) => {
+                    owned_bytes = std::fs::read(path).map_err(|e| {
+                        format!("failed to read WASM bytes from {}: {e}", path.display())
+                    })?;
+                    &owned_bytes
+                }
                 ModuleArtifact::WasmBytes { bytes, .. } => bytes,
                 other => {
                     return Err(format!(
-                        "expected WasmBytes artifact for WASM transport, got {:?}",
+                        "expected WasmPath or WasmBytes artifact for WASM transport, got {:?}",
                         other
                     )
                     .into())
@@ -671,12 +684,10 @@ artifact = "my-hook.wasm"
         assert_eq!(manifest.transport, Transport::Wasm);
         assert_eq!(manifest.module_type, ModuleType::Hook);
         match &manifest.artifact {
-            ModuleArtifact::WasmBytes {
-                path: wasm_path, ..
-            } => {
+            ModuleArtifact::WasmPath(wasm_path) => {
                 assert_eq!(wasm_path, &PathBuf::from("/modules/my-hook/my-hook.wasm"));
             }
-            other => panic!("expected WasmBytes, got {other:?}"),
+            other => panic!("expected WasmPath, got {other:?}"),
         }
     }
 
@@ -1171,6 +1182,66 @@ artifact = "evil.wasm"
             msg.contains("escapes module directory"),
             "error should mention 'escapes module directory': {msg}"
         );
+    }
+
+    // --- WasmPath variant tests (M-04) ---
+
+    /// parse_amplifier_toml with wasm transport must return WasmPath (not WasmBytes with empty bytes).
+    #[test]
+    fn parse_toml_wasm_transport_returns_wasm_path() {
+        let toml_content = r#"
+[module]
+transport = "wasm"
+type = "hook"
+artifact = "my-hook.wasm"
+"#;
+        let path = Path::new("/modules/my-hook");
+        let manifest = parse_amplifier_toml(toml_content, path).unwrap();
+        assert_eq!(manifest.transport, Transport::Wasm);
+        assert_eq!(manifest.module_type, ModuleType::Hook);
+        match &manifest.artifact {
+            ModuleArtifact::WasmPath(wasm_path) => {
+                assert_eq!(wasm_path, &PathBuf::from("/modules/my-hook/my-hook.wasm"));
+            }
+            other => panic!("expected WasmPath, got {other:?}"),
+        }
+    }
+
+    /// WasmPath variant can be constructed, cloned, and compared.
+    #[test]
+    fn wasm_path_variant_basic() {
+        let artifact = ModuleArtifact::WasmPath(PathBuf::from("/tmp/echo-tool.wasm"));
+        let cloned = artifact.clone();
+        assert_eq!(artifact, cloned);
+        match artifact {
+            ModuleArtifact::WasmPath(p) => assert_eq!(p, PathBuf::from("/tmp/echo-tool.wasm")),
+            other => panic!("expected WasmPath, got {other:?}"),
+        }
+    }
+
+    /// load_module with a WasmPath artifact reads bytes from disk and loads successfully.
+    #[cfg(feature = "wasm")]
+    #[tokio::test]
+    async fn load_module_wasm_path_loads_bytes_from_disk() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wasm_bytes = fixture_bytes("echo-tool.wasm");
+        let wasm_file = dir.path().join("echo-tool.wasm");
+        std::fs::write(&wasm_file, &wasm_bytes).expect("write wasm");
+
+        let manifest = ModuleManifest {
+            transport: Transport::Wasm,
+            module_type: ModuleType::Tool,
+            artifact: ModuleArtifact::WasmPath(wasm_file),
+        };
+
+        let engine = make_engine();
+        let coordinator = std::sync::Arc::new(crate::coordinator::Coordinator::new_for_test());
+        let result = load_module(&manifest, engine, Some(coordinator));
+        assert!(result.is_ok(), "load_module should succeed with WasmPath, got: {:?}", result.err());
+        match result.unwrap() {
+            LoadedModule::Tool(tool) => assert_eq!(tool.name(), "echo-tool"),
+            other => panic!("expected Tool, got {:?}", other.variant_name()),
+        }
     }
 
     #[cfg(feature = "wasm")]
