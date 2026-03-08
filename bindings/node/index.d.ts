@@ -134,8 +134,8 @@ export declare class JsCancellationToken {
   get isCancelled(): boolean
   get isGraceful(): boolean
   get isImmediate(): boolean
-  requestGraceful(reason?: string | undefined | null): void
-  requestImmediate(reason?: string | undefined | null): void
+  requestGraceful(): void
+  requestImmediate(): void
   reset(): void
 }
 /**

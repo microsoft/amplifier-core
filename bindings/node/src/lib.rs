@@ -298,12 +298,12 @@ impl JsCancellationToken {
     }
 
     #[napi]
-    pub fn request_graceful(&self, _reason: Option<String>) {
+    pub fn request_graceful(&self) {
         self.inner.request_graceful();
     }
 
     #[napi]
-    pub fn request_immediate(&self, _reason: Option<String>) {
+    pub fn request_immediate(&self) {
         self.inner.request_immediate();
     }
 
