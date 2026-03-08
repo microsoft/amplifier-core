@@ -1,6 +1,6 @@
 [project]
 name = "amplifier-core"
-version = "1.0.13"
+version = "1.1.0"
 description = "Rust kernel with Python bindings for the Amplifier modular AI agent framework"
 license = "MIT"
 readme = "README.md"
