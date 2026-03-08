@@ -199,6 +199,25 @@ class AmplifierSession:
                     f"Cannot initialize without context manager: {_safe_exception_str(e)}"
                 )
 
+            # Validate multi-instance providers have instance_id
+            _provider_module_counts: dict[str, int] = {}
+            for _pc in self.config.get("providers", []):
+                _mid = _pc.get("module", "")
+                if _mid:
+                    _provider_module_counts[_mid] = (
+                        _provider_module_counts.get(_mid, 0) + 1
+                    )
+
+            for _pc in self.config.get("providers", []):
+                _mid = _pc.get("module", "")
+                if _provider_module_counts.get(_mid, 0) > 1 and not _pc.get(
+                    "instance_id"
+                ):
+                    raise ValueError(
+                        f"Multi-instance providers require explicit 'instance_id' on each entry. "
+                        f"Found multiple entries for module '{_mid}' without instance_id."
+                    )
+
             # Load providers
             for provider_config in self.config.get("providers", []):
                 module_id = provider_config.get("module")

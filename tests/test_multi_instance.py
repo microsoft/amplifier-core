@@ -241,6 +241,139 @@ async def test_session_py_instance_id_remapping():
     )
 
 
+# ---------------------------------------------------------------------------
+# Task 3: Tests for multi-instance validation (duplicate module + instance_id)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_duplicate_module_without_instance_id_raises():
+    """Two providers with the same module, neither has instance_id → ValueError."""
+    config = {
+        "session": {"orchestrator": "loop-basic", "context": "context-simple"},
+        "providers": [
+            {"module": "provider-mock"},
+            {"module": "provider-mock"},  # duplicate, no instance_id
+        ],
+    }
+
+    orch_mount_fn = AsyncMock(return_value=None)
+    ctx_mount_fn = AsyncMock(return_value=None)
+
+    loader = _make_loader(
+        {
+            "loop-basic": orch_mount_fn,
+            "context-simple": ctx_mount_fn,
+        }
+    )
+
+    coordinator = TestCoordinator()
+    coordinator.loader = loader
+
+    with pytest.raises(ValueError, match="instance_id"):
+        await initialize_session(config, coordinator, session_id="test", parent_id=None)
+
+
+@pytest.mark.asyncio
+async def test_duplicate_module_with_instance_id_passes():
+    """Two providers with same module but different instance_ids → no error."""
+    provider_a = object()
+    provider_b = object()
+    call_count = {"n": 0}
+
+    async def mount_fn_a(coord):
+        await coord.mount("providers", provider_a, name="mock")
+        return None
+
+    async def mount_fn_b(coord):
+        await coord.mount("providers", provider_b, name="mock")
+        return None
+
+    async def load_side_effect(module_id, config=None, source_hint=None):
+        if module_id == "loop-basic":
+            return AsyncMock(return_value=None)
+        if module_id == "context-simple":
+            return AsyncMock(return_value=None)
+        if module_id == "provider-mock":
+            call_count["n"] += 1
+            return mount_fn_a if call_count["n"] == 1 else mount_fn_b
+        raise ValueError(f"Unexpected module: {module_id}")
+
+    loader = AsyncMock()
+    loader.load.side_effect = load_side_effect
+
+    config = {
+        "session": {"orchestrator": "loop-basic", "context": "context-simple"},
+        "providers": [
+            {"module": "provider-mock", "instance_id": "mock-a"},
+            {"module": "provider-mock", "instance_id": "mock-b"},
+        ],
+    }
+
+    coordinator = TestCoordinator()
+    coordinator.loader = loader
+
+    # Should not raise
+    await initialize_session(config, coordinator, session_id="test", parent_id=None)
+
+
+@pytest.mark.asyncio
+async def test_single_module_no_instance_id_ok():
+    """Single provider entry without instance_id → no error (backward compat)."""
+    config = {
+        "session": {"orchestrator": "loop-basic", "context": "context-simple"},
+        "providers": [
+            {"module": "provider-mock"},  # only one — no instance_id is fine
+        ],
+    }
+
+    mount_fn = _make_provider_mount_fn("mock")
+    orch_mount_fn = AsyncMock(return_value=None)
+    ctx_mount_fn = AsyncMock(return_value=None)
+
+    loader = _make_loader(
+        {
+            "loop-basic": orch_mount_fn,
+            "context-simple": ctx_mount_fn,
+            "provider-mock": mount_fn,
+        }
+    )
+
+    coordinator = TestCoordinator()
+    coordinator.loader = loader
+
+    # Should not raise
+    await initialize_session(config, coordinator, session_id="test", parent_id=None)
+
+
+@pytest.mark.asyncio
+async def test_duplicate_module_one_missing_instance_id_raises():
+    """Two providers with same module; one has instance_id, the other doesn't → ValueError."""
+    config = {
+        "session": {"orchestrator": "loop-basic", "context": "context-simple"},
+        "providers": [
+            {"module": "provider-mock", "instance_id": "mock-a"},
+            {"module": "provider-mock"},  # missing instance_id
+        ],
+    }
+
+    orch_mount_fn = AsyncMock(return_value=None)
+    ctx_mount_fn = AsyncMock(return_value=None)
+
+    loader = _make_loader(
+        {
+            "loop-basic": orch_mount_fn,
+            "context-simple": ctx_mount_fn,
+        }
+    )
+
+    coordinator = TestCoordinator()
+    coordinator.loader = loader
+
+    with pytest.raises(ValueError, match="instance_id"):
+        await initialize_session(config, coordinator, session_id="test", parent_id=None)
+
+
 @pytest.mark.asyncio
 async def test_session_py_no_instance_id_no_remap():
     """session.py path: no instance_id → provider stays under default name."""
