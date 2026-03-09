@@ -13,53 +13,16 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use wasmtime::component::Component;
-use wasmtime::{Engine, Store};
+use wasmtime::Engine;
 
 use crate::errors::{AmplifierError, SessionError};
 use crate::models::{ApprovalRequest, ApprovalResponse};
 use crate::traits::ApprovalProvider;
 
-use super::wasm_tool::{create_linker_and_store, WasmState};
+use super::wasm_tool::create_linker_and_store;
 
 /// The WIT interface name used by `cargo component` for approval provider exports.
 const INTERFACE_NAME: &str = "amplifier:modules/approval-provider@1.0.0";
-
-/// Convenience alias for the wasmtime typed function handle: takes (bytes) → result(bytes, string).
-type RequestApprovalFunc = wasmtime::component::TypedFunc<(Vec<u8>,), (Result<Vec<u8>, String>,)>;
-
-/// Shorthand for the fallible return type used by helper functions.
-type WasmResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
-
-/// Look up the `request-approval` typed function export from a component instance.
-///
-/// Tries:
-/// 1. Direct root-level export `"request-approval"`
-/// 2. Nested inside the [`INTERFACE_NAME`] exported instance
-fn get_request_approval_func(
-    instance: &wasmtime::component::Instance,
-    store: &mut Store<WasmState>,
-) -> WasmResult<RequestApprovalFunc> {
-    // Try direct root-level export first.
-    if let Ok(f) = instance
-        .get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(&mut *store, "request-approval")
-    {
-        return Ok(f);
-    }
-
-    // Try nested inside the interface-exported instance.
-    let iface_idx = instance
-        .get_export_index(&mut *store, None, INTERFACE_NAME)
-        .ok_or_else(|| format!("export instance '{INTERFACE_NAME}' not found"))?;
-    let func_idx = instance
-        .get_export_index(&mut *store, Some(&iface_idx), "request-approval")
-        .ok_or_else(|| {
-            format!("export function 'request-approval' not found in '{INTERFACE_NAME}'")
-        })?;
-    let func = instance
-        .get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(&mut *store, &func_idx)
-        .map_err(|e| format!("typed func lookup failed for 'request-approval': {e}"))?;
-    Ok(func)
-}
 
 /// Helper: call the `request-approval` export on a fresh component instance.
 ///
@@ -72,7 +35,9 @@ fn call_request_approval(
     let (linker, mut store) = create_linker_and_store(engine, &super::WasmLimits::default())?;
     let instance = linker.instantiate(&mut store, component)?;
 
-    let func = get_request_approval_func(&instance, &mut store)?;
+    let func = super::get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(
+        &instance, &mut store, "request-approval", INTERFACE_NAME,
+    )?;
     let (result,) = func.call(&mut store, (request_bytes,))?;
     match result {
         Ok(bytes) => Ok(bytes),

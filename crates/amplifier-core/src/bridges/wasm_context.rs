@@ -26,41 +26,6 @@ use super::wasm_tool::{create_linker_and_store, WasmState};
 /// The WIT interface name used by `cargo component` for context manager exports.
 const INTERFACE_NAME: &str = "amplifier:modules/context-manager@1.0.0";
 
-/// Shorthand for the fallible return type used by helper functions.
-type WasmResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
-
-/// Look up a typed function export from the context manager component instance.
-///
-/// Tries:
-/// 1. Direct root-level export by `func_name`
-/// 2. Nested inside the [`INTERFACE_NAME`] exported instance
-fn get_context_func<Params, Results>(
-    instance: &wasmtime::component::Instance,
-    store: &mut Store<WasmState>,
-    func_name: &str,
-) -> WasmResult<wasmtime::component::TypedFunc<Params, Results>>
-where
-    Params: wasmtime::component::Lower + wasmtime::component::ComponentNamedList,
-    Results: wasmtime::component::Lift + wasmtime::component::ComponentNamedList,
-{
-    // Try direct root-level export first.
-    if let Ok(f) = instance.get_typed_func::<Params, Results>(&mut *store, func_name) {
-        return Ok(f);
-    }
-
-    // Try nested inside the interface-exported instance.
-    let iface_idx = instance
-        .get_export_index(&mut *store, None, INTERFACE_NAME)
-        .ok_or_else(|| format!("export instance '{INTERFACE_NAME}' not found"))?;
-    let func_idx = instance
-        .get_export_index(&mut *store, Some(&iface_idx), func_name)
-        .ok_or_else(|| format!("export function '{func_name}' not found in '{INTERFACE_NAME}'"))?;
-    let func = instance
-        .get_typed_func::<Params, Results>(&mut *store, &func_idx)
-        .map_err(|e| format!("typed func lookup failed for '{func_name}': {e}"))?;
-    Ok(func)
-}
-
 /// A bridge that loads a WASM Component and exposes it as a native [`ContextManager`].
 ///
 /// Unlike [`WasmToolBridge`] and [`WasmHookBridge`], this bridge is **stateful**.
@@ -125,10 +90,11 @@ impl ContextManager for WasmContextBridge {
             let mut guard = self.state.lock().await;
             let (store, instance) = &mut *guard;
 
-            let func = get_context_func::<(Vec<u8>,), (Result<(), String>,)>(
+            let func = super::get_typed_func::<(Vec<u8>,), (Result<(), String>,)>(
                 instance,
                 store,
                 "add-message",
+                INTERFACE_NAME,
             )
             .map_err(|e| ContextError::Other {
                 message: format!("WASM add-message lookup failed: {e}"),
@@ -154,7 +120,7 @@ impl ContextManager for WasmContextBridge {
             let (store, instance) = &mut *guard;
 
             let func =
-                get_context_func::<(), (Result<Vec<u8>, String>,)>(instance, store, "get-messages")
+                super::get_typed_func::<(), (Result<Vec<u8>, String>,)>(instance, store, "get-messages", INTERFACE_NAME)
                     .map_err(|e| ContextError::Other {
                         message: format!("WASM get-messages lookup failed: {e}"),
                     })?;
@@ -195,10 +161,11 @@ impl ContextManager for WasmContextBridge {
             let mut guard = self.state.lock().await;
             let (store, instance) = &mut *guard;
 
-            let func = get_context_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(
+            let func = super::get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(
                 instance,
                 store,
                 "get-messages-for-request",
+                INTERFACE_NAME,
             )
             .map_err(|e| ContextError::Other {
                 message: format!("WASM get-messages-for-request lookup failed: {e}"),
@@ -233,10 +200,11 @@ impl ContextManager for WasmContextBridge {
             let mut guard = self.state.lock().await;
             let (store, instance) = &mut *guard;
 
-            let func = get_context_func::<(Vec<u8>,), (Result<(), String>,)>(
+            let func = super::get_typed_func::<(Vec<u8>,), (Result<(), String>,)>(
                 instance,
                 store,
                 "set-messages",
+                INTERFACE_NAME,
             )
             .map_err(|e| ContextError::Other {
                 message: format!("WASM set-messages lookup failed: {e}"),
@@ -259,7 +227,7 @@ impl ContextManager for WasmContextBridge {
             let mut guard = self.state.lock().await;
             let (store, instance) = &mut *guard;
 
-            let func = get_context_func::<(), (Result<(), String>,)>(instance, store, "clear")
+            let func = super::get_typed_func::<(), (Result<(), String>,)>(instance, store, "clear", INTERFACE_NAME)
                 .map_err(|e| ContextError::Other {
                     message: format!("WASM clear lookup failed: {e}"),
                 })?;

@@ -65,3 +65,44 @@ pub fn create_wasm_engine() -> Result<Arc<Engine>, Box<dyn std::error::Error + S
 
     Ok(engine)
 }
+
+// ── Shared WASM function lookup ───────────────────────────────────────────────
+
+/// Look up a typed function export from a component instance.
+///
+/// Component Model exports may be at the root level or nested inside an
+/// exported interface instance. This helper tries:
+/// 1. Direct root-level export by `func_name`
+/// 2. Nested inside the `interface_name` exported instance
+///
+/// Shared by all WASM bridge modules to avoid duplicating identical lookup
+/// logic across `wasm_tool`, `wasm_provider`, `wasm_context`, `wasm_hook`,
+/// `wasm_orchestrator`, and `wasm_approval`.
+#[cfg(feature = "wasm")]
+pub(crate) fn get_typed_func<Params, Results>(
+    instance: &wasmtime::component::Instance,
+    store: &mut wasmtime::Store<wasm_tool::WasmState>,
+    func_name: &str,
+    interface_name: &str,
+) -> Result<wasmtime::component::TypedFunc<Params, Results>, Box<dyn std::error::Error + Send + Sync>>
+where
+    Params: wasmtime::component::Lower + wasmtime::component::ComponentNamedList,
+    Results: wasmtime::component::Lift + wasmtime::component::ComponentNamedList,
+{
+    // Try direct root-level export first.
+    if let Ok(f) = instance.get_typed_func::<Params, Results>(&mut *store, func_name) {
+        return Ok(f);
+    }
+    // Try nested inside interface-exported instance.
+    let iface_idx = instance
+        .get_export_index(&mut *store, None, interface_name)
+        .ok_or_else(|| format!("export instance '{interface_name}' not found"))?;
+    let func_idx = instance
+        .get_export_index(&mut *store, Some(&iface_idx), func_name)
+        .ok_or_else(|| format!("export function '{func_name}' not found in '{interface_name}'"))?;
+    instance
+        .get_typed_func::<Params, Results>(&mut *store, &func_idx)
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+            format!("typed func lookup failed for '{func_name}': {e}").into()
+        })
+}

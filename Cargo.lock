@@ -40,7 +40,7 @@ checksum = "e9d4ee0d472d1cd2e28c97dfa124b3d8d992e10eb0a035f33f5d12e3a177ba3b"
 
 [[package]]
 name = "amplifier-core"
-version = "1.0.11"
+version = "1.1.0"
 dependencies = [
  "chrono",
  "log",
@@ -48,6 +48,7 @@ dependencies = [
  "rand",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -75,7 +76,7 @@ dependencies = [
 
 [[package]]
 name = "amplifier-core-py"
-version = "1.0.11"
+version = "1.1.0"
 dependencies = [
  "amplifier-core",
  "log",

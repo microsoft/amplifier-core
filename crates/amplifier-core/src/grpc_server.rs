@@ -47,6 +47,16 @@ impl Interceptor for AuthInterceptor {
     }
 }
 
+/// Maximum allowed timeout for [`emit_hook_and_collect`] requests (5 minutes).
+///
+/// Values above this are silently clamped to the cap so that a misbehaving
+/// module cannot hold a collect call open indefinitely.
+const MAX_HOOK_COLLECT_TIMEOUT_SECS: f64 = 300.0;
+
+/// Default timeout applied when the caller sends a non-positive or non-finite
+/// value for `timeout_seconds` in an [`EmitHookAndCollectRequest`].
+const DEFAULT_HOOK_COLLECT_TIMEOUT_SECS: u64 = 30;
+
 /// Maximum allowed size for any JSON payload field received over gRPC.
 ///
 /// Payloads exceeding this limit are rejected with `Status::invalid_argument`
@@ -299,10 +309,10 @@ impl KernelService for KernelServiceImpl {
             })?
         };
 
-        let timeout = if req.timeout_seconds > 0.0 {
-            std::time::Duration::from_secs_f64(req.timeout_seconds)
+        let timeout = if req.timeout_seconds.is_finite() && req.timeout_seconds > 0.0 {
+            std::time::Duration::from_secs_f64(req.timeout_seconds.min(MAX_HOOK_COLLECT_TIMEOUT_SECS))
         } else {
-            std::time::Duration::from_secs(30)
+            std::time::Duration::from_secs(DEFAULT_HOOK_COLLECT_TIMEOUT_SECS)
         };
 
         let results = self
@@ -766,6 +776,111 @@ mod tests {
         let result = service.emit_hook_and_collect(request).await;
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code(), tonic::Code::InvalidArgument);
+    }
+
+    #[tokio::test]
+    async fn emit_hook_and_collect_normal_timeout_passes_through() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::EmitHookAndCollectRequest {
+            event: "test:event".to_string(),
+            data_json: String::new(),
+            timeout_seconds: 10.0,
+        });
+
+        let result = service.emit_hook_and_collect(request).await;
+        assert!(result.is_ok(), "10s timeout should succeed, got: {result:?}");
+    }
+
+    #[tokio::test]
+    async fn emit_hook_and_collect_huge_timeout_is_clamped_to_max() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::EmitHookAndCollectRequest {
+            event: "test:event".to_string(),
+            data_json: String::new(),
+            timeout_seconds: 999_999.0,
+        });
+
+        let result = service.emit_hook_and_collect(request).await;
+        assert!(
+            result.is_ok(),
+            "Huge timeout should be clamped, not rejected: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn emit_hook_and_collect_nan_timeout_falls_back_to_default() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::EmitHookAndCollectRequest {
+            event: "test:event".to_string(),
+            data_json: String::new(),
+            timeout_seconds: f64::NAN,
+        });
+
+        let result = service.emit_hook_and_collect(request).await;
+        assert!(
+            result.is_ok(),
+            "NaN timeout should fall back to default, got: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn emit_hook_and_collect_infinity_timeout_falls_back_to_default() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::EmitHookAndCollectRequest {
+            event: "test:event".to_string(),
+            data_json: String::new(),
+            timeout_seconds: f64::INFINITY,
+        });
+
+        let result = service.emit_hook_and_collect(request).await;
+        assert!(
+            result.is_ok(),
+            "Infinity timeout should fall back to default, got: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn emit_hook_and_collect_negative_timeout_falls_back_to_default() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::EmitHookAndCollectRequest {
+            event: "test:event".to_string(),
+            data_json: String::new(),
+            timeout_seconds: -5.0,
+        });
+
+        let result = service.emit_hook_and_collect(request).await;
+        assert!(
+            result.is_ok(),
+            "Negative timeout should fall back to default, got: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn emit_hook_and_collect_neg_infinity_timeout_falls_back_to_default() {
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        let service = KernelServiceImpl::new(coord);
+
+        let request = Request::new(amplifier_module::EmitHookAndCollectRequest {
+            event: "test:event".to_string(),
+            data_json: String::new(),
+            timeout_seconds: f64::NEG_INFINITY,
+        });
+
+        let result = service.emit_hook_and_collect(request).await;
+        assert!(
+            result.is_ok(),
+            "NEG_INFINITY timeout should fall back to default, got: {result:?}"
+        );
     }
 
     // -----------------------------------------------------------------------

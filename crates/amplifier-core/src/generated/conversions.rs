@@ -3,6 +3,26 @@
 //! boundary.
 
 // ---------------------------------------------------------------------------
+// JSON helper utilities
+// ---------------------------------------------------------------------------
+
+/// Serialize a value to JSON, returning an empty string and logging a warning on failure.
+fn to_json_or_warn(value: &impl serde::Serialize, label: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|e| {
+        log::warn!("Failed to serialize {label} to JSON: {e}");
+        String::new()
+    })
+}
+
+/// Deserialize a JSON string, returning the type's default and logging a warning on failure.
+fn from_json_or_default<T: serde::de::DeserializeOwned + Default>(json: &str, label: &str) -> T {
+    serde_json::from_str(json).unwrap_or_else(|e| {
+        log::warn!("Failed to deserialize {label} from JSON: {e}");
+        T::default()
+    })
+}
+
+// ---------------------------------------------------------------------------
 // ToolResult conversions
 // ---------------------------------------------------------------------------
 
@@ -12,21 +32,11 @@ impl From<crate::models::ToolResult> for super::amplifier_module::ToolResult {
             success: native.success,
             output_json: native
                 .output
-                .map(|v| {
-                    serde_json::to_string(&v).unwrap_or_else(|e| {
-                        log::warn!("Failed to serialize ToolResult output to JSON: {e}");
-                        String::new()
-                    })
-                })
+                .map(|v| to_json_or_warn(&v, "ToolResult output"))
                 .unwrap_or_default(),
             error_json: native
                 .error
-                .map(|e| {
-                    serde_json::to_string(&e).unwrap_or_else(|ser_err| {
-                        log::warn!("Failed to serialize ToolResult error to JSON: {ser_err}");
-                        String::new()
-                    })
-                })
+                .map(|e| to_json_or_warn(&e, "ToolResult error"))
                 .unwrap_or_default(),
         }
     }
@@ -84,10 +94,7 @@ impl From<crate::models::ModelInfo> for super::amplifier_module::ModelInfo {
                 i32::MAX
             }),
             capabilities: native.capabilities,
-            defaults_json: serde_json::to_string(&native.defaults).unwrap_or_else(|e| {
-                log::warn!("Failed to serialize ModelInfo defaults to JSON: {e}");
-                String::new()
-            }),
+            defaults_json: to_json_or_warn(&native.defaults, "ModelInfo defaults"),
         }
     }
 }
@@ -103,10 +110,7 @@ impl From<super::amplifier_module::ModelInfo> for crate::models::ModelInfo {
             defaults: if proto.defaults_json.is_empty() {
                 Default::default()
             } else {
-                serde_json::from_str(&proto.defaults_json).unwrap_or_else(|e| {
-                    log::warn!("Failed to deserialize ModelInfo defaults_json: {e}");
-                    Default::default()
-                })
+                from_json_or_default(&proto.defaults_json, "ModelInfo defaults_json")
             },
         }
     }
@@ -277,12 +281,7 @@ fn native_content_block_to_proto(
                 thinking,
                 signature: signature.unwrap_or_default(),
                 content: content
-                    .map(|v| {
-                        serde_json::to_string(&v).unwrap_or_else(|e| {
-                            log::warn!("Failed to serialize Thinking content to JSON: {e}");
-                            String::new()
-                        })
-                    })
+                    .map(|v| to_json_or_warn(&v, "Thinking content"))
                     .unwrap_or_default(),
             }),
             visibility,
@@ -303,10 +302,7 @@ fn native_content_block_to_proto(
             Block::ToolCallBlock(super::amplifier_module::ToolCallBlock {
                 id,
                 name,
-                input_json: serde_json::to_string(&input).unwrap_or_else(|e| {
-                    log::warn!("Failed to serialize ToolCall input to JSON: {e}");
-                    String::new()
-                }),
+                input_json: to_json_or_warn(&input, "ToolCall input"),
             }),
             visibility,
         ),
@@ -318,10 +314,7 @@ fn native_content_block_to_proto(
         } => (
             Block::ToolResultBlock(super::amplifier_module::ToolResultBlock {
                 tool_call_id,
-                output_json: serde_json::to_string(&output).unwrap_or_else(|e| {
-                    log::warn!("Failed to serialize ToolResult output to JSON: {e}");
-                    String::new()
-                }),
+                output_json: to_json_or_warn(&output, "ToolResult output"),
             }),
             visibility,
         ),
@@ -340,10 +333,7 @@ fn native_content_block_to_proto(
                     .unwrap_or_default()
                     .as_bytes()
                     .to_vec(),
-                source_json: serde_json::to_string(&source).unwrap_or_else(|e| {
-                    log::warn!("Failed to serialize Image source to JSON: {e}");
-                    String::new()
-                }),
+                source_json: to_json_or_warn(&source, "Image source"),
             }),
             visibility,
         ),
@@ -356,21 +346,11 @@ fn native_content_block_to_proto(
             Block::ReasoningBlock(super::amplifier_module::ReasoningBlock {
                 content: content
                     .into_iter()
-                    .map(|v| {
-                        serde_json::to_string(&v).unwrap_or_else(|e| {
-                            log::warn!("Failed to serialize Reasoning content item to JSON: {e}");
-                            String::new()
-                        })
-                    })
+                    .map(|v| to_json_or_warn(&v, "Reasoning content item"))
                     .collect(),
                 summary: summary
                     .into_iter()
-                    .map(|v| {
-                        serde_json::to_string(&v).unwrap_or_else(|e| {
-                            log::warn!("Failed to serialize Reasoning summary item to JSON: {e}");
-                            String::new()
-                        })
-                    })
+                    .map(|v| to_json_or_warn(&v, "Reasoning summary item"))
                     .collect(),
             }),
             visibility,
@@ -425,19 +405,13 @@ fn proto_content_block_to_native(
         Some(Block::ToolCallBlock(tc)) => ContentBlock::ToolCall {
             id: tc.id,
             name: tc.name,
-            input: serde_json::from_str(&tc.input_json).unwrap_or_else(|e| {
-                log::warn!("Failed to deserialize ToolCallBlock input_json: {e}");
-                Default::default()
-            }),
+            input: from_json_or_default(&tc.input_json, "ToolCallBlock input_json"),
             visibility: vis,
             extensions: HashMap::new(),
         },
         Some(Block::ToolResultBlock(tr)) => ContentBlock::ToolResult {
             tool_call_id: tr.tool_call_id,
-            output: serde_json::from_str(&tr.output_json).unwrap_or_else(|e| {
-                log::warn!("Failed to deserialize ToolResultBlock output_json: {e}");
-                serde_json::Value::Null
-            }),
+            output: from_json_or_default(&tr.output_json, "ToolResultBlock output_json"),
             visibility: vis,
             extensions: HashMap::new(),
         },
@@ -445,10 +419,7 @@ fn proto_content_block_to_native(
             source: if ib.source_json.is_empty() {
                 HashMap::new()
             } else {
-                serde_json::from_str(&ib.source_json).unwrap_or_else(|e| {
-                    log::warn!("Failed to deserialize ImageBlock source_json: {e}");
-                    Default::default()
-                })
+                from_json_or_default(&ib.source_json, "ImageBlock source_json")
             },
             visibility: vis,
             extensions: HashMap::new(),
@@ -522,12 +493,7 @@ pub fn native_message_to_proto(msg: crate::messages::Message) -> super::amplifie
         tool_call_id: msg.tool_call_id.unwrap_or_default(),
         metadata_json: msg
             .metadata
-            .map(|m| {
-                serde_json::to_string(&m).unwrap_or_else(|e| {
-                    log::warn!("Failed to serialize Message metadata to JSON: {e}");
-                    String::new()
-                })
-            })
+            .map(|m| to_json_or_warn(&m, "Message metadata"))
             .unwrap_or_default(),
     }
 }
@@ -633,12 +599,7 @@ pub fn native_hook_result_to_proto(
     let data_json = result
         .data
         .as_ref()
-        .map(|d| {
-            serde_json::to_string(d).unwrap_or_else(|e| {
-                log::warn!("Failed to serialize HookResult data to JSON: {e}");
-                String::new()
-            })
-        })
+        .map(|d| to_json_or_warn(d, "HookResult data"))
         .unwrap_or_default();
 
     amplifier_module::HookResult {
@@ -701,10 +662,7 @@ pub fn native_chat_request_to_proto(
             .map(|t| ToolSpecProto {
                 name: t.name.clone(),
                 description: t.description.clone().unwrap_or_default(),
-                parameters_json: serde_json::to_string(&t.parameters).unwrap_or_else(|e| {
-                    log::warn!("Failed to serialize ToolSpec parameters to JSON: {e}");
-                    String::new()
-                }),
+                parameters_json: to_json_or_warn(&t.parameters, "ToolSpec parameters"),
             })
             .collect(),
         response_format: request.response_format.as_ref().map(|rf| match rf {
@@ -716,10 +674,7 @@ pub fn native_chat_request_to_proto(
             },
             ResponseFormat::JsonSchema { schema, strict } => ProtoResponseFormat {
                 format: Some(response_format::Format::JsonSchema(JsonSchemaFormat {
-                    schema_json: serde_json::to_string(schema).unwrap_or_else(|e| {
-                        log::warn!("Failed to serialize JsonSchema schema to JSON: {e}");
-                        String::new()
-                    }),
+                    schema_json: to_json_or_warn(schema, "JsonSchema schema"),
                     strict: strict.unwrap_or(false),
                 })),
             },
@@ -743,12 +698,7 @@ pub fn native_chat_request_to_proto(
         metadata_json: request
             .metadata
             .as_ref()
-            .map(|m| {
-                serde_json::to_string(m).unwrap_or_else(|e| {
-                    log::warn!("Failed to serialize ChatRequest metadata to JSON: {e}");
-                    String::new()
-                })
-            })
+            .map(|m| to_json_or_warn(m, "ChatRequest metadata"))
             .unwrap_or_default(),
         model: request.model.clone().unwrap_or_default(),
         tool_choice: request
@@ -756,10 +706,7 @@ pub fn native_chat_request_to_proto(
             .as_ref()
             .map(|tc| match tc {
                 ToolChoice::String(s) => s.clone(),
-                ToolChoice::Object(obj) => serde_json::to_string(obj).unwrap_or_else(|e| {
-                    log::warn!("Failed to serialize ToolChoice object to JSON: {e}");
-                    String::new()
-                }),
+                ToolChoice::Object(obj) => to_json_or_warn(obj, "ToolChoice object"),
             })
             .unwrap_or_default(),
         stop: request.stop.clone().unwrap_or_default(),
@@ -815,10 +762,7 @@ pub fn proto_chat_request_to_native(
                         parameters: if t.parameters_json.is_empty() {
                             HashMap::new()
                         } else {
-                            serde_json::from_str(&t.parameters_json).unwrap_or_else(|e| {
-                                log::warn!("Failed to deserialize ToolSpec parameters_json: {e}");
-                                Default::default()
-                            })
+                            from_json_or_default(&t.parameters_json, "ToolSpec parameters_json")
                         },
                         extensions: HashMap::new(),
                     })
@@ -832,10 +776,7 @@ pub fn proto_chat_request_to_native(
                 let schema = if js.schema_json.is_empty() {
                     HashMap::new()
                 } else {
-                    serde_json::from_str(&js.schema_json).unwrap_or_else(|e| {
-                        log::warn!("Failed to deserialize JsonSchemaFormat schema_json: {e}");
-                        Default::default()
-                    })
+                    from_json_or_default(&js.schema_json, "JsonSchemaFormat schema_json")
                 };
                 Some(ResponseFormat::JsonSchema {
                     schema,
@@ -934,10 +875,7 @@ pub fn native_chat_response_to_proto(
     response: &crate::messages::ChatResponse,
 ) -> super::amplifier_module::ChatResponse {
     super::amplifier_module::ChatResponse {
-        content: serde_json::to_string(&response.content).unwrap_or_else(|e| {
-            log::warn!("Failed to serialize ChatResponse content to JSON: {e}");
-            String::new()
-        }),
+        content: to_json_or_warn(&response.content, "ChatResponse content"),
         tool_calls: response
             .tool_calls
             .as_deref()
@@ -946,10 +884,7 @@ pub fn native_chat_response_to_proto(
             .map(|tc| super::amplifier_module::ToolCallMessage {
                 id: tc.id.clone(),
                 name: tc.name.clone(),
-                arguments_json: serde_json::to_string(&tc.arguments).unwrap_or_else(|e| {
-                    log::warn!("Failed to serialize ToolCall arguments to JSON: {e}");
-                    String::new()
-                }),
+                arguments_json: to_json_or_warn(&tc.arguments, "ToolCall arguments"),
             })
             .collect(),
         usage: response.usage.clone().map(Into::into),
@@ -965,12 +900,7 @@ pub fn native_chat_response_to_proto(
         metadata_json: response
             .metadata
             .as_ref()
-            .map(|m| {
-                serde_json::to_string(m).unwrap_or_else(|e| {
-                    log::warn!("Failed to serialize ChatResponse metadata to JSON: {e}");
-                    String::new()
-                })
-            })
+            .map(|m| to_json_or_warn(m, "ChatResponse metadata"))
             .unwrap_or_default(),
     }
 }
@@ -990,10 +920,7 @@ pub fn proto_chat_response_to_native(
         content: if response.content.is_empty() {
             Vec::new()
         } else {
-            serde_json::from_str(&response.content).unwrap_or_else(|e| {
-                log::warn!("Failed to deserialize ChatResponse content: {e}");
-                Vec::new()
-            })
+            from_json_or_default(&response.content, "ChatResponse content")
         },
         tool_calls: if response.tool_calls.is_empty() {
             None
@@ -1008,10 +935,7 @@ pub fn proto_chat_response_to_native(
                         arguments: if tc.arguments_json.is_empty() {
                             HashMap::new()
                         } else {
-                            serde_json::from_str(&tc.arguments_json).unwrap_or_else(|e| {
-                                log::warn!("Failed to deserialize ToolCall arguments_json: {e}");
-                                Default::default()
-                            })
+                            from_json_or_default(&tc.arguments_json, "ToolCall arguments_json")
                         },
                         extensions: HashMap::new(),
                     })

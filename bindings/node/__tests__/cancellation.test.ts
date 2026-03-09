@@ -44,17 +44,4 @@ describe('JsCancellationToken', () => {
     expect(token.isImmediate).toBe(false)
   })
 
-  it('requestGraceful accepts optional reason string', () => {
-    const token = new JsCancellationToken()
-    token.requestGraceful('user requested stop')
-    expect(token.isCancelled).toBe(true)
-    expect(token.isGraceful).toBe(true)
-  })
-
-  it('requestImmediate accepts optional reason string', () => {
-    const token = new JsCancellationToken()
-    token.requestImmediate('timeout exceeded')
-    expect(token.isCancelled).toBe(true)
-    expect(token.isImmediate).toBe(true)
-  })
 })

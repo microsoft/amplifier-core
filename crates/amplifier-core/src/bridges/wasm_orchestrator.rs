@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use wasmtime::component::{Component, Linker};
-use wasmtime::{Engine, Store};
+use wasmtime::Engine;
 
 use crate::coordinator::Coordinator;
 use crate::errors::{AmplifierError, SessionError};
@@ -28,10 +28,6 @@ const KERNEL_SERVICE_INTERFACE: &str = "amplifier:modules/kernel-service@1.0.0";
 
 /// WIT interface name for the orchestrator export.
 const ORCHESTRATOR_INTERFACE: &str = "amplifier:modules/orchestrator@1.0.0";
-
-/// Shorthand for the typed function returned by the orchestrator `execute` export.
-type OrchestratorExecuteFunc =
-    wasmtime::component::TypedFunc<(Vec<u8>,), (Result<Vec<u8>, String>,)>;
 
 /// A bridge that loads a WASM Component and exposes it as a native [`Orchestrator`].
 ///
@@ -108,6 +104,10 @@ fn register_kernel_service_imports(
             move |_caller,
                   (request_bytes,): (Vec<u8>,)|
                   -> wasmtime::Result<(Result<Vec<u8>, String>,)> {
+                debug_assert!(
+                    tokio::runtime::Handle::try_current().is_ok(),
+                    "block_on requires an active Tokio runtime — must run inside spawn_blocking"
+                );
                 let result = tokio::runtime::Handle::current().block_on(async {
                     let req: Value = serde_json::from_slice(&request_bytes)
                         .map_err(|e| format!("execute-tool: bad request: {e}"))?;
@@ -144,6 +144,10 @@ fn register_kernel_service_imports(
             move |_caller,
                   (request_bytes,): (Vec<u8>,)|
                   -> wasmtime::Result<(Result<Vec<u8>, String>,)> {
+                debug_assert!(
+                    tokio::runtime::Handle::try_current().is_ok(),
+                    "block_on requires an active Tokio runtime — must run inside spawn_blocking"
+                );
                 let result = tokio::runtime::Handle::current().block_on(async {
                     let req: Value = serde_json::from_slice(&request_bytes)
                         .map_err(|e| format!("complete-with-provider: bad request: {e}"))?;
@@ -182,6 +186,10 @@ fn register_kernel_service_imports(
             move |_caller,
                   (request_bytes,): (Vec<u8>,)|
                   -> wasmtime::Result<(Result<Vec<u8>, String>,)> {
+                debug_assert!(
+                    tokio::runtime::Handle::try_current().is_ok(),
+                    "block_on requires an active Tokio runtime — must run inside spawn_blocking"
+                );
                 let result = tokio::runtime::Handle::current().block_on(async {
                     let req: Value = serde_json::from_slice(&request_bytes)
                         .map_err(|e| format!("emit-hook: bad request: {e}"))?;
@@ -212,6 +220,10 @@ fn register_kernel_service_imports(
             move |_caller,
                   (_request_bytes,): (Vec<u8>,)|
                   -> wasmtime::Result<(Result<Vec<u8>, String>,)> {
+                debug_assert!(
+                    tokio::runtime::Handle::try_current().is_ok(),
+                    "block_on requires an active Tokio runtime — must run inside spawn_blocking"
+                );
                 let result = tokio::runtime::Handle::current().block_on(async {
                     let context = coord
                         .context()
@@ -241,6 +253,10 @@ fn register_kernel_service_imports(
             move |_caller,
                   (request_bytes,): (Vec<u8>,)|
                   -> wasmtime::Result<(Result<(), String>,)> {
+                debug_assert!(
+                    tokio::runtime::Handle::try_current().is_ok(),
+                    "block_on requires an active Tokio runtime — must run inside spawn_blocking"
+                );
                 let result = tokio::runtime::Handle::current().block_on(async {
                     let message: Value = serde_json::from_slice(&request_bytes)
                         .map_err(|e| format!("add-message: bad request: {e}"))?;
@@ -321,39 +337,6 @@ fn register_kernel_service_imports(
 }
 
 // ---------------------------------------------------------------------------
-// Execute export lookup
-// ---------------------------------------------------------------------------
-
-/// Look up the `execute` export from an orchestrator component instance.
-///
-/// Tries:
-/// 1. Direct root-level export by `"execute"`
-/// 2. Nested inside the [`ORCHESTRATOR_INTERFACE`] exported instance
-fn get_execute_func(
-    instance: &wasmtime::component::Instance,
-    store: &mut Store<WasmState>,
-) -> Result<OrchestratorExecuteFunc, Box<dyn std::error::Error + Send + Sync>> {
-    // Try root-level first.
-    if let Ok(f) =
-        instance.get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(&mut *store, "execute")
-    {
-        return Ok(f);
-    }
-
-    // Try nested inside the interface-exported instance.
-    let iface_idx = instance
-        .get_export_index(&mut *store, None, ORCHESTRATOR_INTERFACE)
-        .ok_or_else(|| format!("export instance '{ORCHESTRATOR_INTERFACE}' not found"))?;
-    let func_idx = instance
-        .get_export_index(&mut *store, Some(&iface_idx), "execute")
-        .ok_or_else(|| format!("export 'execute' not found in '{ORCHESTRATOR_INTERFACE}'"))?;
-    let func = instance
-        .get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(&mut *store, &func_idx)
-        .map_err(|e| format!("typed func lookup failed for 'execute': {e}"))?;
-    Ok(func)
-}
-
-// ---------------------------------------------------------------------------
 // Synchronous WASM call (for spawn_blocking)
 // ---------------------------------------------------------------------------
 
@@ -375,7 +358,9 @@ fn call_execute_sync(
     register_kernel_service_imports(&mut linker, coordinator)?;
 
     let instance = linker.instantiate(&mut store, component)?;
-    let func = get_execute_func(&instance, &mut store)?;
+    let func = super::get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(
+        &instance, &mut store, "execute", ORCHESTRATOR_INTERFACE,
+    )?;
     let (result,) = func.call(&mut store, (request_bytes,))?;
     match result {
         Ok(bytes) => Ok(bytes),
@@ -661,6 +646,24 @@ mod tests {
         assert!(
             !response.is_empty(),
             "expected non-empty response from wasm-to-wasm path, got: {response:?}"
+        );
+    }
+
+    /// Invariant: `spawn_blocking` preserves the Tokio runtime handle.
+    ///
+    /// The 5 `block_on` closures in `register_kernel_service_imports` rely on
+    /// `Handle::current()` being available. This test documents and verifies
+    /// the precondition that the `debug_assert!` guards enforce.
+    #[tokio::test]
+    async fn spawn_blocking_preserves_runtime_handle() {
+        let has_handle = tokio::task::spawn_blocking(|| {
+            tokio::runtime::Handle::try_current().is_ok()
+        })
+        .await
+        .expect("spawn_blocking should not panic");
+        assert!(
+            has_handle,
+            "block_on requires an active Tokio runtime — must run inside spawn_blocking"
         );
     }
 

@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { hello, HookAction, SessionState, ContextInjectionRole, ApprovalDefault, UserMessageLevel, Role, JsCancellationToken, JsHookRegistry, JsCoordinator, JsAmplifierSession, JsToolBridge, amplifierErrorToJs, resolveModule, loadWasmFromPath } = nativeBinding
+const { hello, HookAction, SessionState, ContextInjectionRole, ApprovalDefault, UserMessageLevel, JsCancellationToken, JsHookRegistry, JsCoordinator, JsAmplifierSession, JsToolBridge, amplifierErrorToJs, resolveModule, loadWasmFromPath } = nativeBinding
 
 module.exports.hello = hello
 module.exports.HookAction = HookAction
@@ -318,7 +318,6 @@ module.exports.SessionState = SessionState
 module.exports.ContextInjectionRole = ContextInjectionRole
 module.exports.ApprovalDefault = ApprovalDefault
 module.exports.UserMessageLevel = UserMessageLevel
-module.exports.Role = Role
 module.exports.JsCancellationToken = JsCancellationToken
 module.exports.JsHookRegistry = JsHookRegistry
 module.exports.JsCoordinator = JsCoordinator

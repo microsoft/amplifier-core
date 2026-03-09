@@ -68,7 +68,7 @@ pub fn detect_wasm_module_type(
         0 => Err(ModuleResolverError::UnknownWasmInterface {
             path: wasm_path.to_path_buf(),
         }),
-        1 => Ok(matched.into_iter().next().unwrap().1),
+        1 => Ok(matched.swap_remove(0).1),
         _ => Err(ModuleResolverError::AmbiguousWasmInterface {
             path: wasm_path.to_path_buf(),
             found: matched
@@ -200,10 +200,7 @@ pub fn parse_amplifier_toml(
                 }
             }
 
-            ModuleArtifact::WasmBytes {
-                bytes: Vec::new(), // bytes loaded later by the transport layer
-                path: wasm_path,
-            }
+            ModuleArtifact::WasmPath(wasm_path)
         }
         Transport::Python | Transport::Native => {
             let dir_name = module_path
@@ -214,10 +211,17 @@ pub fn parse_amplifier_toml(
         }
     };
 
+    // Optional sha256 integrity hash — present for any transport type.
+    let sha256 = module_section
+        .get("sha256")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
     Ok(ModuleManifest {
         transport,
         module_type,
         artifact,
+        sha256,
     })
 }
 
@@ -230,12 +234,26 @@ pub struct ModuleManifest {
     pub module_type: ModuleType,
     /// Where the loadable artifact lives.
     pub artifact: ModuleArtifact,
+    /// Optional expected SHA-256 hex digest of the WASM artifact (for integrity verification).
+    ///
+    /// When `Some`, [`load_module`] will compute the SHA-256 of the bytes read from disk and
+    /// return [`ModuleResolverError::IntegrityMismatch`] if they differ.
+    /// When `None`, no verification is performed.
+    pub sha256: Option<String>,
 }
 
 /// The loadable artifact for a resolved module.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModuleArtifact {
+    /// A WASM component path, not yet loaded. Bytes will be read from disk at load time.
+    ///
+    /// This is the pre-load state returned by [`parse_amplifier_toml`] for WASM transport.
+    /// [`load_module`] converts this into actual bytes before dispatch.
+    WasmPath(PathBuf),
     /// Raw WASM component bytes, plus the path they were read from.
+    ///
+    /// Used when bytes are already loaded (e.g., auto-detected via [`resolve_module`]
+    /// without an `amplifier.toml`, or when bytes are supplied directly in tests).
     WasmBytes { bytes: Vec<u8>, path: PathBuf },
     /// A gRPC endpoint URL (e.g., "http://localhost:50051").
     GrpcEndpoint(String),
@@ -326,6 +344,7 @@ pub fn resolve_module(path: &Path) -> Result<ModuleManifest, ModuleResolverError
                     bytes,
                     path: wasm_path,
                 },
+                sha256: None,
             });
         }
 
@@ -342,6 +361,7 @@ pub fn resolve_module(path: &Path) -> Result<ModuleManifest, ModuleResolverError
             transport: Transport::Python,
             module_type: ModuleType::Tool,
             artifact: ModuleArtifact::PythonModule(pkg_name),
+            sha256: None,
         });
     }
 
@@ -383,6 +403,14 @@ pub enum ModuleResolverError {
     Io {
         path: PathBuf,
         source: std::io::Error,
+    },
+
+    /// WASM module bytes do not match the expected SHA-256 hash in the manifest.
+    #[error("WASM integrity check failed for {path}: expected sha256 {expected}, got {actual}")]
+    IntegrityMismatch {
+        path: PathBuf,
+        expected: String,
+        actual: String,
     },
 }
 
@@ -428,6 +456,36 @@ impl LoadedModule {
     }
 }
 
+/// Verify the SHA-256 digest of WASM bytes against the expected hex string.
+///
+/// Computes `sha256(bytes)` and compares against `expected_hex` (lowercase, 64 chars).
+/// Returns `Ok(())` on match; returns [`ModuleResolverError::IntegrityMismatch`] on mismatch.
+/// Logs a `debug!` message on success for observability.
+#[cfg(feature = "wasm")]
+fn verify_wasm_integrity(
+    bytes: &[u8],
+    expected_hex: &str,
+    path: &std::path::Path,
+) -> Result<(), ModuleResolverError> {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let actual_hex = format!("{:x}", hasher.finalize());
+    if actual_hex != expected_hex {
+        return Err(ModuleResolverError::IntegrityMismatch {
+            path: path.to_path_buf(),
+            expected: expected_hex.to_string(),
+            actual: actual_hex,
+        });
+    }
+    log::debug!(
+        "WASM integrity verified for {}: sha256 {}",
+        path.display(),
+        actual_hex
+    );
+    Ok(())
+}
+
 /// Load a module artifact into a runtime type, dispatching on transport and module type.
 ///
 /// For `Transport::Wasm`, reads bytes from the manifest artifact, then dispatches to
@@ -471,16 +529,34 @@ pub fn load_module(
         }
 
         Transport::Wasm => {
-            let bytes = match &manifest.artifact {
-                ModuleArtifact::WasmBytes { bytes, .. } => bytes,
+            // Resolve bytes: read from disk for WasmPath, use existing bytes for WasmBytes.
+            let owned_bytes: Vec<u8>;
+            let wasm_path_for_integrity: std::path::PathBuf;
+            let bytes: &[u8] = match &manifest.artifact {
+                ModuleArtifact::WasmPath(path) => {
+                    owned_bytes = std::fs::read(path).map_err(|e| {
+                        format!("failed to read WASM bytes from {}: {e}", path.display())
+                    })?;
+                    wasm_path_for_integrity = path.clone();
+                    &owned_bytes
+                }
+                ModuleArtifact::WasmBytes { bytes, path } => {
+                    wasm_path_for_integrity = path.clone();
+                    bytes
+                }
                 other => {
                     return Err(format!(
-                        "expected WasmBytes artifact for WASM transport, got {:?}",
+                        "expected WasmPath or WasmBytes artifact for WASM transport, got {:?}",
                         other
                     )
                     .into())
                 }
             };
+
+            // Integrity check: if sha256 is specified in the manifest, verify before loading.
+            if let Some(ref expected_sha256) = manifest.sha256 {
+                verify_wasm_integrity(bytes, expected_sha256, &wasm_path_for_integrity)?;
+            }
 
             match &manifest.module_type {
                 ModuleType::Tool => {
@@ -559,6 +635,7 @@ mod tests {
                 bytes: vec![0, 1, 2],
                 path: PathBuf::from("/tmp/echo-tool.wasm"),
             },
+            sha256: None,
         };
         assert_eq!(
             manifest,
@@ -569,6 +646,7 @@ mod tests {
                     bytes: vec![0, 1, 2],
                     path: PathBuf::from("/tmp/echo-tool.wasm"),
                 },
+                sha256: None,
             }
         );
     }
@@ -615,11 +693,13 @@ mod tests {
             transport: Transport::Wasm,
             module_type: ModuleType::Tool,
             artifact: ModuleArtifact::GrpcEndpoint("http://localhost:50051".into()),
+            sha256: None,
         };
         let b = ModuleManifest {
             transport: Transport::Wasm,
             module_type: ModuleType::Tool,
             artifact: ModuleArtifact::GrpcEndpoint("http://localhost:50051".into()),
+            sha256: None,
         };
         assert_eq!(a, b);
     }
@@ -671,12 +751,10 @@ artifact = "my-hook.wasm"
         assert_eq!(manifest.transport, Transport::Wasm);
         assert_eq!(manifest.module_type, ModuleType::Hook);
         match &manifest.artifact {
-            ModuleArtifact::WasmBytes {
-                path: wasm_path, ..
-            } => {
+            ModuleArtifact::WasmPath(wasm_path) => {
                 assert_eq!(wasm_path, &PathBuf::from("/modules/my-hook/my-hook.wasm"));
             }
-            other => panic!("expected WasmBytes, got {other:?}"),
+            other => panic!("expected WasmPath, got {other:?}"),
         }
     }
 
@@ -1173,6 +1251,67 @@ artifact = "evil.wasm"
         );
     }
 
+    // --- WasmPath variant tests (M-04) ---
+
+    /// parse_amplifier_toml with wasm transport must return WasmPath (not WasmBytes with empty bytes).
+    #[test]
+    fn parse_toml_wasm_transport_returns_wasm_path() {
+        let toml_content = r#"
+[module]
+transport = "wasm"
+type = "hook"
+artifact = "my-hook.wasm"
+"#;
+        let path = Path::new("/modules/my-hook");
+        let manifest = parse_amplifier_toml(toml_content, path).unwrap();
+        assert_eq!(manifest.transport, Transport::Wasm);
+        assert_eq!(manifest.module_type, ModuleType::Hook);
+        match &manifest.artifact {
+            ModuleArtifact::WasmPath(wasm_path) => {
+                assert_eq!(wasm_path, &PathBuf::from("/modules/my-hook/my-hook.wasm"));
+            }
+            other => panic!("expected WasmPath, got {other:?}"),
+        }
+    }
+
+    /// WasmPath variant can be constructed, cloned, and compared.
+    #[test]
+    fn wasm_path_variant_basic() {
+        let artifact = ModuleArtifact::WasmPath(PathBuf::from("/tmp/echo-tool.wasm"));
+        let cloned = artifact.clone();
+        assert_eq!(artifact, cloned);
+        match artifact {
+            ModuleArtifact::WasmPath(p) => assert_eq!(p, PathBuf::from("/tmp/echo-tool.wasm")),
+            other => panic!("expected WasmPath, got {other:?}"),
+        }
+    }
+
+    /// load_module with a WasmPath artifact reads bytes from disk and loads successfully.
+    #[cfg(feature = "wasm")]
+    #[tokio::test]
+    async fn load_module_wasm_path_loads_bytes_from_disk() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wasm_bytes = fixture_bytes("echo-tool.wasm");
+        let wasm_file = dir.path().join("echo-tool.wasm");
+        std::fs::write(&wasm_file, &wasm_bytes).expect("write wasm");
+
+        let manifest = ModuleManifest {
+            transport: Transport::Wasm,
+            module_type: ModuleType::Tool,
+            artifact: ModuleArtifact::WasmPath(wasm_file),
+            sha256: None,
+        };
+
+        let engine = make_engine();
+        let coordinator = std::sync::Arc::new(crate::coordinator::Coordinator::new_for_test());
+        let result = load_module(&manifest, engine, Some(coordinator));
+        assert!(result.is_ok(), "load_module should succeed with WasmPath, got: {:?}", result.err());
+        match result.unwrap() {
+            LoadedModule::Tool(tool) => assert_eq!(tool.name(), "echo-tool"),
+            other => panic!("expected Tool, got {:?}", other.variant_name()),
+        }
+    }
+
     #[cfg(feature = "wasm")]
     #[test]
     fn load_module_resolver_type_errors() {
@@ -1180,9 +1319,132 @@ artifact = "evil.wasm"
             transport: Transport::Python,
             module_type: ModuleType::Resolver,
             artifact: ModuleArtifact::PythonModule("some_resolver".into()),
+            sha256: None,
         };
         let engine = make_engine();
         let result = load_module(&manifest, engine, None);
         assert!(result.is_err());
+    }
+
+    // --- sha256 integrity verification tests (M-08) ---
+
+    #[test]
+    fn parse_toml_with_sha256_field() {
+        let toml_content = r#"
+[module]
+transport = "wasm"
+type = "tool"
+artifact = "module.wasm"
+sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+"#;
+        let path = Path::new("/modules/my-tool");
+        let manifest = parse_amplifier_toml(toml_content, path).unwrap();
+        assert_eq!(
+            manifest.sha256,
+            Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_toml_without_sha256_field() {
+        let toml_content = r#"
+[module]
+transport = "wasm"
+type = "tool"
+artifact = "module.wasm"
+"#;
+        let path = Path::new("/modules/my-tool");
+        let manifest = parse_amplifier_toml(toml_content, path).unwrap();
+        assert_eq!(manifest.sha256, None);
+    }
+
+    #[cfg(feature = "wasm")]
+    #[tokio::test]
+    async fn sha256_missing_field_skips_verification() {
+        // No sha256 in manifest — should load successfully without any hash check.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wasm_bytes = fixture_bytes("echo-tool.wasm");
+        let wasm_file = dir.path().join("echo-tool.wasm");
+        std::fs::write(&wasm_file, &wasm_bytes).expect("write wasm");
+
+        let manifest = ModuleManifest {
+            transport: Transport::Wasm,
+            module_type: ModuleType::Tool,
+            artifact: ModuleArtifact::WasmPath(wasm_file),
+            sha256: None,
+        };
+
+        let engine = make_engine();
+        let coordinator = std::sync::Arc::new(crate::coordinator::Coordinator::new_for_test());
+        let result = load_module(&manifest, engine, Some(coordinator));
+        assert!(
+            result.is_ok(),
+            "load_module should succeed when sha256 is None, got: {:?}",
+            result.err()
+        );
+    }
+
+    #[cfg(feature = "wasm")]
+    #[tokio::test]
+    async fn sha256_matching_hash_passes() {
+        // Provide the correct sha256 of echo-tool.wasm — load should succeed.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wasm_bytes = fixture_bytes("echo-tool.wasm");
+        let wasm_file = dir.path().join("echo-tool.wasm");
+        std::fs::write(&wasm_file, &wasm_bytes).expect("write wasm");
+
+        // This is the actual sha256 of echo-tool.wasm.
+        let correct_hash = "114d733baedeec912b8da160adbc863ae14519b88f776d0d3c19f8446e73afb7";
+
+        let manifest = ModuleManifest {
+            transport: Transport::Wasm,
+            module_type: ModuleType::Tool,
+            artifact: ModuleArtifact::WasmPath(wasm_file),
+            sha256: Some(correct_hash.to_string()),
+        };
+
+        let engine = make_engine();
+        let coordinator = std::sync::Arc::new(crate::coordinator::Coordinator::new_for_test());
+        let result = load_module(&manifest, engine, Some(coordinator));
+        assert!(
+            result.is_ok(),
+            "load_module should succeed when sha256 matches, got: {:?}",
+            result.err()
+        );
+    }
+
+    #[cfg(feature = "wasm")]
+    #[tokio::test]
+    async fn sha256_mismatched_hash_returns_error() {
+        // Provide a wrong sha256 — load_module must return an IntegrityMismatch error.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let wasm_bytes = fixture_bytes("echo-tool.wasm");
+        let wasm_file = dir.path().join("echo-tool.wasm");
+        std::fs::write(&wasm_file, &wasm_bytes).expect("write wasm");
+
+        let wrong_hash = "0000000000000000000000000000000000000000000000000000000000000000";
+
+        let manifest = ModuleManifest {
+            transport: Transport::Wasm,
+            module_type: ModuleType::Tool,
+            artifact: ModuleArtifact::WasmPath(wasm_file.clone()),
+            sha256: Some(wrong_hash.to_string()),
+        };
+
+        let engine = make_engine();
+        let coordinator = std::sync::Arc::new(crate::coordinator::Coordinator::new_for_test());
+        let result = load_module(&manifest, engine, Some(coordinator));
+        let Err(err) = result else {
+            panic!("expected IntegrityMismatch error but load_module succeeded");
+        };
+        let err_msg = format!("{err}");
+        assert!(
+            err_msg.contains("integrity check failed") || err_msg.contains("IntegrityMismatch"),
+            "error should mention integrity: {err_msg}"
+        );
+        assert!(
+            err_msg.contains(wrong_hash),
+            "error should include the expected (wrong) hash: {err_msg}"
+        );
     }
 }
