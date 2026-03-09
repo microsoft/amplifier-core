@@ -310,7 +310,9 @@ impl KernelService for KernelServiceImpl {
         };
 
         let timeout = if req.timeout_seconds.is_finite() && req.timeout_seconds > 0.0 {
-            std::time::Duration::from_secs_f64(req.timeout_seconds.min(MAX_HOOK_COLLECT_TIMEOUT_SECS))
+            std::time::Duration::from_secs_f64(
+                req.timeout_seconds.min(MAX_HOOK_COLLECT_TIMEOUT_SECS),
+            )
         } else {
             std::time::Duration::from_secs(DEFAULT_HOOK_COLLECT_TIMEOUT_SECS)
         };
@@ -790,7 +792,10 @@ mod tests {
         });
 
         let result = service.emit_hook_and_collect(request).await;
-        assert!(result.is_ok(), "10s timeout should succeed, got: {result:?}");
+        assert!(
+            result.is_ok(),
+            "10s timeout should succeed, got: {result:?}"
+        );
     }
 
     #[tokio::test]

@@ -36,7 +36,10 @@ fn call_handle(
     let instance = linker.instantiate(&mut store, component)?;
 
     let func = super::get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(
-        &instance, &mut store, "handle", INTERFACE_NAME,
+        &instance,
+        &mut store,
+        "handle",
+        INTERFACE_NAME,
     )?;
     let (result,) = func.call(&mut store, (envelope_bytes,))?;
     match result {

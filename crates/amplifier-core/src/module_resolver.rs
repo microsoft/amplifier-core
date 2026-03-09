@@ -1305,7 +1305,11 @@ artifact = "my-hook.wasm"
         let engine = make_engine();
         let coordinator = std::sync::Arc::new(crate::coordinator::Coordinator::new_for_test());
         let result = load_module(&manifest, engine, Some(coordinator));
-        assert!(result.is_ok(), "load_module should succeed with WasmPath, got: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "load_module should succeed with WasmPath, got: {:?}",
+            result.err()
+        );
         match result.unwrap() {
             LoadedModule::Tool(tool) => assert_eq!(tool.name(), "echo-tool"),
             other => panic!("expected Tool, got {:?}", other.variant_name()),

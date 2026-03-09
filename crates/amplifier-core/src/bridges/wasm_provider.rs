@@ -49,7 +49,8 @@ fn call_get_info(engine: &Engine, component: &Component) -> WasmResult<Vec<u8>> 
     let (linker, mut store) = create_linker_and_store(engine, &super::WasmLimits::default())?;
     let instance = linker.instantiate(&mut store, component)?;
 
-    let func = super::get_typed_func::<(), (Vec<u8>,)>(&instance, &mut store, "get-info", INTERFACE_NAME)?;
+    let func =
+        super::get_typed_func::<(), (Vec<u8>,)>(&instance, &mut store, "get-info", INTERFACE_NAME)?;
     let (info_bytes,) = func.call(&mut store, ())?;
     Ok(info_bytes)
 }
@@ -62,7 +63,10 @@ fn call_list_models(engine: &Engine, component: &Component) -> WasmResult<Vec<u8
     let instance = linker.instantiate(&mut store, component)?;
 
     let func = super::get_typed_func::<(), (Result<Vec<u8>, String>,)>(
-        &instance, &mut store, "list-models", INTERFACE_NAME,
+        &instance,
+        &mut store,
+        "list-models",
+        INTERFACE_NAME,
     )?;
     let (result,) = func.call(&mut store, ())?;
     match result {
@@ -84,7 +88,10 @@ fn call_complete(
     let instance = linker.instantiate(&mut store, component)?;
 
     let func = super::get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(
-        &instance, &mut store, "complete", INTERFACE_NAME,
+        &instance,
+        &mut store,
+        "complete",
+        INTERFACE_NAME,
     )?;
     let (result,) = func.call(&mut store, (request_bytes,))?;
     match result {

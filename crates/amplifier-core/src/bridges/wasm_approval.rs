@@ -36,7 +36,10 @@ fn call_request_approval(
     let instance = linker.instantiate(&mut store, component)?;
 
     let func = super::get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(
-        &instance, &mut store, "request-approval", INTERFACE_NAME,
+        &instance,
+        &mut store,
+        "request-approval",
+        INTERFACE_NAME,
     )?;
     let (result,) = func.call(&mut store, (request_bytes,))?;
     match result {

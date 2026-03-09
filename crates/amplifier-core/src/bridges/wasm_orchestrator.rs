@@ -359,7 +359,10 @@ fn call_execute_sync(
 
     let instance = linker.instantiate(&mut store, component)?;
     let func = super::get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(
-        &instance, &mut store, "execute", ORCHESTRATOR_INTERFACE,
+        &instance,
+        &mut store,
+        "execute",
+        ORCHESTRATOR_INTERFACE,
     )?;
     let (result,) = func.call(&mut store, (request_bytes,))?;
     match result {
@@ -656,11 +659,10 @@ mod tests {
     /// the precondition that the `debug_assert!` guards enforce.
     #[tokio::test]
     async fn spawn_blocking_preserves_runtime_handle() {
-        let has_handle = tokio::task::spawn_blocking(|| {
-            tokio::runtime::Handle::try_current().is_ok()
-        })
-        .await
-        .expect("spawn_blocking should not panic");
+        let has_handle =
+            tokio::task::spawn_blocking(|| tokio::runtime::Handle::try_current().is_ok())
+                .await
+                .expect("spawn_blocking should not panic");
         assert!(
             has_handle,
             "block_on requires an active Tokio runtime — must run inside spawn_blocking"

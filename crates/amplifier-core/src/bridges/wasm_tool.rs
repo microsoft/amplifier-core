@@ -105,7 +105,8 @@ fn call_get_spec(
     let (linker, mut store) = create_linker_and_store(engine, &super::WasmLimits::default())?;
     let instance = linker.instantiate(&mut store, component)?;
 
-    let func = super::get_typed_func::<(), (Vec<u8>,)>(&instance, &mut store, "get-spec", INTERFACE_NAME)?;
+    let func =
+        super::get_typed_func::<(), (Vec<u8>,)>(&instance, &mut store, "get-spec", INTERFACE_NAME)?;
     let (spec_bytes,) = func.call(&mut store, ())?;
     Ok(spec_bytes)
 }
@@ -120,7 +121,10 @@ fn call_execute(
     let instance = linker.instantiate(&mut store, component)?;
 
     let func = super::get_typed_func::<(Vec<u8>,), (Result<Vec<u8>, String>,)>(
-        &instance, &mut store, "execute", INTERFACE_NAME,
+        &instance,
+        &mut store,
+        "execute",
+        INTERFACE_NAME,
     )?;
     let (result,) = func.call(&mut store, (input_bytes,))?;
     match result {

@@ -119,11 +119,15 @@ impl ContextManager for WasmContextBridge {
             let mut guard = self.state.lock().await;
             let (store, instance) = &mut *guard;
 
-            let func =
-                super::get_typed_func::<(), (Result<Vec<u8>, String>,)>(instance, store, "get-messages", INTERFACE_NAME)
-                    .map_err(|e| ContextError::Other {
-                        message: format!("WASM get-messages lookup failed: {e}"),
-                    })?;
+            let func = super::get_typed_func::<(), (Result<Vec<u8>, String>,)>(
+                instance,
+                store,
+                "get-messages",
+                INTERFACE_NAME,
+            )
+            .map_err(|e| ContextError::Other {
+                message: format!("WASM get-messages lookup failed: {e}"),
+            })?;
 
             let (result,) = func.call(store, ()).map_err(|e| ContextError::Other {
                 message: format!("WASM get-messages call failed: {e}"),
@@ -227,10 +231,15 @@ impl ContextManager for WasmContextBridge {
             let mut guard = self.state.lock().await;
             let (store, instance) = &mut *guard;
 
-            let func = super::get_typed_func::<(), (Result<(), String>,)>(instance, store, "clear", INTERFACE_NAME)
-                .map_err(|e| ContextError::Other {
-                    message: format!("WASM clear lookup failed: {e}"),
-                })?;
+            let func = super::get_typed_func::<(), (Result<(), String>,)>(
+                instance,
+                store,
+                "clear",
+                INTERFACE_NAME,
+            )
+            .map_err(|e| ContextError::Other {
+                message: format!("WASM clear lookup failed: {e}"),
+            })?;
 
             let (result,) = func.call(store, ()).map_err(|e| ContextError::Other {
                 message: format!("WASM clear call failed: {e}"),
