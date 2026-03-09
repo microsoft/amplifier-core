@@ -4,16 +4,15 @@ module_type: orchestrator
 contract_version: 1.0.0
 last_modified: 2026-03-05
 related_files:
-  - path: amplifier_core/interfaces.py#Orchestrator
+  - path: ../../python/amplifier_core/interfaces.py#Orchestrator
     relationship: protocol_definition
-    lines: 26-55
-  - path: amplifier_core/content_models.py
+  - path: ../../python/amplifier_core/content_models.py
     relationship: event_content_types
   - path: ../specs/MOUNT_PLAN_SPECIFICATION.md
     relationship: configuration
   - path: ../specs/CONTRIBUTION_CHANNELS.md
     relationship: observability
-  - path: amplifier_core/testing.py#ScriptedOrchestrator
+  - path: ../../python/amplifier_core/testing.py#ScriptedOrchestrator
     relationship: test_utilities
 canonical_example: https://github.com/microsoft/amplifier-module-loop-basic
 ---
@@ -38,7 +37,7 @@ Orchestrators control **how** agents execute:
 
 ## Protocol Definition
 
-**Source**: `amplifier_core/interfaces.py` lines 26-52
+**Source**: `amplifier_core/interfaces.py` → `class Orchestrator(Protocol)`
 
 ```python
 @runtime_checkable
@@ -50,7 +49,7 @@ class Orchestrator(Protocol):
         providers: dict[str, Provider],
         tools: dict[str, Tool],
         hooks: HookRegistry,
-        coordinator: ModuleCoordinator | None = None,
+        **kwargs: Any,
     ) -> str:
         """
         Execute the agent loop with given prompt.
@@ -61,14 +60,19 @@ class Orchestrator(Protocol):
             providers: Available LLM providers (keyed by name)
             tools: Available tools (keyed by name)
             hooks: Hook registry for lifecycle events
-            coordinator: Module coordinator for accessing shared services
-                         (optional; passed by session.py in production)
+            **kwargs: Additional kernel-injected arguments (see note below)
 
         Returns:
             Final response string
         """
         ...
 ```
+
+> **`coordinator` injection**: The kernel (`session.py`) passes
+> `coordinator=<ModuleCoordinator>` via kwargs at runtime so orchestrators can
+> process hook results and coordinate module interactions. Implementations may
+> accept `coordinator` as an explicit keyword argument or simply absorb it
+> through `**kwargs`.
 
 ---
 
@@ -200,7 +204,7 @@ async def execute(self, prompt, context, providers, tools, hooks):
 - `execution:end` MUST be emitted on **ALL exit paths** — normal completion, error, and cancellation
 
 ```python
-async def execute(self, prompt, context, providers, tools, hooks, coordinator=None):
+async def execute(self, prompt, context, providers, tools, hooks, **kwargs):
     # REQUIRED: Emit at the very start of execute()
     await hooks.emit("execution:start", {"prompt": prompt})
 
@@ -369,7 +373,7 @@ Additional examples:
 
 ### Required
 
-- [ ] Implements `execute(prompt, context, providers, tools, hooks, coordinator=None) -> str`
+- [ ] Implements `execute(prompt, context, providers, tools, hooks, **kwargs) -> str`
 - [ ] `mount()` function with entry point in pyproject.toml
 - [ ] **Emits `execution:start` with `{prompt}` at the very beginning of `execute()`**
 - [ ] **Emits `execution:end` with `{response, status}` on ALL exit paths (success, error, cancellation)**

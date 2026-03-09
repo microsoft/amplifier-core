@@ -4,14 +4,13 @@ module_type: context
 contract_version: 2.1.0
 last_modified: 2026-01-01
 related_files:
-  - path: amplifier_core/interfaces.py#ContextManager
+  - path: ../../python/amplifier_core/interfaces.py#ContextManager
     relationship: protocol_definition
-    lines: 148-180
   - path: ../specs/MOUNT_PLAN_SPECIFICATION.md
     relationship: configuration
   - path: ../specs/CONTRIBUTION_CHANNELS.md
     relationship: observability
-  - path: amplifier_core/testing.py#MockContextManager
+  - path: ../../python/amplifier_core/testing.py#MockContextManager
     relationship: test_utilities
 canonical_example: https://github.com/microsoft/amplifier-module-context-simple
 ---
@@ -38,7 +37,7 @@ Context managers control **what the agent remembers**:
 
 ## Protocol Definition
 
-**Source**: `amplifier_core/interfaces.py` lines 148-180
+**Source**: `amplifier_core/interfaces.py` → `class ContextManager(Protocol)`
 
 ```python
 @runtime_checkable
