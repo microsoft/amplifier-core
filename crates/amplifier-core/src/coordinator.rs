@@ -263,8 +263,8 @@ impl Coordinator {
     /// Return a JSON-compatible dict of all coordinator state for serialization/introspection.
     ///
     /// Returns a `HashMap` with keys: `tools`, `providers`, `has_orchestrator`,
-    /// `has_context`, `capabilities`, `has_approval_provider` — matching the
-    /// universal Coordinator API.
+    /// `has_context`, `capabilities`, `has_approval_provider`,
+    /// `has_display_service` — matching the universal Coordinator API.
     pub fn to_dict(&self) -> HashMap<String, serde_json::Value> {
         let mut dict = HashMap::new();
         dict.insert("tools".to_string(), serde_json::json!(self.tool_names()));

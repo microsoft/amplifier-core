@@ -409,6 +409,18 @@ pub trait ApprovalProvider: Send + Sync {
 ///
 /// This trait is object-safe: `Arc<dyn DisplayService>` is the standard storage type.
 pub trait DisplayService: Send + Sync {
+    /// Display a message to the user.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` — The text to display.
+    /// * `level` — Severity or kind (e.g. `"info"`, `"warning"`, `"error"`).
+    /// * `source` — Origin of the message (e.g. module or component name).
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` when the message has been presented.
+    /// `Err(AmplifierError)` on infrastructure failure.
     fn show_message(
         &self,
         message: &str,
