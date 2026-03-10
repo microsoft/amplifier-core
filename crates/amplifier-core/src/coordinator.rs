@@ -27,7 +27,7 @@ use serde_json::Value;
 
 use crate::cancellation::CancellationToken;
 use crate::hooks::HookRegistry;
-use crate::traits::{ContextManager, Orchestrator, Provider, Tool};
+use crate::traits::{ApprovalProvider, ContextManager, Orchestrator, Provider, Tool};
 
 // ---------------------------------------------------------------------------
 // Type aliases for cleanup and contributor callbacks
@@ -90,6 +90,9 @@ pub struct Coordinator {
     // -- Config --
     config: HashMap<String, Value>,
 
+    // -- App-layer services --
+    approval_provider: Mutex<Option<Arc<dyn ApprovalProvider>>>,
+
     // -- Turn tracking --
     current_turn_injections: Mutex<usize>,
 }
@@ -108,6 +111,7 @@ impl Coordinator {
             channels: Mutex::new(HashMap::new()),
             cleanup_functions: Mutex::new(Vec::new()),
             config,
+            approval_provider: Mutex::new(None),
             current_turn_injections: Mutex::new(0),
         }
     }
@@ -210,6 +214,23 @@ impl Coordinator {
         self.context.lock().unwrap().is_some()
     }
 
+    // -- App-layer service: ApprovalProvider --
+
+    /// Set the approval provider (single slot).
+    pub fn set_approval_provider(&self, provider: Arc<dyn ApprovalProvider>) {
+        *self.approval_provider.lock().unwrap() = Some(provider);
+    }
+
+    /// Get the approval provider, if mounted.
+    pub fn approval_provider(&self) -> Option<Arc<dyn ApprovalProvider>> {
+        self.approval_provider.lock().unwrap().clone()
+    }
+
+    /// Whether an approval provider is mounted.
+    pub fn has_approval_provider(&self) -> bool {
+        self.approval_provider.lock().unwrap().is_some()
+    }
+
     /// Names of all registered capabilities.
     pub fn capability_names(&self) -> Vec<String> {
         self.capabilities.lock().unwrap().keys().cloned().collect()
@@ -237,6 +258,10 @@ impl Coordinator {
         dict.insert(
             "capabilities".to_string(),
             serde_json::json!(self.capability_names()),
+        );
+        dict.insert(
+            "has_approval_provider".to_string(),
+            serde_json::json!(self.has_approval_provider()),
         );
         dict
     }
