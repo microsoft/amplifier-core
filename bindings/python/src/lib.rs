@@ -2794,6 +2794,159 @@ impl PyWasmTool {
 }
 
 // ---------------------------------------------------------------------------
+// PyWasmProvider — thin Python wrapper around a Rust Arc<dyn Provider>
+// ---------------------------------------------------------------------------
+
+/// Python-visible wrapper for a WASM-loaded provider module.
+///
+/// Bridges the Rust `Arc<dyn Provider>` trait object into Python's provider
+/// protocol, so WASM providers can be mounted into a coordinator's
+/// `mount_points["providers"]` dict alongside native Python provider modules.
+///
+/// Exposes: `name` (property), `get_info()` (sync), `list_models()` (async),
+/// `complete(request)` (async), `parse_tool_calls(response)` (sync).
+#[pyclass(name = "WasmProvider")]
+struct PyWasmProvider {
+    inner: Arc<dyn amplifier_core::traits::Provider>,
+}
+
+// Safety: Arc<dyn Provider> is Send+Sync (required by the Provider trait bound).
+unsafe impl Send for PyWasmProvider {}
+unsafe impl Sync for PyWasmProvider {}
+
+#[pymethods]
+impl PyWasmProvider {
+    /// The provider's unique name (e.g., "openai").
+    #[getter]
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    /// Return provider metadata as a Python dict.
+    ///
+    /// Serialises `ProviderInfo` through a JSON round-trip so the caller
+    /// receives a plain Python dict with all fields.
+    fn get_info(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let info = self.inner.get_info();
+        let json_str = serde_json::to_string(&info).map_err(|e| {
+            PyErr::new::<PyRuntimeError, _>(format!("Failed to serialize ProviderInfo: {e}"))
+        })?;
+        let json_mod = py.import("json")?;
+        let dict = json_mod.call_method1("loads", (&json_str,))?;
+        Ok(dict.unbind())
+    }
+
+    /// List models available from this provider.
+    ///
+    /// Async method — returns a coroutine that resolves to a list of dicts,
+    /// each representing a `ModelInfo`.
+    fn list_models<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+
+        wrap_future_as_coroutine(
+            py,
+            pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                let models = inner.list_models().await.map_err(|e| {
+                    PyErr::new::<PyRuntimeError, _>(format!("list_models failed: {e}"))
+                })?;
+
+                let json_str = serde_json::to_string(&models).map_err(|e| {
+                    PyErr::new::<PyRuntimeError, _>(format!(
+                        "Failed to serialize model list: {e}"
+                    ))
+                })?;
+
+                Python::try_attach(|py| -> PyResult<Py<PyAny>> {
+                    let json_mod = py.import("json")?;
+                    let list = json_mod.call_method1("loads", (&json_str,))?;
+                    Ok(list.unbind())
+                })
+                .ok_or_else(|| {
+                    PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
+                })?
+            }),
+        )
+    }
+
+    /// Generate a completion from a chat request.
+    ///
+    /// Async method — takes a request (dict or Pydantic model), serialises it
+    /// to a Rust `ChatRequest`, calls the inner provider, and returns the
+    /// `ChatResponse` as a Python dict.
+    fn complete<'py>(
+        &self,
+        py: Python<'py>,
+        request: Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+
+        // Convert Python request to serde_json::Value
+        let json_mod = py.import("json")?;
+        let serializable = try_model_dump(&request);
+        let json_str: String = json_mod
+            .call_method1("dumps", (&serializable,))?
+            .extract()?;
+        let chat_request: amplifier_core::messages::ChatRequest =
+            serde_json::from_str(&json_str).map_err(|e| {
+                PyErr::new::<PyValueError, _>(format!("Invalid ChatRequest JSON: {e}"))
+            })?;
+
+        wrap_future_as_coroutine(
+            py,
+            pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                let response = inner.complete(chat_request).await.map_err(|e| {
+                    PyErr::new::<PyRuntimeError, _>(format!("Provider complete failed: {e}"))
+                })?;
+
+                let result_json = serde_json::to_string(&response).map_err(|e| {
+                    PyErr::new::<PyRuntimeError, _>(format!(
+                        "Failed to serialize ChatResponse: {e}"
+                    ))
+                })?;
+
+                Python::try_attach(|py| -> PyResult<Py<PyAny>> {
+                    let json_mod = py.import("json")?;
+                    let dict = json_mod.call_method1("loads", (&result_json,))?;
+                    Ok(dict.unbind())
+                })
+                .ok_or_else(|| {
+                    PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
+                })?
+            }),
+        )
+    }
+
+    /// Extract tool calls from a provider response.
+    ///
+    /// Sync method — takes a response (dict or Pydantic model), deserialises
+    /// it as `ChatResponse`, calls `parse_tool_calls`, and returns a list of
+    /// dicts representing `ToolCall` structs.
+    fn parse_tool_calls(&self, py: Python<'_>, response: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let json_mod = py.import("json")?;
+        let serializable = try_model_dump(&response);
+        let json_str: String = json_mod
+            .call_method1("dumps", (&serializable,))?
+            .extract()?;
+        let chat_response: amplifier_core::messages::ChatResponse =
+            serde_json::from_str(&json_str).map_err(|e| {
+                PyErr::new::<PyValueError, _>(format!("Invalid ChatResponse JSON: {e}"))
+            })?;
+
+        let tool_calls = self.inner.parse_tool_calls(&chat_response);
+
+        let result_json = serde_json::to_string(&tool_calls).map_err(|e| {
+            PyErr::new::<PyRuntimeError, _>(format!("Failed to serialize tool calls: {e}"))
+        })?;
+        let list = json_mod.call_method1("loads", (&result_json,))?;
+        Ok(list.unbind())
+    }
+
+    fn __repr__(&self) -> String {
+        format!("<WasmProvider '{}'>", self.inner.name())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // load_and_mount_wasm — load WASM module and mount into a real coordinator
 // ---------------------------------------------------------------------------
 
@@ -2868,8 +3021,23 @@ fn load_and_mount_wasm(
             dict.set_item("status", "delegate_to_python")?;
             dict.set_item("package_name", package_name)?;
         }
+        amplifier_core::module_resolver::LoadedModule::Provider(provider) => {
+            let provider_name = provider.name().to_string();
+            // Wrap in PyWasmProvider and mount into coordinator's mount_points["providers"]
+            let wrapper = Py::new(py, PyWasmProvider { inner: provider })?;
+            let mp = coordinator.mount_points.bind(py);
+            let providers_any = mp
+                .get_item("providers")?
+                .ok_or_else(|| {
+                    PyErr::new::<PyRuntimeError, _>("mount_points missing 'providers'")
+                })?;
+            let providers_dict = providers_any.cast::<PyDict>()?;
+            providers_dict.set_item(&provider_name, &wrapper)?;
+            dict.set_item("status", "mounted")?;
+            dict.set_item("name", &provider_name)?;
+        }
         _ => {
-            // Hook, Context, Approval, Provider, Orchestrator —
+            // Hook, Context, Approval, Orchestrator —
             // loaded and validated, but not auto-mounted. The Python
             // caller should handle mounting based on module_type.
             dict.set_item("status", "loaded")?;
@@ -2898,6 +3066,7 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyProviderError>()?;
     m.add_class::<PyRetryConfig>()?;
     m.add_class::<PyWasmTool>()?;
+    m.add_class::<PyWasmProvider>()?;
     m.add_function(wrap_pyfunction!(classify_error_message, m)?)?;
     m.add_function(wrap_pyfunction!(compute_delay, m)?)?;
     m.add_function(wrap_pyfunction!(resolve_module, m)?)?;
