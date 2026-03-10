@@ -23,7 +23,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use serde_json::Value;
 
-use amplifier_core::errors::HookError;
+use amplifier_core::errors::{AmplifierError, HookError, SessionError};
 use amplifier_core::models::{HookAction, HookResult};
 use amplifier_core::traits::HookHandler;
 
@@ -225,8 +225,6 @@ impl amplifier_core::traits::ApprovalProvider for PyApprovalProviderBridge {
             .unwrap();
 
         Box::pin(async move {
-            use amplifier_core::errors::{AmplifierError, SessionError};
-
             // Step 1: Build Python call args from the ApprovalRequest
             let (is_coro, py_result_or_coro) =
                 Python::try_attach(|py| -> PyResult<(bool, Py<PyAny>)> {
@@ -2160,7 +2158,7 @@ impl PyCoordinator {
     #[setter]
     fn set_approval_system(&mut self, value: Py<PyAny>) {
         // Also set on the Rust Coordinator if value is not None
-        Python::try_attach(|py| -> PyResult<()> {
+        match Python::try_attach(|py| -> PyResult<()> {
             if !value.bind(py).is_none() {
                 let bridge = Arc::new(PyApprovalProviderBridge {
                     py_obj: value.clone_ref(py),
@@ -2168,7 +2166,15 @@ impl PyCoordinator {
                 self.inner.set_approval_provider(bridge);
             }
             Ok(())
-        });
+        }) {
+            Some(Ok(())) => {}
+            Some(Err(e)) => {
+                log::warn!("Failed to set approval provider bridge: {e}");
+            }
+            None => {
+                log::warn!("Could not attach to Python runtime while setting approval provider");
+            }
+        }
         self.approval_system_obj = value;
     }
 
