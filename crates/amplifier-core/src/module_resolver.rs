@@ -12,7 +12,6 @@
 //! 4. Error
 
 use std::path::{Path, PathBuf};
-#[cfg(feature = "wasm")]
 use std::sync::Arc;
 
 use crate::models::ModuleType;
@@ -419,7 +418,6 @@ pub enum ModuleResolverError {
 /// Returned by [`load_module`] after dispatch to the appropriate transport bridge.
 /// The `PythonDelegated` variant is a signal to the Python host that it should
 /// load the module itself via importlib.
-#[cfg(feature = "wasm")]
 pub enum LoadedModule {
     /// A loaded tool module.
     Tool(Arc<dyn crate::traits::Tool>),
@@ -440,7 +438,6 @@ pub enum LoadedModule {
     },
 }
 
-#[cfg(feature = "wasm")]
 impl LoadedModule {
     /// Returns the variant name as a static string (for diagnostics).
     pub fn variant_name(&self) -> &'static str {
