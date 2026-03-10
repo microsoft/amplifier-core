@@ -652,7 +652,7 @@ mod tests {
 
         // Register a hook handler to capture events
         let handler = Arc::new(FakeHookHandler::new());
-        session.coordinator().hooks().register(
+        let _ = session.coordinator().hooks().register(
             events::SESSION_START,
             handler.clone(),
             0,
@@ -685,7 +685,7 @@ mod tests {
             .mount_provider("test", Arc::new(FakeProvider::new("test", "hi")));
 
         let handler = Arc::new(FakeHookHandler::new());
-        session.coordinator().hooks().register(
+        let _ = session.coordinator().hooks().register(
             events::SESSION_RESUME,
             handler.clone(),
             0,
@@ -711,7 +711,7 @@ mod tests {
         let session = Session::new(config, None, None);
 
         let handler = Arc::new(FakeHookHandler::new());
-        session.coordinator().hooks().register(
+        let _ = session.coordinator().hooks().register(
             events::SESSION_END,
             handler.clone(),
             0,

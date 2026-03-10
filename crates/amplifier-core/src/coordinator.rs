@@ -740,7 +740,7 @@ mod tests {
 
         // Register a handler on the shared clone
         let handler = Arc::new(crate::testing::FakeHookHandler::new());
-        shared_hooks.register(
+        let _ = shared_hooks.register(
             "test:shared",
             handler.clone(),
             0,

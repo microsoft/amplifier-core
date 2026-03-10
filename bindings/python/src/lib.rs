@@ -2672,7 +2672,7 @@ fn resolve_module(py: Python<'_>, path: String) -> PyResult<Py<PyDict>> {
 /// use, prefer `load_and_mount_wasm` which mounts into a real coordinator.
 #[pyfunction]
 fn load_wasm_from_path(py: Python<'_>, path: String) -> PyResult<Py<PyDict>> {
-    let mut manifest = amplifier_core::module_resolver::resolve_module(std::path::Path::new(&path))
+    let manifest = amplifier_core::module_resolver::resolve_module(std::path::Path::new(&path))
         .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("{e}")))?;
 
     if manifest.transport != amplifier_core::transport::Transport::Wasm {
@@ -2823,7 +2823,7 @@ fn load_and_mount_wasm(
     coordinator: &PyCoordinator,
     path: String,
 ) -> PyResult<Py<PyDict>> {
-    let mut manifest = amplifier_core::module_resolver::resolve_module(std::path::Path::new(&path))
+    let manifest = amplifier_core::module_resolver::resolve_module(std::path::Path::new(&path))
         .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("{e}")))?;
 
     if manifest.transport != amplifier_core::transport::Transport::Wasm {
