@@ -2947,6 +2947,481 @@ impl PyWasmProvider {
 }
 
 // ---------------------------------------------------------------------------
+// PyWasmHook — thin Python wrapper around a Rust Arc<dyn HookHandler>
+// ---------------------------------------------------------------------------
+
+/// Python-visible wrapper for a WASM-loaded hook handler module.
+///
+/// Bridges the Rust `Arc<dyn HookHandler>` trait object into Python,
+/// so WASM hook modules can be used from the Python session.
+///
+/// Exposes: `handle(event, data)` (async).
+#[pyclass(name = "WasmHook")]
+struct PyWasmHook {
+    inner: Arc<dyn amplifier_core::traits::HookHandler>,
+}
+
+// Safety: Arc<dyn HookHandler> is Send+Sync (required by the HookHandler trait bound).
+unsafe impl Send for PyWasmHook {}
+unsafe impl Sync for PyWasmHook {}
+
+#[pymethods]
+impl PyWasmHook {
+    /// Handle a hook event.
+    ///
+    /// Async method — takes an event name and data (dict or Pydantic model),
+    /// serialises through JSON, calls the inner handler, and returns the
+    /// `HookResult` as a Python dict.
+    fn handle<'py>(
+        &self,
+        py: Python<'py>,
+        event: String,
+        data: Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+
+        let json_mod = py.import("json")?;
+        let serializable = try_model_dump(&data);
+        let json_str: String = json_mod
+            .call_method1("dumps", (&serializable,))?
+            .extract()?;
+        let value: Value = serde_json::from_str(&json_str).map_err(|e| {
+            PyErr::new::<PyValueError, _>(format!("Invalid JSON for hook data: {e}"))
+        })?;
+
+        wrap_future_as_coroutine(
+            py,
+            pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                let result = inner.handle(&event, value).await.map_err(|e| {
+                    PyErr::new::<PyRuntimeError, _>(format!("Hook handle failed: {e}"))
+                })?;
+
+                let result_json = serde_json::to_string(&result).map_err(|e| {
+                    PyErr::new::<PyRuntimeError, _>(format!(
+                        "Failed to serialize HookResult: {e}"
+                    ))
+                })?;
+
+                Python::try_attach(|py| -> PyResult<Py<PyAny>> {
+                    let json_mod = py.import("json")?;
+                    let dict = json_mod.call_method1("loads", (&result_json,))?;
+                    Ok(dict.unbind())
+                })
+                .ok_or_else(|| {
+                    PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
+                })?
+            }),
+        )
+    }
+
+    fn __repr__(&self) -> String {
+        "<WasmHook>".to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PyWasmContext — thin Python wrapper around a Rust Arc<dyn ContextManager>
+// ---------------------------------------------------------------------------
+
+/// Python-visible wrapper for a WASM-loaded context manager module.
+///
+/// Bridges the Rust `Arc<dyn ContextManager>` trait object into Python's
+/// context protocol, so WASM context modules can be mounted into a
+/// coordinator's `mount_points["context"]` slot.
+///
+/// Exposes: `add_message(message)` (async), `get_messages()` (async),
+/// `get_messages_for_request(request)` (async), `set_messages(messages)` (async),
+/// `clear()` (async).
+#[pyclass(name = "WasmContext")]
+struct PyWasmContext {
+    inner: Arc<dyn amplifier_core::traits::ContextManager>,
+}
+
+// Safety: Arc<dyn ContextManager> is Send+Sync (required by the ContextManager trait bound).
+unsafe impl Send for PyWasmContext {}
+unsafe impl Sync for PyWasmContext {}
+
+#[pymethods]
+impl PyWasmContext {
+    /// Append a message to the context history.
+    ///
+    /// Async method — takes a message (dict or Pydantic model), serialises
+    /// through JSON, and calls the inner context manager.
+    fn add_message<'py>(
+        &self,
+        py: Python<'py>,
+        message: Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+
+        let json_mod = py.import("json")?;
+        let serializable = try_model_dump(&message);
+        let json_str: String = json_mod
+            .call_method1("dumps", (&serializable,))?
+            .extract()?;
+        let value: Value = serde_json::from_str(&json_str).map_err(|e| {
+            PyErr::new::<PyValueError, _>(format!("Invalid JSON for message: {e}"))
+        })?;
+
+        wrap_future_as_coroutine(
+            py,
+            pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                inner.add_message(value).await.map_err(|e| {
+                    PyErr::new::<PyRuntimeError, _>(format!("add_message failed: {e}"))
+                })?;
+                Python::try_attach(|py| -> PyResult<Py<PyAny>> { Ok(py.None()) })
+                    .ok_or_else(|| {
+                        PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
+                    })?
+            }),
+        )
+    }
+
+    /// Get all messages (raw, uncompacted).
+    ///
+    /// Async method — returns a coroutine that resolves to a list of dicts.
+    fn get_messages<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+
+        wrap_future_as_coroutine(
+            py,
+            pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                let messages = inner.get_messages().await.map_err(|e| {
+                    PyErr::new::<PyRuntimeError, _>(format!("get_messages failed: {e}"))
+                })?;
+
+                let json_str = serde_json::to_string(&messages).map_err(|e| {
+                    PyErr::new::<PyRuntimeError, _>(format!(
+                        "Failed to serialize messages: {e}"
+                    ))
+                })?;
+
+                Python::try_attach(|py| -> PyResult<Py<PyAny>> {
+                    let json_mod = py.import("json")?;
+                    let list = json_mod.call_method1("loads", (&json_str,))?;
+                    Ok(list.unbind())
+                })
+                .ok_or_else(|| {
+                    PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
+                })?
+            }),
+        )
+    }
+
+    /// Get messages ready for an LLM request, compacted if necessary.
+    ///
+    /// Async method — takes an optional request dict (currently ignores
+    /// token_budget and provider for WASM context managers), and returns
+    /// a list of message dicts.
+    fn get_messages_for_request<'py>(
+        &self,
+        py: Python<'py>,
+        _request: Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+
+        wrap_future_as_coroutine(
+            py,
+            pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                // WASM context managers don't receive provider/budget yet —
+                // pass None for both parameters.
+                let messages = inner
+                    .get_messages_for_request(None, None)
+                    .await
+                    .map_err(|e| {
+                        PyErr::new::<PyRuntimeError, _>(format!(
+                            "get_messages_for_request failed: {e}"
+                        ))
+                    })?;
+
+                let json_str = serde_json::to_string(&messages).map_err(|e| {
+                    PyErr::new::<PyRuntimeError, _>(format!(
+                        "Failed to serialize messages: {e}"
+                    ))
+                })?;
+
+                Python::try_attach(|py| -> PyResult<Py<PyAny>> {
+                    let json_mod = py.import("json")?;
+                    let list = json_mod.call_method1("loads", (&json_str,))?;
+                    Ok(list.unbind())
+                })
+                .ok_or_else(|| {
+                    PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
+                })?
+            }),
+        )
+    }
+
+    /// Replace the entire message list.
+    ///
+    /// Async method — takes a list of message dicts, serialises through JSON,
+    /// and calls the inner context manager.
+    fn set_messages<'py>(
+        &self,
+        py: Python<'py>,
+        messages: Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+
+        let json_mod = py.import("json")?;
+        let json_str: String = json_mod
+            .call_method1("dumps", (&messages,))?
+            .extract()?;
+        let values: Vec<Value> = serde_json::from_str(&json_str).map_err(|e| {
+            PyErr::new::<PyValueError, _>(format!("Invalid JSON for messages: {e}"))
+        })?;
+
+        wrap_future_as_coroutine(
+            py,
+            pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                inner.set_messages(values).await.map_err(|e| {
+                    PyErr::new::<PyRuntimeError, _>(format!("set_messages failed: {e}"))
+                })?;
+                Python::try_attach(|py| -> PyResult<Py<PyAny>> { Ok(py.None()) })
+                    .ok_or_else(|| {
+                        PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
+                    })?
+            }),
+        )
+    }
+
+    /// Clear all messages from context.
+    ///
+    /// Async method — returns a coroutine that resolves to None.
+    fn clear<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+
+        wrap_future_as_coroutine(
+            py,
+            pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                inner.clear().await.map_err(|e| {
+                    PyErr::new::<PyRuntimeError, _>(format!("clear failed: {e}"))
+                })?;
+                Python::try_attach(|py| -> PyResult<Py<PyAny>> { Ok(py.None()) })
+                    .ok_or_else(|| {
+                        PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
+                    })?
+            }),
+        )
+    }
+
+    fn __repr__(&self) -> String {
+        "<WasmContext>".to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PyWasmOrchestrator — thin Python wrapper around a Rust Arc<dyn Orchestrator>
+// ---------------------------------------------------------------------------
+
+/// Python-visible wrapper for a WASM-loaded orchestrator module.
+///
+/// Bridges the Rust `Arc<dyn Orchestrator>` trait object into Python's
+/// orchestrator protocol, so WASM orchestrator modules can be mounted
+/// into a coordinator's `mount_points["orchestrator"]` slot.
+///
+/// Exposes: `execute(prompt, context=None, providers=None, tools=None,
+/// hooks=None, coordinator=None)` (async).
+#[pyclass(name = "WasmOrchestrator")]
+struct PyWasmOrchestrator {
+    inner: Arc<dyn amplifier_core::traits::Orchestrator>,
+}
+
+// Safety: Arc<dyn Orchestrator> is Send+Sync (required by the Orchestrator trait bound).
+unsafe impl Send for PyWasmOrchestrator {}
+unsafe impl Sync for PyWasmOrchestrator {}
+
+#[pymethods]
+impl PyWasmOrchestrator {
+    /// Execute the orchestrator with a prompt.
+    ///
+    /// Async method — currently the WASM orchestrator uses only `prompt`.
+    /// The Rust `Orchestrator::execute` trait requires context, providers,
+    /// tools, hooks, and coordinator — we provide empty/null defaults for now.
+    #[pyo3(signature = (prompt, context=None, providers=None, tools=None, hooks=None, coordinator=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn execute<'py>(
+        &self,
+        py: Python<'py>,
+        prompt: String,
+        context: Option<Bound<'py, PyAny>>,
+        providers: Option<Bound<'py, PyAny>>,
+        tools: Option<Bound<'py, PyAny>>,
+        hooks: Option<Bound<'py, PyAny>>,
+        coordinator: Option<Bound<'py, PyAny>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+        // Silence unused variable warnings — these params are accepted for
+        // API compatibility but not forwarded to WASM orchestrators yet.
+        let _ = (context, providers, tools, hooks, coordinator);
+
+        wrap_future_as_coroutine(
+            py,
+            pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                // Provide minimal defaults for the required trait parameters.
+                // WASM orchestrators currently only use `prompt`.
+                let empty_context: Arc<dyn amplifier_core::traits::ContextManager> =
+                    Arc::new(NullContextManager);
+                let empty_providers: HashMap<String, Arc<dyn amplifier_core::traits::Provider>> =
+                    HashMap::new();
+                let empty_tools: HashMap<String, Arc<dyn amplifier_core::traits::Tool>> =
+                    HashMap::new();
+                let null_hooks = Value::Null;
+                let null_coordinator = Value::Null;
+
+                let result = inner
+                    .execute(
+                        prompt,
+                        empty_context,
+                        empty_providers,
+                        empty_tools,
+                        null_hooks,
+                        null_coordinator,
+                    )
+                    .await
+                    .map_err(|e| {
+                        PyErr::new::<PyRuntimeError, _>(format!(
+                            "Orchestrator execute failed: {e}"
+                        ))
+                    })?;
+
+                Python::try_attach(|py| -> PyResult<Py<PyAny>> {
+                    Ok(result.into_pyobject(py)?.into_any().unbind())
+                })
+                .ok_or_else(|| {
+                    PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
+                })?
+            }),
+        )
+    }
+
+    fn __repr__(&self) -> String {
+        "<WasmOrchestrator>".to_string()
+    }
+}
+
+/// Minimal no-op context manager used as a placeholder when calling WASM
+/// orchestrators that don't actually use the context parameter.
+struct NullContextManager;
+
+impl amplifier_core::traits::ContextManager for NullContextManager {
+    fn add_message(
+        &self,
+        _message: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<(), amplifier_core::ContextError>> + Send + '_>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn get_messages_for_request(
+        &self,
+        _token_budget: Option<i64>,
+        _provider: Option<Arc<dyn amplifier_core::traits::Provider>>,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<Value>, amplifier_core::ContextError>> + Send + '_>>
+    {
+        Box::pin(async { Ok(vec![]) })
+    }
+
+    fn get_messages(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<Value>, amplifier_core::ContextError>> + Send + '_>>
+    {
+        Box::pin(async { Ok(vec![]) })
+    }
+
+    fn set_messages(
+        &self,
+        _messages: Vec<Value>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), amplifier_core::ContextError>> + Send + '_>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn clear(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), amplifier_core::ContextError>> + Send + '_>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PyWasmApproval — thin Python wrapper around a Rust Arc<dyn ApprovalProvider>
+// ---------------------------------------------------------------------------
+
+/// Python-visible wrapper for a WASM-loaded approval provider module.
+///
+/// Bridges the Rust `Arc<dyn ApprovalProvider>` trait object into Python,
+/// so WASM approval modules can be used from the Python session.
+///
+/// Exposes: `request_approval(request)` (async).
+#[pyclass(name = "WasmApproval")]
+struct PyWasmApproval {
+    inner: Arc<dyn amplifier_core::traits::ApprovalProvider>,
+}
+
+// Safety: Arc<dyn ApprovalProvider> is Send+Sync (required by the ApprovalProvider trait bound).
+unsafe impl Send for PyWasmApproval {}
+unsafe impl Sync for PyWasmApproval {}
+
+#[pymethods]
+impl PyWasmApproval {
+    /// Request approval for an action.
+    ///
+    /// Async method — takes a request (dict or Pydantic model), deserialises
+    /// it as `ApprovalRequest`, calls the inner approval provider, and returns
+    /// the `ApprovalResponse` as a Python dict.
+    fn request_approval<'py>(
+        &self,
+        py: Python<'py>,
+        request: Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let inner = self.inner.clone();
+
+        let json_mod = py.import("json")?;
+        let serializable = try_model_dump(&request);
+        let json_str: String = json_mod
+            .call_method1("dumps", (&serializable,))?
+            .extract()?;
+        let approval_request: amplifier_core::models::ApprovalRequest =
+            serde_json::from_str(&json_str).map_err(|e| {
+                PyErr::new::<PyValueError, _>(format!("Invalid ApprovalRequest JSON: {e}"))
+            })?;
+
+        wrap_future_as_coroutine(
+            py,
+            pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                let response =
+                    inner
+                        .request_approval(approval_request)
+                        .await
+                        .map_err(|e| {
+                            PyErr::new::<PyRuntimeError, _>(format!(
+                                "request_approval failed: {e}"
+                            ))
+                        })?;
+
+                let result_json = serde_json::to_string(&response).map_err(|e| {
+                    PyErr::new::<PyRuntimeError, _>(format!(
+                        "Failed to serialize ApprovalResponse: {e}"
+                    ))
+                })?;
+
+                Python::try_attach(|py| -> PyResult<Py<PyAny>> {
+                    let json_mod = py.import("json")?;
+                    let dict = json_mod.call_method1("loads", (&result_json,))?;
+                    Ok(dict.unbind())
+                })
+                .ok_or_else(|| {
+                    PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
+                })?
+            }),
+        )
+    }
+
+    fn __repr__(&self) -> String {
+        "<WasmApproval>".to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // load_and_mount_wasm — load WASM module and mount into a real coordinator
 // ---------------------------------------------------------------------------
 
@@ -3036,11 +3511,31 @@ fn load_and_mount_wasm(
             dict.set_item("status", "mounted")?;
             dict.set_item("name", &provider_name)?;
         }
-        _ => {
-            // Hook, Context, Approval, Orchestrator —
-            // loaded and validated, but not auto-mounted. The Python
-            // caller should handle mounting based on module_type.
+        amplifier_core::module_resolver::LoadedModule::Hook(hook) => {
+            // Wrap in PyWasmHook — returned to caller for registration
+            let wrapper = Py::new(py, PyWasmHook { inner: hook })?;
             dict.set_item("status", "loaded")?;
+            dict.set_item("wrapper", wrapper)?;
+        }
+        amplifier_core::module_resolver::LoadedModule::Context(context) => {
+            // Wrap in PyWasmContext and mount into coordinator's mount_points["context"]
+            let wrapper = Py::new(py, PyWasmContext { inner: context })?;
+            let mp = coordinator.mount_points.bind(py);
+            mp.set_item("context", &wrapper)?;
+            dict.set_item("status", "mounted")?;
+        }
+        amplifier_core::module_resolver::LoadedModule::Orchestrator(orchestrator) => {
+            // Wrap in PyWasmOrchestrator and mount into coordinator's mount_points["orchestrator"]
+            let wrapper = Py::new(py, PyWasmOrchestrator { inner: orchestrator })?;
+            let mp = coordinator.mount_points.bind(py);
+            mp.set_item("orchestrator", &wrapper)?;
+            dict.set_item("status", "mounted")?;
+        }
+        amplifier_core::module_resolver::LoadedModule::Approval(approval) => {
+            // Wrap in PyWasmApproval — returned to caller for use
+            let wrapper = Py::new(py, PyWasmApproval { inner: approval })?;
+            dict.set_item("status", "loaded")?;
+            dict.set_item("wrapper", wrapper)?;
         }
     }
 
@@ -3067,6 +3562,10 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyRetryConfig>()?;
     m.add_class::<PyWasmTool>()?;
     m.add_class::<PyWasmProvider>()?;
+    m.add_class::<PyWasmHook>()?;
+    m.add_class::<PyWasmContext>()?;
+    m.add_class::<PyWasmOrchestrator>()?;
+    m.add_class::<PyWasmApproval>()?;
     m.add_function(wrap_pyfunction!(classify_error_message, m)?)?;
     m.add_function(wrap_pyfunction!(compute_delay, m)?)?;
     m.add_function(wrap_pyfunction!(resolve_module, m)?)?;
@@ -3302,6 +3801,30 @@ mod tests {
     #[test]
     fn py_wasm_tool_type_exists() {
         fn _assert_type_compiles(_: &PyWasmTool) {}
+    }
+
+    /// Verify PyWasmHook wrapper type exists.
+    #[test]
+    fn py_wasm_hook_type_exists() {
+        fn _assert_type_compiles(_: &PyWasmHook) {}
+    }
+
+    /// Verify PyWasmContext wrapper type exists.
+    #[test]
+    fn py_wasm_context_type_exists() {
+        fn _assert_type_compiles(_: &PyWasmContext) {}
+    }
+
+    /// Verify PyWasmOrchestrator wrapper type exists.
+    #[test]
+    fn py_wasm_orchestrator_type_exists() {
+        fn _assert_type_compiles(_: &PyWasmOrchestrator) {}
+    }
+
+    /// Verify PyWasmApproval wrapper type exists.
+    #[test]
+    fn py_wasm_approval_type_exists() {
+        fn _assert_type_compiles(_: &PyWasmApproval) {}
     }
 
     /// Document the contract for load_and_mount_wasm:
