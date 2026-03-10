@@ -744,6 +744,11 @@ class HookServiceStub(object):
                 request_serializer=amplifier__module__pb2.HookHandleRequest.SerializeToString,
                 response_deserializer=amplifier__module__pb2.HookResult.FromString,
                 _registered_method=True)
+        self.GetSubscriptions = channel.unary_unary(
+                '/amplifier.module.HookService/GetSubscriptions',
+                request_serializer=amplifier__module__pb2.GetSubscriptionsRequest.SerializeToString,
+                response_deserializer=amplifier__module__pb2.GetSubscriptionsResponse.FromString,
+                _registered_method=True)
 
 
 class HookServiceServicer(object):
@@ -756,6 +761,16 @@ class HookServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetSubscriptions(self, request, context):
+        """Return the event subscriptions this hook wants to receive.
+        The host calls this at mount time and registers the subscriptions itself.
+        A future RegisterHook RPC on KernelService will allow bidirectional
+        registration where the module pushes subscriptions to the kernel.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_HookServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -763,6 +778,11 @@ def add_HookServiceServicer_to_server(servicer, server):
                     servicer.Handle,
                     request_deserializer=amplifier__module__pb2.HookHandleRequest.FromString,
                     response_serializer=amplifier__module__pb2.HookResult.SerializeToString,
+            ),
+            'GetSubscriptions': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetSubscriptions,
+                    request_deserializer=amplifier__module__pb2.GetSubscriptionsRequest.FromString,
+                    response_serializer=amplifier__module__pb2.GetSubscriptionsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -793,6 +813,33 @@ class HookService(object):
             '/amplifier.module.HookService/Handle',
             amplifier__module__pb2.HookHandleRequest.SerializeToString,
             amplifier__module__pb2.HookResult.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetSubscriptions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/amplifier.module.HookService/GetSubscriptions',
+            amplifier__module__pb2.GetSubscriptionsRequest.SerializeToString,
+            amplifier__module__pb2.GetSubscriptionsResponse.FromString,
             options,
             channel_credentials,
             insecure,
