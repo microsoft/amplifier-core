@@ -654,6 +654,9 @@ impl JsAmplifierSession {
     ///
     /// Returns a `JsCoordinator` wrapping the session's real `Arc<Coordinator>`.
     /// Repeated calls return the same underlying coordinator instance.
+    ///
+    /// Takes `&mut self` because the first call caches the coordinator internally.
+    /// This is safe because NAPI JS objects are single-threaded — no concurrent access.
     #[napi(getter)]
     pub fn coordinator(&mut self) -> JsCoordinator {
         if let Some(ref cached) = self.cached_coordinator {
