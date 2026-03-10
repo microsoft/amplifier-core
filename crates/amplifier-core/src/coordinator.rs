@@ -77,7 +77,7 @@ pub struct Coordinator {
     tools: Mutex<HashMap<String, Arc<dyn Tool>>>,
 
     // -- Subsystems --
-    hooks: HookRegistry,
+    hooks: Arc<HookRegistry>,
     cancellation: CancellationToken,
 
     // -- Capabilities & contributions --
@@ -102,7 +102,7 @@ impl Coordinator {
             context: Mutex::new(None),
             providers: Mutex::new(HashMap::new()),
             tools: Mutex::new(HashMap::new()),
-            hooks: HookRegistry::new(),
+            hooks: Arc::new(HookRegistry::new()),
             cancellation: CancellationToken::new(),
             capabilities: Mutex::new(HashMap::new()),
             channels: Mutex::new(HashMap::new()),
@@ -246,6 +246,19 @@ impl Coordinator {
     /// Reference to the hook registry.
     pub fn hooks(&self) -> &HookRegistry {
         &self.hooks
+    }
+
+    /// Shared ownership of the hook registry.
+    ///
+    /// Returns a clone of the `Arc<HookRegistry>`, enabling binding layers
+    /// (Node, Go, etc.) to hold long-lived shared references to the same
+    /// registry instance that the Coordinator uses internally.
+    ///
+    /// The existing [`hooks()`](Self::hooks) method continues to return
+    /// `&HookRegistry` via `Arc::Deref` — all existing call sites are
+    /// unchanged.
+    pub fn hooks_shared(&self) -> Arc<HookRegistry> {
+        Arc::clone(&self.hooks)
     }
 
     /// Reference to the cancellation token.
