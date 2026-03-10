@@ -283,7 +283,7 @@ class ModuleLoader:
                             "Rust engine not available, falling through to Python loader"
                         )
                     except Exception as engine_err:
-                        logger.debug(
+                        logger.warning(
                             f"resolve_module failed for '{module_id}': {engine_err}, "
                             "falling through to Python loader"
                         )
