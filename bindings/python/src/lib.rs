@@ -185,6 +185,132 @@ impl HookHandler for PyHookHandlerBridge {
 }
 
 // ---------------------------------------------------------------------------
+// PyApprovalProviderBridge — wraps a Python ApprovalSystem as a Rust ApprovalProvider
+// ---------------------------------------------------------------------------
+
+/// Bridges a Python `ApprovalSystem` object into the Rust [`ApprovalProvider`] trait.
+///
+/// The Python `ApprovalSystem` protocol has:
+///   `request_approval(prompt, options, timeout, default) -> str`
+///
+/// The Rust `ApprovalProvider` trait has:
+///   `request_approval(ApprovalRequest) -> Result<ApprovalResponse, AmplifierError>`
+///
+/// This bridge adapts between the two interfaces.
+struct PyApprovalProviderBridge {
+    py_obj: Py<PyAny>,
+}
+
+// Safety: Py<PyAny> is Send+Sync (PyO3 handles GIL acquisition).
+unsafe impl Send for PyApprovalProviderBridge {}
+unsafe impl Sync for PyApprovalProviderBridge {}
+
+impl amplifier_core::traits::ApprovalProvider for PyApprovalProviderBridge {
+    fn request_approval(
+        &self,
+        request: amplifier_core::models::ApprovalRequest,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        amplifier_core::models::ApprovalResponse,
+                        amplifier_core::errors::AmplifierError,
+                    >,
+                > + Send
+                + '_,
+        >,
+    > {
+        let py_obj = Python::try_attach(|py| Ok::<_, PyErr>(self.py_obj.clone_ref(py)))
+            .unwrap()
+            .unwrap();
+
+        Box::pin(async move {
+            use amplifier_core::errors::{AmplifierError, SessionError};
+
+            // Step 1: Build Python call args from the ApprovalRequest
+            let (is_coro, py_result_or_coro) =
+                Python::try_attach(|py| -> PyResult<(bool, Py<PyAny>)> {
+                    // Adapt Rust ApprovalRequest to Python ApprovalSystem.request_approval() args:
+                    //   prompt: str, options: list[str], timeout: float, default: str
+                    let prompt = format!("{}: {}", request.tool_name, request.action);
+                    let options = vec!["approve", "deny"];
+                    let timeout = request.timeout.unwrap_or(300.0);
+                    let default = "deny";
+
+                    let call_result = py_obj.call_method(
+                        py,
+                        "request_approval",
+                        (prompt, options, timeout, default),
+                        None,
+                    )?;
+                    let bound = call_result.bind(py);
+
+                    let inspect = py.import("inspect")?;
+                    let is_coro: bool = inspect.call_method1("iscoroutine", (bound,))?.extract()?;
+
+                    Ok((is_coro, call_result))
+                })
+                .ok_or_else(|| {
+                    AmplifierError::Session(SessionError::Other {
+                        message: "Failed to attach to Python runtime".to_string(),
+                    })
+                })?
+                .map_err(|e| {
+                    AmplifierError::Session(SessionError::Other {
+                        message: format!("Python approval call error: {e}"),
+                    })
+                })?;
+
+            // Step 2: Await if coroutine
+            let py_result: Py<PyAny> = if is_coro {
+                let future = Python::try_attach(|py| {
+                    pyo3_async_runtimes::tokio::into_future(py_result_or_coro.into_bound(py))
+                })
+                .ok_or_else(|| {
+                    AmplifierError::Session(SessionError::Other {
+                        message: "Failed to attach for coroutine conversion".to_string(),
+                    })
+                })?
+                .map_err(|e| {
+                    AmplifierError::Session(SessionError::Other {
+                        message: format!("Coroutine conversion error: {e}"),
+                    })
+                })?;
+                future.await.map_err(|e| {
+                    AmplifierError::Session(SessionError::Other {
+                        message: format!("Async approval error: {e}"),
+                    })
+                })?
+            } else {
+                py_result_or_coro
+            };
+
+            // Step 3: Parse result string → ApprovalResponse
+            let approved = Python::try_attach(|py| -> PyResult<bool> {
+                let result_str: String = py_result.extract(py)?;
+                Ok(result_str.to_lowercase().contains("approve"))
+            })
+            .ok_or_else(|| {
+                AmplifierError::Session(SessionError::Other {
+                    message: "Failed to attach to parse approval result".to_string(),
+                })
+            })?
+            .map_err(|e| {
+                AmplifierError::Session(SessionError::Other {
+                    message: format!("Failed to parse approval result: {e}"),
+                })
+            })?;
+
+            Ok(amplifier_core::models::ApprovalResponse {
+                approved,
+                reason: None,
+                remember: false,
+            })
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // PySession — wraps amplifier_core::Session (Milestone 3)
 // ---------------------------------------------------------------------------
 
@@ -2033,6 +2159,16 @@ impl PyCoordinator {
     /// Set the approval system.
     #[setter]
     fn set_approval_system(&mut self, value: Py<PyAny>) {
+        // Also set on the Rust Coordinator if value is not None
+        Python::try_attach(|py| -> PyResult<()> {
+            if !value.bind(py).is_none() {
+                let bridge = Arc::new(PyApprovalProviderBridge {
+                    py_obj: value.clone_ref(py),
+                });
+                self.inner.set_approval_provider(bridge);
+            }
+            Ok(())
+        });
         self.approval_system_obj = value;
     }
 
@@ -2147,6 +2283,9 @@ impl PyCoordinator {
             .map(|k| k.extract::<String>().unwrap_or_default())
             .collect();
         dict.set_item("capabilities", PyList::new(py, &cap_keys)?)?;
+
+        // has_approval_provider: whether a Rust-side approval provider is mounted
+        dict.set_item("has_approval_provider", self.inner.has_approval_provider())?;
 
         Ok(dict)
     }
@@ -2852,9 +2991,7 @@ impl PyWasmProvider {
                 })?;
 
                 let json_str = serde_json::to_string(&models).map_err(|e| {
-                    PyErr::new::<PyRuntimeError, _>(format!(
-                        "Failed to serialize model list: {e}"
-                    ))
+                    PyErr::new::<PyRuntimeError, _>(format!("Failed to serialize model list: {e}"))
                 })?;
 
                 Python::try_attach(|py| -> PyResult<Py<PyAny>> {
@@ -2887,10 +3024,10 @@ impl PyWasmProvider {
         let json_str: String = json_mod
             .call_method1("dumps", (&serializable,))?
             .extract()?;
-        let chat_request: amplifier_core::messages::ChatRequest =
-            serde_json::from_str(&json_str).map_err(|e| {
-                PyErr::new::<PyValueError, _>(format!("Invalid ChatRequest JSON: {e}"))
-            })?;
+        let chat_request: amplifier_core::messages::ChatRequest = serde_json::from_str(&json_str)
+            .map_err(|e| {
+            PyErr::new::<PyValueError, _>(format!("Invalid ChatRequest JSON: {e}"))
+        })?;
 
         wrap_future_as_coroutine(
             py,
@@ -2928,8 +3065,8 @@ impl PyWasmProvider {
         let json_str: String = json_mod
             .call_method1("dumps", (&serializable,))?
             .extract()?;
-        let chat_response: amplifier_core::messages::ChatResponse =
-            serde_json::from_str(&json_str).map_err(|e| {
+        let chat_response: amplifier_core::messages::ChatResponse = serde_json::from_str(&json_str)
+            .map_err(|e| {
                 PyErr::new::<PyValueError, _>(format!("Invalid ChatResponse JSON: {e}"))
             })?;
 
@@ -3000,9 +3137,7 @@ impl PyWasmHook {
                 })?;
 
                 let result_json = serde_json::to_string(&result).map_err(|e| {
-                    PyErr::new::<PyRuntimeError, _>(format!(
-                        "Failed to serialize HookResult: {e}"
-                    ))
+                    PyErr::new::<PyRuntimeError, _>(format!("Failed to serialize HookResult: {e}"))
                 })?;
 
                 Python::try_attach(|py| -> PyResult<Py<PyAny>> {
@@ -3062,9 +3197,8 @@ impl PyWasmContext {
         let json_str: String = json_mod
             .call_method1("dumps", (&serializable,))?
             .extract()?;
-        let value: Value = serde_json::from_str(&json_str).map_err(|e| {
-            PyErr::new::<PyValueError, _>(format!("Invalid JSON for message: {e}"))
-        })?;
+        let value: Value = serde_json::from_str(&json_str)
+            .map_err(|e| PyErr::new::<PyValueError, _>(format!("Invalid JSON for message: {e}")))?;
 
         wrap_future_as_coroutine(
             py,
@@ -3072,10 +3206,9 @@ impl PyWasmContext {
                 inner.add_message(value).await.map_err(|e| {
                     PyErr::new::<PyRuntimeError, _>(format!("add_message failed: {e}"))
                 })?;
-                Python::try_attach(|py| -> PyResult<Py<PyAny>> { Ok(py.None()) })
-                    .ok_or_else(|| {
-                        PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
-                    })?
+                Python::try_attach(|py| -> PyResult<Py<PyAny>> { Ok(py.None()) }).ok_or_else(
+                    || PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime"),
+                )?
             }),
         )
     }
@@ -3094,9 +3227,7 @@ impl PyWasmContext {
                 })?;
 
                 let json_str = serde_json::to_string(&messages).map_err(|e| {
-                    PyErr::new::<PyRuntimeError, _>(format!(
-                        "Failed to serialize messages: {e}"
-                    ))
+                    PyErr::new::<PyRuntimeError, _>(format!("Failed to serialize messages: {e}"))
                 })?;
 
                 Python::try_attach(|py| -> PyResult<Py<PyAny>> {
@@ -3138,9 +3269,7 @@ impl PyWasmContext {
                     })?;
 
                 let json_str = serde_json::to_string(&messages).map_err(|e| {
-                    PyErr::new::<PyRuntimeError, _>(format!(
-                        "Failed to serialize messages: {e}"
-                    ))
+                    PyErr::new::<PyRuntimeError, _>(format!("Failed to serialize messages: {e}"))
                 })?;
 
                 Python::try_attach(|py| -> PyResult<Py<PyAny>> {
@@ -3167,9 +3296,7 @@ impl PyWasmContext {
         let inner = self.inner.clone();
 
         let json_mod = py.import("json")?;
-        let json_str: String = json_mod
-            .call_method1("dumps", (&messages,))?
-            .extract()?;
+        let json_str: String = json_mod.call_method1("dumps", (&messages,))?.extract()?;
         let values: Vec<Value> = serde_json::from_str(&json_str).map_err(|e| {
             PyErr::new::<PyValueError, _>(format!("Invalid JSON for messages: {e}"))
         })?;
@@ -3180,10 +3307,9 @@ impl PyWasmContext {
                 inner.set_messages(values).await.map_err(|e| {
                     PyErr::new::<PyRuntimeError, _>(format!("set_messages failed: {e}"))
                 })?;
-                Python::try_attach(|py| -> PyResult<Py<PyAny>> { Ok(py.None()) })
-                    .ok_or_else(|| {
-                        PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
-                    })?
+                Python::try_attach(|py| -> PyResult<Py<PyAny>> { Ok(py.None()) }).ok_or_else(
+                    || PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime"),
+                )?
             }),
         )
     }
@@ -3197,13 +3323,13 @@ impl PyWasmContext {
         wrap_future_as_coroutine(
             py,
             pyo3_async_runtimes::tokio::future_into_py(py, async move {
-                inner.clear().await.map_err(|e| {
-                    PyErr::new::<PyRuntimeError, _>(format!("clear failed: {e}"))
-                })?;
-                Python::try_attach(|py| -> PyResult<Py<PyAny>> { Ok(py.None()) })
-                    .ok_or_else(|| {
-                        PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
-                    })?
+                inner
+                    .clear()
+                    .await
+                    .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("clear failed: {e}")))?;
+                Python::try_attach(|py| -> PyResult<Py<PyAny>> { Ok(py.None()) }).ok_or_else(
+                    || PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime"),
+                )?
             }),
         )
     }
@@ -3284,9 +3410,7 @@ impl PyWasmOrchestrator {
                     )
                     .await
                     .map_err(|e| {
-                        PyErr::new::<PyRuntimeError, _>(format!(
-                            "Orchestrator execute failed: {e}"
-                        ))
+                        PyErr::new::<PyRuntimeError, _>(format!("Orchestrator execute failed: {e}"))
                     })?;
 
                 Python::try_attach(|py| -> PyResult<Py<PyAny>> {
@@ -3394,15 +3518,12 @@ impl PyWasmApproval {
         wrap_future_as_coroutine(
             py,
             pyo3_async_runtimes::tokio::future_into_py(py, async move {
-                let response =
-                    inner
-                        .request_approval(approval_request)
-                        .await
-                        .map_err(|e| {
-                            PyErr::new::<PyRuntimeError, _>(format!(
-                                "request_approval failed: {e}"
-                            ))
-                        })?;
+                let response = inner
+                    .request_approval(approval_request)
+                    .await
+                    .map_err(|e| {
+                        PyErr::new::<PyRuntimeError, _>(format!("request_approval failed: {e}"))
+                    })?;
 
                 let result_json = serde_json::to_string(&response).map_err(|e| {
                     PyErr::new::<PyRuntimeError, _>(format!(
@@ -3507,11 +3628,9 @@ fn load_and_mount_wasm(
             // Wrap in PyWasmProvider and mount into coordinator's mount_points["providers"]
             let wrapper = Py::new(py, PyWasmProvider { inner: provider })?;
             let mp = coordinator.mount_points.bind(py);
-            let providers_any = mp
-                .get_item("providers")?
-                .ok_or_else(|| {
-                    PyErr::new::<PyRuntimeError, _>("mount_points missing 'providers'")
-                })?;
+            let providers_any = mp.get_item("providers")?.ok_or_else(|| {
+                PyErr::new::<PyRuntimeError, _>("mount_points missing 'providers'")
+            })?;
             let providers_dict = providers_any.cast::<PyDict>()?;
             providers_dict.set_item(&provider_name, &wrapper)?;
             dict.set_item("status", "mounted")?;
@@ -3532,7 +3651,12 @@ fn load_and_mount_wasm(
         }
         amplifier_core::module_resolver::LoadedModule::Orchestrator(orchestrator) => {
             // Wrap in PyWasmOrchestrator and mount into coordinator's mount_points["orchestrator"]
-            let wrapper = Py::new(py, PyWasmOrchestrator { inner: orchestrator })?;
+            let wrapper = Py::new(
+                py,
+                PyWasmOrchestrator {
+                    inner: orchestrator,
+                },
+            )?;
             let mp = coordinator.mount_points.bind(py);
             mp.set_item("orchestrator", &wrapper)?;
             dict.set_item("status", "mounted")?;
