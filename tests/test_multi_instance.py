@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 
 from amplifier_core.session import AmplifierSession as PyAmplifierSession
 from amplifier_core._session_init import initialize_session
-from amplifier_core.testing import TestCoordinator
+from amplifier_core.testing import MockCoordinator
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +72,7 @@ async def test_single_instance_no_remapping():
         }
     )
 
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
     coordinator.loader = loader
 
     await initialize_session(config, coordinator, session_id="test", parent_id=None)
@@ -113,7 +113,7 @@ async def test_instance_id_remapping_removes_default_key():
         }
     )
 
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
     coordinator.loader = loader
 
     await initialize_session(config, coordinator, session_id="test", parent_id=None)
@@ -176,7 +176,7 @@ async def test_multi_instance_providers_both_mounted():
         ],
     }
 
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
     coordinator.loader = loader
 
     await initialize_session(config, coordinator, session_id="test", parent_id=None)
@@ -225,7 +225,7 @@ async def test_session_py_instance_id_remapping():
 
     # Replace the session's coordinator with our tracking one so we can inspect
     # mount/unmount history after initialization.
-    tracking_coordinator = TestCoordinator()
+    tracking_coordinator = MockCoordinator()
     tracking_coordinator.loader = loader
     session.coordinator = tracking_coordinator
 
@@ -267,7 +267,7 @@ async def test_duplicate_module_without_instance_id_raises():
         }
     )
 
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
     coordinator.loader = loader
 
     with pytest.raises(ValueError, match="instance_id"):
@@ -310,7 +310,7 @@ async def test_duplicate_module_with_instance_id_passes():
         ],
     }
 
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
     coordinator.loader = loader
 
     # Should not raise
@@ -339,7 +339,7 @@ async def test_single_module_no_instance_id_ok():
         }
     )
 
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
     coordinator.loader = loader
 
     # Should not raise
@@ -388,7 +388,7 @@ async def test_duplicate_module_one_missing_instance_id_allowed():
         ],
     }
 
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
     coordinator.loader = loader
 
     # Should NOT raise — one default entry is allowed
@@ -453,7 +453,7 @@ async def test_mixed_instance_id_preserves_default_entry():
         ],
     }
 
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
     coordinator.loader = loader
 
     await initialize_session(config, coordinator, session_id="test", parent_id=None)
@@ -498,7 +498,7 @@ async def test_session_py_no_instance_id_no_remap():
 
     session = PyAmplifierSession(config, loader=loader)
 
-    tracking_coordinator = TestCoordinator()
+    tracking_coordinator = MockCoordinator()
     tracking_coordinator.loader = loader
     session.coordinator = tracking_coordinator
 

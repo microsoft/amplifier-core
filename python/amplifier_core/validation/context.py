@@ -217,9 +217,9 @@ class ContextValidator:
             config: Optional module configuration (uses empty dict if not provided)
         """
         # Create coordinator and track mount_result outside try block so finally can access them
-        from ..testing import TestCoordinator
+        from ..testing import MockCoordinator
 
-        coordinator = TestCoordinator()
+        coordinator = MockCoordinator()
         mount_result = None  # Track returned cleanup function
         try:
             # Use provided config or empty dict as fallback

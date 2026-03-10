@@ -8,7 +8,7 @@ Usage:
     In a module repo, tests automatically get:
     - `module_path` fixture: Path to the module's Python package
     - `module_type` fixture: Detected type (provider, tool, hook, etc.)
-    - `coordinator` fixture: TestCoordinator for mounting modules
+    - `coordinator` fixture: MockCoordinator for mounting modules
     - `provider_module`, `tool_module`, etc.: Mounted module instances
 
     Modules can inherit from base test classes:
@@ -394,9 +394,9 @@ async def _load_module(
 @pytest.fixture
 def coordinator() -> Any:
     """Create a fresh test coordinator for module testing."""
-    from amplifier_core.testing import TestCoordinator
+    from amplifier_core.testing import MockCoordinator
 
-    return TestCoordinator()
+    return MockCoordinator()
 
 
 @pytest.fixture
