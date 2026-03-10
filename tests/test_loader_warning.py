@@ -49,7 +49,9 @@ async def test_resolve_module_failure_logs_warning(caplog, tmp_path):
     with (
         patch.object(loader, "_load_entry_point", return_value=None),
         patch.object(loader, "_load_filesystem", return_value=None),
-        patch.object(loader, "_validate_module", new_callable=AsyncMock),
+        patch.object(
+            loader, "_validate_module", new_callable=AsyncMock
+        ),  # no-op: we only need the engine fallback path
         patch("amplifier_core._engine", mock_engine, create=True),
         patch.dict("sys.modules", {"amplifier_core._engine": mock_engine}),
         caplog.at_level(logging.WARNING, logger="amplifier_core.loader"),
