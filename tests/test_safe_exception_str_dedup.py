@@ -6,17 +6,13 @@ not define its own copy.
 """
 
 import ast
-import inspect
 from pathlib import Path
 
 
 def test_safe_exception_str_not_defined_in_session_module():
     """session.py must not define _safe_exception_str locally."""
     session_path = (
-        Path(__file__).parent.parent
-        / "python"
-        / "amplifier_core"
-        / "session.py"
+        Path(__file__).parent.parent / "python" / "amplifier_core" / "session.py"
     )
     tree = ast.parse(session_path.read_text())
     local_defs = [
