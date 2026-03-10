@@ -503,9 +503,7 @@ impl ApprovalProvider for FakeApprovalProvider {
 // FakeDisplayService
 // ---------------------------------------------------------------------------
 
-/// A fake display service that records messages for test assertions.
-///
-/// The `DisplayService` trait impl will be added once the trait is defined.
+/// A fake display service that records `(message, level, source)` tuples for test assertions.
 pub struct FakeDisplayService {
     messages: Mutex<Vec<(String, String, String)>>, // (message, level, source)
 }
