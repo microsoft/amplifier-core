@@ -257,6 +257,19 @@ impl Coordinator {
     /// The existing [`hooks()`](Self::hooks) method continues to return
     /// `&HookRegistry` via `Arc::Deref` — all existing call sites are
     /// unchanged.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::sync::Arc;
+    /// use amplifier_core::coordinator::Coordinator;
+    ///
+    /// let coord = Coordinator::new_for_test();
+    /// let shared: Arc<amplifier_core::hooks::HookRegistry> = coord.hooks_shared();
+    ///
+    /// // Both point to the same registry
+    /// assert_eq!(coord.hooks().list_handlers(None).len(), shared.list_handlers(None).len());
+    /// ```
     pub fn hooks_shared(&self) -> Arc<HookRegistry> {
         Arc::clone(&self.hooks)
     }
@@ -727,7 +740,12 @@ mod tests {
 
         // Register a handler on the shared clone
         let handler = Arc::new(crate::testing::FakeHookHandler::new());
-        shared_hooks.register("test:shared", handler.clone(), 0, Some("shared-handler".into()));
+        shared_hooks.register(
+            "test:shared",
+            handler.clone(),
+            0,
+            Some("shared-handler".into()),
+        );
 
         // Emit via the original coordinator's hooks() — the handler MUST fire
         // because hooks_shared() returns the same registry, not a copy.

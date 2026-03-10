@@ -58,9 +58,24 @@ pub async fn load_grpc_orchestrator(
 
 /// Load a provider module via gRPC transport.
 ///
+/// Connects to a remote `ProviderService` and returns an `Arc<dyn Provider>`
+/// that is indistinguishable from a local provider.
+///
 /// # Arguments
 ///
 /// * `endpoint` — gRPC endpoint URL (e.g. `"http://localhost:50051"`).
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// use amplifier_core::transport::load_grpc_provider;
+///
+/// let provider = load_grpc_provider("http://localhost:50051").await?;
+/// println!("Connected to provider: {}", provider.name());
+/// # Ok(())
+/// # }
+/// ```
 pub async fn load_grpc_provider(
     endpoint: &str,
 ) -> Result<Arc<dyn Provider>, Box<dyn std::error::Error + Send + Sync>> {
@@ -70,9 +85,23 @@ pub async fn load_grpc_provider(
 
 /// Load a hook handler module via gRPC transport.
 ///
+/// Connects to a remote `HookService` and returns an `Arc<dyn HookHandler>`
+/// that is indistinguishable from a local hook handler.
+///
 /// # Arguments
 ///
 /// * `endpoint` — gRPC endpoint URL (e.g. `"http://localhost:50051"`).
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// use amplifier_core::transport::load_grpc_hook;
+///
+/// let hook = load_grpc_hook("http://localhost:50051").await?;
+/// # Ok(())
+/// # }
+/// ```
 pub async fn load_grpc_hook(
     endpoint: &str,
 ) -> Result<Arc<dyn HookHandler>, Box<dyn std::error::Error + Send + Sync>> {
@@ -82,9 +111,23 @@ pub async fn load_grpc_hook(
 
 /// Load a context manager module via gRPC transport.
 ///
+/// Connects to a remote `ContextService` and returns an `Arc<dyn ContextManager>`
+/// that is indistinguishable from a local context manager.
+///
 /// # Arguments
 ///
 /// * `endpoint` — gRPC endpoint URL (e.g. `"http://localhost:50051"`).
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// use amplifier_core::transport::load_grpc_context;
+///
+/// let context = load_grpc_context("http://localhost:50051").await?;
+/// # Ok(())
+/// # }
+/// ```
 pub async fn load_grpc_context(
     endpoint: &str,
 ) -> Result<Arc<dyn ContextManager>, Box<dyn std::error::Error + Send + Sync>> {
@@ -94,9 +137,23 @@ pub async fn load_grpc_context(
 
 /// Load an approval provider module via gRPC transport.
 ///
+/// Connects to a remote `ApprovalService` and returns an `Arc<dyn ApprovalProvider>`
+/// that is indistinguishable from a local approval provider.
+///
 /// # Arguments
 ///
 /// * `endpoint` — gRPC endpoint URL (e.g. `"http://localhost:50051"`).
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// use amplifier_core::transport::load_grpc_approval;
+///
+/// let approval = load_grpc_approval("http://localhost:50051").await?;
+/// # Ok(())
+/// # }
+/// ```
 pub async fn load_grpc_approval(
     endpoint: &str,
 ) -> Result<Arc<dyn ApprovalProvider>, Box<dyn std::error::Error + Send + Sync>> {
@@ -266,27 +323,39 @@ mod tests {
     async fn load_grpc_provider_returns_result_arc_dyn_provider() {
         let result = super::load_grpc_provider("http://[::1]:59001").await;
         // Connection to non-listening port should fail
-        assert!(result.is_err(), "expected connection error to non-listening port");
+        assert!(
+            result.is_err(),
+            "expected connection error to non-listening port"
+        );
     }
 
     /// Verify load_grpc_hook exists and returns the correct type.
     #[tokio::test]
     async fn load_grpc_hook_returns_result_arc_dyn_hook_handler() {
         let result = super::load_grpc_hook("http://[::1]:59002").await;
-        assert!(result.is_err(), "expected connection error to non-listening port");
+        assert!(
+            result.is_err(),
+            "expected connection error to non-listening port"
+        );
     }
 
     /// Verify load_grpc_context exists and returns the correct type.
     #[tokio::test]
     async fn load_grpc_context_returns_result_arc_dyn_context_manager() {
         let result = super::load_grpc_context("http://[::1]:59003").await;
-        assert!(result.is_err(), "expected connection error to non-listening port");
+        assert!(
+            result.is_err(),
+            "expected connection error to non-listening port"
+        );
     }
 
     /// Verify load_grpc_approval exists and returns the correct type.
     #[tokio::test]
     async fn load_grpc_approval_returns_result_arc_dyn_approval_provider() {
         let result = super::load_grpc_approval("http://[::1]:59004").await;
-        assert!(result.is_err(), "expected connection error to non-listening port");
+        assert!(
+            result.is_err(),
+            "expected connection error to non-listening port"
+        );
     }
 }

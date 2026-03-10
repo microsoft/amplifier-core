@@ -418,6 +418,40 @@ pub enum ModuleResolverError {
 /// Returned by [`load_module`] after dispatch to the appropriate transport bridge.
 /// The `PythonDelegated` variant is a signal to the Python host that it should
 /// load the module itself via importlib.
+///
+/// # Examples
+///
+/// Dispatch on transport to mount a module on the coordinator:
+///
+/// ```rust
+/// use amplifier_core::module_resolver::LoadedModule;
+/// use amplifier_core::coordinator::Coordinator;
+/// use amplifier_core::testing::FakeTool;
+/// use std::sync::Arc;
+///
+/// let coord = Coordinator::new_for_test();
+///
+/// // Simulate a loaded tool module
+/// let loaded = LoadedModule::Tool(Arc::new(FakeTool::new("echo", "echoes")));
+///
+/// match loaded {
+///     LoadedModule::Tool(tool) => {
+///         let name = tool.name().to_string();
+///         coord.mount_tool(&name, tool);
+///     }
+///     LoadedModule::Provider(p) => {
+///         let name = p.name().to_string();
+///         coord.mount_provider(&name, p);
+///     }
+///     LoadedModule::PythonDelegated { package_name } => {
+///         // Signal to Python host: import this package
+///         println!("Python host should import: {package_name}");
+///     }
+///     _ => { /* handle other variants */ }
+/// }
+///
+/// assert_eq!(coord.tool_names(), vec!["echo".to_string()]);
+/// ```
 pub enum LoadedModule {
     /// A loaded tool module.
     Tool(Arc<dyn crate::traits::Tool>),
