@@ -13,6 +13,8 @@ import pytest
 
 from amplifier_core.loader import ModuleLoader
 
+MODULE_ID = "echo-tool"
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -22,7 +24,7 @@ from amplifier_core.loader import ModuleLoader
 @pytest.fixture
 def wasm_fixture_path():
     """Path to the echo-tool.wasm fixture file. Skips if missing."""
-    path = Path(__file__).parent / "fixtures" / "wasm" / "echo-tool.wasm"
+    path = Path(__file__).parent / "fixtures" / "wasm" / f"{MODULE_ID}.wasm"
     if not path.exists():
         pytest.skip(f"WASM fixture not found: {path}")
     return path
@@ -84,9 +86,9 @@ async def test_wasm_dispatch_returns_mount_function(
     # Simulate what load_and_mount_wasm does: mount tool into coordinator
     def fake_load_and_mount(coord, path):
         tool_mock = MagicMock()
-        tool_mock.name = "echo-tool"
-        coord.mount_points["tools"]["echo-tool"] = tool_mock
-        return {"status": "mounted", "module_type": "tool", "name": "echo-tool"}
+        tool_mock.name = MODULE_ID
+        coord.mount_points["tools"][MODULE_ID] = tool_mock
+        return {"status": "mounted", "module_type": "tool", "name": MODULE_ID}
 
     fake_engine.load_and_mount_wasm = MagicMock(side_effect=fake_load_and_mount)
 
@@ -96,7 +98,7 @@ async def test_wasm_dispatch_returns_mount_function(
 
     with patch.dict(sys.modules, {"amplifier_core._engine": fake_engine}):
         mount_fn = await loader.load(
-            "echo-tool", {}, source_hint="/fake/path", coordinator=mock_coordinator
+            MODULE_ID, {}, source_hint="/fake/path", coordinator=mock_coordinator
         )
 
     # -- Verify ---------------------------------------------------------------
@@ -105,4 +107,4 @@ async def test_wasm_dispatch_returns_mount_function(
 
     # Call mount function and verify the tool is registered
     await mount_fn(mock_coordinator)
-    assert "echo-tool" in mount_points["tools"]
+    assert MODULE_ID in mount_points["tools"]
