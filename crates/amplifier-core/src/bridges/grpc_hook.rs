@@ -33,6 +33,20 @@ use crate::traits::HookHandler;
 
 /// A bridge that wraps a remote gRPC `HookService` as a native [`HookHandler`].
 ///
+/// ## GetSubscriptions RPC
+///
+/// The proto `HookService` exposes a `GetSubscriptions` RPC that the host
+/// calls at mount time to discover which events a hook module wants to
+/// receive and at what priority.  The host then registers those
+/// subscriptions in its own hook registry so the module does not need to
+/// call back into the kernel.
+///
+/// A future `RegisterHook` RPC on `KernelService` will allow bidirectional
+/// registration where the module pushes subscriptions to the kernel instead
+/// of (or in addition to) the host pulling them.
+///
+/// ## Mutex note
+///
 /// The client is held behind a [`tokio::sync::Mutex`] because
 /// `HookServiceClient` methods take `&mut self` and we need to hold
 /// the lock across `.await` points.
@@ -418,5 +432,43 @@ mod tests {
         let result = GrpcHookBridge::proto_to_native_hook_result(proto);
         // Should return None (parse failure logged but still returns None)
         assert_eq!(result.data, None);
+    }
+
+    // ---- GetSubscriptions proto types exist ----
+
+    /// Verify the generated GetSubscriptionsRequest has the expected config_json field.
+    #[test]
+    fn get_subscriptions_request_type_exists() {
+        let req = amplifier_module::GetSubscriptionsRequest {
+            config_json: "{}".to_string(),
+        };
+        assert_eq!(req.config_json, "{}");
+    }
+
+    /// Verify the generated EventSubscription has event, priority, and name fields.
+    #[test]
+    fn event_subscription_type_exists() {
+        let sub = amplifier_module::EventSubscription {
+            event: "before_completion".to_string(),
+            priority: 100,
+            name: "my-hook".to_string(),
+        };
+        assert_eq!(sub.event, "before_completion");
+        assert_eq!(sub.priority, 100);
+        assert_eq!(sub.name, "my-hook");
+    }
+
+    /// Verify the generated GetSubscriptionsResponse holds a vec of EventSubscription.
+    #[test]
+    fn get_subscriptions_response_type_exists() {
+        let resp = amplifier_module::GetSubscriptionsResponse {
+            subscriptions: vec![amplifier_module::EventSubscription {
+                event: "after_tool_call".to_string(),
+                priority: 50,
+                name: "audit-hook".to_string(),
+            }],
+        };
+        assert_eq!(resp.subscriptions.len(), 1);
+        assert_eq!(resp.subscriptions[0].event, "after_tool_call");
     }
 }

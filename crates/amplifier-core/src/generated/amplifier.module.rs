@@ -539,6 +539,26 @@ pub struct HookHandleRequest {
     #[prost(string, tag = "2")]
     pub data_json: ::prost::alloc::string::String,
 }
+/// GetSubscriptions: allows a hook module to declare which events it handles.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetSubscriptionsRequest {
+    #[prost(string, tag = "1")]
+    pub config_json: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetSubscriptionsResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub subscriptions: ::prost::alloc::vec::Vec<EventSubscription>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EventSubscription {
+    #[prost(string, tag = "1")]
+    pub event: ::prost::alloc::string::String,
+    #[prost(int32, tag = "2")]
+    pub priority: i32,
+    #[prost(string, tag = "3")]
+    pub name: ::prost::alloc::string::String,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CompleteWithProviderRequest {
     #[prost(string, tag = "1")]
@@ -1848,6 +1868,36 @@ pub mod hook_service_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("amplifier.module.HookService", "Handle"));
+            self.inner.unary(req, path, codec).await
+        }
+        /// Return the event subscriptions this hook wants to receive.
+        /// The host calls this at mount time and registers the subscriptions itself.
+        /// A future RegisterHook RPC on KernelService will allow bidirectional
+        /// registration where the module pushes subscriptions to the kernel.
+        pub async fn get_subscriptions(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetSubscriptionsRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetSubscriptionsResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/amplifier.module.HookService/GetSubscriptions",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("amplifier.module.HookService", "GetSubscriptions"),
+                );
             self.inner.unary(req, path, codec).await
         }
     }
@@ -3710,6 +3760,17 @@ pub mod hook_service_server {
             &self,
             request: tonic::Request<super::HookHandleRequest>,
         ) -> std::result::Result<tonic::Response<super::HookResult>, tonic::Status>;
+        /// Return the event subscriptions this hook wants to receive.
+        /// The host calls this at mount time and registers the subscriptions itself.
+        /// A future RegisterHook RPC on KernelService will allow bidirectional
+        /// registration where the module pushes subscriptions to the kernel.
+        async fn get_subscriptions(
+            &self,
+            request: tonic::Request<super::GetSubscriptionsRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetSubscriptionsResponse>,
+            tonic::Status,
+        >;
     }
     /// Hook module contract — event interception.
     #[derive(Debug)]
@@ -3818,6 +3879,51 @@ pub mod hook_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = HandleSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/amplifier.module.HookService/GetSubscriptions" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetSubscriptionsSvc<T: HookService>(pub Arc<T>);
+                    impl<
+                        T: HookService,
+                    > tonic::server::UnaryService<super::GetSubscriptionsRequest>
+                    for GetSubscriptionsSvc<T> {
+                        type Response = super::GetSubscriptionsResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetSubscriptionsRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as HookService>::get_subscriptions(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetSubscriptionsSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
