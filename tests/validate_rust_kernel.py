@@ -356,11 +356,11 @@ print("\n=== PART C: Polyglot Readiness ===\n")
 # C1: gRPC loader infrastructure
 print("C1: gRPC loader")
 try:
-    from amplifier_core.loader_dispatch import load_module, _detect_transport
+    from amplifier_core.loader import ModuleLoader
 
-    check("loader_dispatch importable", True)
+    check("loader transport dispatch importable", True)
 except ImportError as e:
-    check("loader_dispatch importable", False, str(e))
+    check("loader transport dispatch importable", False, str(e))
 
 try:
     from amplifier_core.loader_grpc import GrpcToolBridge, load_grpc_module
