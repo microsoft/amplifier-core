@@ -18,8 +18,8 @@ describe('Full session lifecycle', () => {
     expect(session.sessionId).toBeTruthy()
     expect(session.isInitialized).toBe(false)
 
-    // Access coordinator (createCoordinator returns a new instance from cached config)
-    const coord = session.createCoordinator()
+    // Access coordinator (getter returns session's real Arc<Coordinator>)
+    const coord = session.coordinator
     expect(coord).toBeDefined()
 
     // Register capability and verify roundtrip

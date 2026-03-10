@@ -30,9 +30,7 @@ describe('JsCoordinator', () => {
     expect(result).toBeNull()
   })
 
-  // hooks getter returns the coordinator's shared Arc<HookRegistry>.
-  // Hooks registered on the returned instance are visible to the Coordinator
-  // and vice versa.
+  // hooks is now a getter that returns the coordinator's real Arc<HookRegistry>.
   it('hooks getter returns a JsHookRegistry with listHandlers', () => {
     const coord = new JsCoordinator(emptyConfig)
     const hooks = coord.hooks
@@ -40,14 +38,17 @@ describe('JsCoordinator', () => {
     expect(typeof hooks.listHandlers).toBe('function')
   })
 
-  it('hooks getter returns a registry backed by the same Arc (not detached)', () => {
+  it('hooks getter shares state — handlers registered on one call are visible on next', () => {
     const coord = new JsCoordinator(emptyConfig)
     const h1 = coord.hooks
+    // Register a handler on h1
+    h1.register('test:event', (_event: string, _data: string) => {
+      return JSON.stringify({ action: 'Continue' })
+    }, 0, 'test-handler')
+    // h2 should see the same handler
     const h2 = coord.hooks
-    // Both wrap the same underlying Arc<HookRegistry>, so handlers
-    // registered via h1 are visible via h2.
-    expect(typeof h1.listHandlers).toBe('function')
-    expect(typeof h2.listHandlers).toBe('function')
+    const handlers = h2.listHandlers()
+    expect(handlers['test:event']).toContain('test-handler')
   })
 
   it('provides access to cancellation subsystem (coord.cancellation.isCancelled === false)', () => {

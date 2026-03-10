@@ -554,6 +554,10 @@ impl JsCoordinator {
 ///
 /// Lifecycle: `new AmplifierSession(config) → initialize() → execute(prompt) → cleanup()`.
 /// Wires together Coordinator, HookRegistry, and CancellationToken.
+///
+/// The `coordinator` getter returns the session's real `Arc<Coordinator>`,
+/// and `coordinator.hooks` returns the real `Arc<HookRegistry>` — both
+/// shared, not copied.
 #[napi]
 pub struct JsAmplifierSession {
     inner: Arc<Mutex<amplifier_core::Session>>,
