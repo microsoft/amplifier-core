@@ -64,6 +64,75 @@ impl GrpcHookBridge {
         })
     }
 
+    /// Default wildcard subscription used as a fallback when `GetSubscriptions`
+    /// is unavailable or fails: receives every event at priority 0.
+    pub(crate) const WILDCARD_SUBSCRIPTION: (&'static str, i32, &'static str) =
+        ("*", 0, "grpc-hook");
+
+    /// Convert a gRPC `GetSubscriptions` RPC result into a subscription list.
+    ///
+    /// ## Fallback rules
+    /// - **Success**: returns the server-provided subscriptions.
+    /// - **UNIMPLEMENTED** (gRPC code 12): old servers that predate this RPC
+    ///   respond with `UNIMPLEMENTED`; fall back silently to a single wildcard
+    ///   subscription so the hook still receives all events.
+    /// - **Any other error**: log a warning and fall back to wildcard.
+    pub(crate) fn subscriptions_from_result(
+        result: Result<
+            tonic::Response<amplifier_module::GetSubscriptionsResponse>,
+            tonic::Status,
+        >,
+    ) -> Vec<(String, i32, String)> {
+        let wildcard = || {
+            vec![(
+                Self::WILDCARD_SUBSCRIPTION.0.to_string(),
+                Self::WILDCARD_SUBSCRIPTION.1,
+                Self::WILDCARD_SUBSCRIPTION.2.to_string(),
+            )]
+        };
+        match result {
+            Ok(resp) => resp
+                .into_inner()
+                .subscriptions
+                .into_iter()
+                .map(|s| (s.event, s.priority, s.name))
+                .collect(),
+            Err(status) if status.code() == tonic::Code::Unimplemented => {
+                // Old server that doesn't implement GetSubscriptions — use wildcard silently.
+                wildcard()
+            }
+            Err(status) => {
+                log::warn!(
+                    "GrpcHookBridge: GetSubscriptions failed ({}), falling back to wildcard subscription",
+                    status
+                );
+                wildcard()
+            }
+        }
+    }
+
+    /// Query the remote hook service for its event subscriptions.
+    ///
+    /// Returns a list of `(event, priority, name)` tuples to register with the
+    /// local hook registry.  Call this once at mount time.
+    ///
+    /// ## Backward compatibility
+    ///
+    /// Old gRPC hook servers that predate the `GetSubscriptions` RPC respond
+    /// with gRPC `UNIMPLEMENTED` (code 12).  This method handles that
+    /// gracefully by returning `[("*", 0, "grpc-hook")]` — a wildcard
+    /// subscription that causes the hook to receive every event.
+    pub async fn get_subscriptions(&self) -> Vec<(String, i32, String)> {
+        let request = amplifier_module::GetSubscriptionsRequest {
+            config_json: "{}".to_string(),
+        };
+        let result = {
+            let mut client = self.client.lock().await;
+            client.get_subscriptions(request).await
+        };
+        Self::subscriptions_from_result(result)
+    }
+
     /// Convert a proto `HookResult` to a native [`models::HookResult`].
     pub(crate) fn proto_to_native_hook_result(
         proto: amplifier_module::HookResult,
@@ -470,5 +539,81 @@ mod tests {
         };
         assert_eq!(resp.subscriptions.len(), 1);
         assert_eq!(resp.subscriptions[0].event, "after_tool_call");
+    }
+
+    // ---- GetSubscriptions fallback behaviour ----
+
+    /// UNIMPLEMENTED (code 12) must return the wildcard fallback subscription.
+    /// This is the key backward-compatibility guarantee: old hook servers that
+    /// predate the GetSubscriptions RPC will still work.
+    #[test]
+    fn get_subscriptions_unimplemented_returns_wildcard() {
+        let status = tonic::Status::unimplemented("not implemented");
+        let result: Result<
+            tonic::Response<amplifier_module::GetSubscriptionsResponse>,
+            tonic::Status,
+        > = Err(status);
+        let subs = GrpcHookBridge::subscriptions_from_result(result);
+        assert_eq!(subs.len(), 1, "expected exactly one wildcard subscription");
+        assert_eq!(subs[0].0, "*", "event should be wildcard");
+        assert_eq!(subs[0].1, 0, "priority should be 0");
+        assert_eq!(subs[0].2, "grpc-hook", "name should be grpc-hook");
+    }
+
+    /// A successful response should return the server-provided subscriptions.
+    #[test]
+    fn get_subscriptions_success_returns_proto_subscriptions() {
+        let response = amplifier_module::GetSubscriptionsResponse {
+            subscriptions: vec![amplifier_module::EventSubscription {
+                event: "before_completion".to_string(),
+                priority: 10,
+                name: "my-hook".to_string(),
+            }],
+        };
+        let result = Ok(tonic::Response::new(response));
+        let subs = GrpcHookBridge::subscriptions_from_result(result);
+        assert_eq!(subs.len(), 1);
+        assert_eq!(subs[0].0, "before_completion");
+        assert_eq!(subs[0].1, 10);
+        assert_eq!(subs[0].2, "my-hook");
+    }
+
+    /// Any non-UNIMPLEMENTED error should also fall back to wildcard.
+    #[test]
+    fn get_subscriptions_other_error_returns_wildcard() {
+        let status = tonic::Status::internal("server exploded");
+        let result: Result<
+            tonic::Response<amplifier_module::GetSubscriptionsResponse>,
+            tonic::Status,
+        > = Err(status);
+        let subs = GrpcHookBridge::subscriptions_from_result(result);
+        assert_eq!(subs.len(), 1, "expected exactly one wildcard subscription");
+        assert_eq!(subs[0].0, "*");
+        assert_eq!(subs[0].1, 0);
+        assert_eq!(subs[0].2, "grpc-hook");
+    }
+
+    /// Multiple subscriptions from a successful response are all returned.
+    #[test]
+    fn get_subscriptions_success_returns_all_subscriptions() {
+        let response = amplifier_module::GetSubscriptionsResponse {
+            subscriptions: vec![
+                amplifier_module::EventSubscription {
+                    event: "before_completion".to_string(),
+                    priority: 10,
+                    name: "hook-a".to_string(),
+                },
+                amplifier_module::EventSubscription {
+                    event: "after_tool_call".to_string(),
+                    priority: 5,
+                    name: "hook-b".to_string(),
+                },
+            ],
+        };
+        let result = Ok(tonic::Response::new(response));
+        let subs = GrpcHookBridge::subscriptions_from_result(result);
+        assert_eq!(subs.len(), 2);
+        assert_eq!(subs[0].0, "before_completion");
+        assert_eq!(subs[1].0, "after_tool_call");
     }
 }

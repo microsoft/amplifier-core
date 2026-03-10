@@ -3771,6 +3771,12 @@ fn load_and_mount_wasm(
             // exposed on `Arc<dyn HookHandler>`.  For now we use a wildcard
             // subscription so the hook receives every event.
             //
+            // NOTE: when the real `get_subscriptions()` call is wired up here,
+            // `GrpcHookBridge::get_subscriptions()` already handles servers
+            // that respond with gRPC UNIMPLEMENTED (code 12) gracefully by
+            // falling back to this same wildcard subscription — so old hook
+            // servers will continue to work without changes.
+            //
             // Future: a `register-hook` function in the `kernel-service`
             // host import interface will let WASM hooks dynamically
             // add/remove subscriptions at runtime, replacing this
