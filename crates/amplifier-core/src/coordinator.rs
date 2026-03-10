@@ -762,4 +762,34 @@ mod tests {
         );
         assert_eq!(events[0].0, "test:shared");
     }
+
+    // ---------------------------------------------------------------
+    // ApprovalProvider get/set
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn approval_provider_none_initially() {
+        let coord = Coordinator::new_for_test();
+        assert!(coord.approval_provider().is_none());
+    }
+
+    #[test]
+    fn set_and_get_approval_provider() {
+        let coord = Coordinator::new_for_test();
+        let provider = Arc::new(crate::testing::FakeApprovalProvider::approving());
+        coord.set_approval_provider(provider);
+        assert!(coord.approval_provider().is_some());
+    }
+
+    #[test]
+    fn to_dict_includes_has_approval_provider() {
+        let coord = Coordinator::new_for_test();
+        let dict = coord.to_dict();
+        assert_eq!(dict["has_approval_provider"], serde_json::json!(false));
+
+        let provider = Arc::new(crate::testing::FakeApprovalProvider::approving());
+        coord.set_approval_provider(provider);
+        let dict = coord.to_dict();
+        assert_eq!(dict["has_approval_provider"], serde_json::json!(true));
+    }
 }
