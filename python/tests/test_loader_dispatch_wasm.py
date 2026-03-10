@@ -90,7 +90,10 @@ async def test_wasm_tool_mounts_into_coordinator(wasm_fixture_path, mock_coordin
 
     with patch.dict(sys.modules, {"amplifier_core._engine": fake_engine}):
         mount_fn = await loader.load(
-            MODULE_ID, {}, source_hint="/fake/path", coordinator=mock_coordinator
+            MODULE_ID,
+            {},
+            source_hint="/fake/path",
+            coordinator=mock_coordinator,  # type: ignore[call-arg]
         )
 
     # -- Verify ---------------------------------------------------------------
@@ -102,7 +105,7 @@ async def test_wasm_tool_mounts_into_coordinator(wasm_fixture_path, mock_coordin
 
     # 3. Call the mount function — this is where the tool gets registered
     with patch.dict(sys.modules, {"amplifier_core._engine": fake_engine}):
-        await mount_fn(mock_coordinator)
+        await mount_fn(mock_coordinator)  # type: ignore[misc]
 
     # 4. echo-tool IS in mount_points after calling mount
     tools = mock_coordinator.mount_points["tools"]
