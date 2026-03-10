@@ -74,12 +74,19 @@ impl HookHandler for PyHookHandlerBridge {
         data: Value,
     ) -> Pin<Box<dyn Future<Output = Result<HookResult, HookError>> + Send + '_>> {
         let event = event.to_string();
-        // Clone the Py<PyAny> reference inside the GIL to safely move into async block
-        let callable = Python::try_attach(|py| Ok::<_, PyErr>(self.callable.clone_ref(py)))
-            .unwrap()
-            .unwrap();
 
         Box::pin(async move {
+            // Clone the Py<PyAny> reference inside the GIL to safely use in this async block
+            let callable = Python::try_attach(|py| Ok::<_, PyErr>(self.callable.clone_ref(py)))
+                .ok_or_else(|| HookError::HandlerFailed {
+                    message: "Failed to attach to Python runtime".to_string(),
+                    handler_name: None,
+                })?
+                .map_err(|e| HookError::HandlerFailed {
+                    message: format!("Failed to clone Python callable reference: {e}"),
+                    handler_name: None,
+                })?;
+
             // Step 1: Call the Python handler (inside GIL) — returns either a
             // sync result or a coroutine object, plus whether it's a coroutine.
             let (is_coro, py_result_or_coro) =
@@ -220,11 +227,20 @@ impl amplifier_core::traits::ApprovalProvider for PyApprovalProviderBridge {
                 + '_,
         >,
     > {
-        let py_obj = Python::try_attach(|py| Ok::<_, PyErr>(self.py_obj.clone_ref(py)))
-            .unwrap()
-            .unwrap();
-
         Box::pin(async move {
+            // Clone the Py<PyAny> reference inside the GIL to safely use in this async block
+            let py_obj = Python::try_attach(|py| Ok::<_, PyErr>(self.py_obj.clone_ref(py)))
+                .ok_or_else(|| {
+                    AmplifierError::Session(SessionError::Other {
+                        message: "Failed to attach to Python runtime".to_string(),
+                    })
+                })?
+                .map_err(|e| {
+                    AmplifierError::Session(SessionError::Other {
+                        message: format!("Failed to clone Python object reference: {e}"),
+                    })
+                })?;
+
             // Step 1: Build Python call args from the ApprovalRequest
             let (is_coro, py_result_or_coro) =
                 Python::try_attach(|py| -> PyResult<(bool, Py<PyAny>)> {
@@ -2157,9 +2173,11 @@ impl PyCoordinator {
     /// Set the approval system.
     #[setter]
     fn set_approval_system(&mut self, value: Py<PyAny>) {
-        // Also set on the Rust Coordinator if value is not None
+        // Set or clear the Rust-side approval provider based on whether value is None
         match Python::try_attach(|py| -> PyResult<()> {
-            if !value.bind(py).is_none() {
+            if value.bind(py).is_none() {
+                self.inner.clear_approval_provider();
+            } else {
                 let bridge = Arc::new(PyApprovalProviderBridge {
                     py_obj: value.clone_ref(py),
                 });

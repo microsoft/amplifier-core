@@ -27,3 +27,27 @@ def test_approval_system_sets_has_approval_provider():
     coord.approval_system = FakeApproval()
     d = coord.to_dict()
     assert d.get("has_approval_provider") is True
+
+
+def test_clearing_approval_system_with_none():
+    """Setting coordinator.approval_system = None should clear the provider."""
+    try:
+        from amplifier_core._engine import RustCoordinator
+    except ImportError:
+        pytest.skip("Rust engine not available")
+
+    coord = RustCoordinator()
+
+    # Set a provider first
+    class FakeApproval:
+        def request_approval(self, prompt, options, timeout, default):
+            return "approve"
+
+    coord.approval_system = FakeApproval()
+    d = coord.to_dict()
+    assert d.get("has_approval_provider") is True
+
+    # Clear by setting to None
+    coord.approval_system = None
+    d = coord.to_dict()
+    assert d.get("has_approval_provider") is False

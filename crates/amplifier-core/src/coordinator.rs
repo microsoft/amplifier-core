@@ -221,6 +221,11 @@ impl Coordinator {
         *self.approval_provider.lock().unwrap() = Some(provider);
     }
 
+    /// Clear the approval provider.
+    pub fn clear_approval_provider(&self) {
+        *self.approval_provider.lock().unwrap() = None;
+    }
+
     /// Get the approval provider, if mounted.
     pub fn approval_provider(&self) -> Option<Arc<dyn ApprovalProvider>> {
         self.approval_provider.lock().unwrap().clone()
