@@ -533,10 +533,11 @@ impl DisplayService for FakeDisplayService {
         level: &str,
         source: &str,
     ) -> Pin<Box<dyn Future<Output = Result<(), crate::errors::AmplifierError>> + Send + '_>> {
-        self.messages
-            .lock()
-            .unwrap()
-            .push((message.to_string(), level.to_string(), source.to_string()));
+        self.messages.lock().unwrap().push((
+            message.to_string(),
+            level.to_string(),
+            source.to_string(),
+        ));
         Box::pin(async { Ok(()) })
     }
 }

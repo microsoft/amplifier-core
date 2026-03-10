@@ -27,7 +27,9 @@ use serde_json::Value;
 
 use crate::cancellation::CancellationToken;
 use crate::hooks::HookRegistry;
-use crate::traits::{ApprovalProvider, ContextManager, DisplayService, Orchestrator, Provider, Tool};
+use crate::traits::{
+    ApprovalProvider, ContextManager, DisplayService, Orchestrator, Provider, Tool,
+};
 
 // ---------------------------------------------------------------------------
 // Type aliases for cleanup and contributor callbacks
@@ -871,7 +873,10 @@ mod tests {
         display.show_message("hello", "info", "test").await.unwrap();
         let messages = display.recorded_messages();
         assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0], ("hello".to_string(), "info".to_string(), "test".to_string()));
+        assert_eq!(
+            messages[0],
+            ("hello".to_string(), "info".to_string(), "test".to_string())
+        );
     }
 
     #[test]

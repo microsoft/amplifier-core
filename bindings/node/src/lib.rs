@@ -656,9 +656,7 @@ impl JsAmplifierSession {
                 Arc::new(amplifier_core::Coordinator::new(Default::default()))
             }
         };
-        let js_coord = JsCoordinator {
-            inner: coord_arc,
-        };
+        let js_coord = JsCoordinator { inner: coord_arc };
         self.cached_coordinator = Some(JsCoordinator {
             inner: Arc::clone(&js_coord.inner),
         });
