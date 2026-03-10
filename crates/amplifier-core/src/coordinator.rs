@@ -27,7 +27,7 @@ use serde_json::Value;
 
 use crate::cancellation::CancellationToken;
 use crate::hooks::HookRegistry;
-use crate::traits::{ApprovalProvider, ContextManager, Orchestrator, Provider, Tool};
+use crate::traits::{ApprovalProvider, ContextManager, DisplayService, Orchestrator, Provider, Tool};
 
 // ---------------------------------------------------------------------------
 // Type aliases for cleanup and contributor callbacks
@@ -92,6 +92,7 @@ pub struct Coordinator {
 
     // -- App-layer services --
     approval_provider: Mutex<Option<Arc<dyn ApprovalProvider>>>,
+    display_service: Mutex<Option<Arc<dyn DisplayService>>>,
 
     // -- Turn tracking --
     current_turn_injections: Mutex<usize>,
@@ -112,6 +113,7 @@ impl Coordinator {
             cleanup_functions: Mutex::new(Vec::new()),
             config,
             approval_provider: Mutex::new(None),
+            display_service: Mutex::new(None),
             current_turn_injections: Mutex::new(0),
         }
     }
@@ -236,6 +238,23 @@ impl Coordinator {
         self.approval_provider.lock().unwrap().is_some()
     }
 
+    // -- App-layer service: DisplayService --
+
+    /// Set the display service (single slot).
+    pub fn set_display_service(&self, service: Arc<dyn DisplayService>) {
+        *self.display_service.lock().unwrap() = Some(service);
+    }
+
+    /// Get the display service, if mounted.
+    pub fn display_service(&self) -> Option<Arc<dyn DisplayService>> {
+        self.display_service.lock().unwrap().clone()
+    }
+
+    /// Whether a display service is mounted.
+    pub fn has_display_service(&self) -> bool {
+        self.display_service.lock().unwrap().is_some()
+    }
+
     /// Names of all registered capabilities.
     pub fn capability_names(&self) -> Vec<String> {
         self.capabilities.lock().unwrap().keys().cloned().collect()
@@ -268,6 +287,10 @@ impl Coordinator {
         dict.insert(
             "has_approval_provider".to_string(),
             serde_json::json!(self.has_approval_provider()),
+        );
+        dict.insert(
+            "has_display_service".to_string(),
+            serde_json::json!(self.has_display_service()),
         );
         dict
     }

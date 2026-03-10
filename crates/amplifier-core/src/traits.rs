@@ -18,6 +18,7 @@
 //!   four primary module types that session/coordinator manages.
 //! - [`HookHandler`] participates in the hook dispatch pipeline.
 //! - [`ApprovalProvider`] provides UI-driven approval gates.
+//! - [`DisplayService`] provides UI-driven message display.
 //!
 //! All data types referenced here are defined in [`crate::models`],
 //! [`crate::messages`], and [`crate::errors`].
@@ -396,6 +397,27 @@ pub trait ApprovalProvider: Send + Sync {
 }
 
 // ---------------------------------------------------------------------------
+// DisplayService
+// ---------------------------------------------------------------------------
+
+/// Interface for UI components that display messages to the user.
+///
+/// When modules or the kernel need to show status messages, warnings, or
+/// informational text to the user, they call the registered `DisplayService`.
+///
+/// # Object safety
+///
+/// This trait is object-safe: `Arc<dyn DisplayService>` is the standard storage type.
+pub trait DisplayService: Send + Sync {
+    fn show_message(
+        &self,
+        message: &str,
+        level: &str,
+        source: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), AmplifierError>> + Send + '_>>;
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -414,5 +436,6 @@ mod tests {
         fn _assert_context(_: Arc<dyn ContextManager>) {}
         fn _assert_hook(_: Arc<dyn HookHandler>) {}
         fn _assert_approval(_: Arc<dyn ApprovalProvider>) {}
+        fn _assert_display(_: Arc<dyn DisplayService>) {}
     }
 }
