@@ -34,8 +34,17 @@ interface hook-handler {
     /// serialized as bytes so the hook can adjust its subscriptions at
     /// load time.
     ///
-    /// Future: a `register-hook` function in `kernel-service` will let
-    /// hooks dynamically add/remove subscriptions at runtime.
+    /// Old hook modules compiled against the previous WIT (before this
+    /// function was added) will not export `get-subscriptions`.  The host
+    /// detects this and falls back to a wildcard subscription so those
+    /// modules continue to receive every event without recompilation.
+    ///
+    // Future enhancement: If hooks need to read coordinator state during
+    // registration (e.g., conditionally subscribe based on mounted providers),
+    // add register-hook to the kernel-service host import interface. This
+    // would allow hook-module worlds to import kernel-service alongside
+    // exporting hook-handler, enabling imperative registration matching
+    // the Python coordinator.hooks.register() pattern.
     get-subscriptions: func(config: list<u8>) -> list<event-subscription>;
 }
 

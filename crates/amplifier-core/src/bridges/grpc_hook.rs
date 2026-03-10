@@ -78,10 +78,7 @@ impl GrpcHookBridge {
     ///   subscription so the hook still receives all events.
     /// - **Any other error**: log a warning and fall back to wildcard.
     pub(crate) fn subscriptions_from_result(
-        result: Result<
-            tonic::Response<amplifier_module::GetSubscriptionsResponse>,
-            tonic::Status,
-        >,
+        result: Result<tonic::Response<amplifier_module::GetSubscriptionsResponse>, tonic::Status>,
     ) -> Vec<(String, i32, String)> {
         let wildcard = || {
             vec![(

@@ -3767,22 +3767,18 @@ fn load_and_mount_wasm(
             // Register the WASM hook with the coordinator's Rust-side hook
             // registry so it participates in `emit()` dispatch.
             //
-            // TODO: call `WasmHookBridge::get_subscriptions` when it is
-            // exposed on `Arc<dyn HookHandler>`.  For now we use a wildcard
-            // subscription so the hook receives every event.
+            // Ask the module which events it wants to subscribe to via the
+            // `HookHandler::get_subscriptions` trait method.  WASM modules
+            // compiled with the current WIT return their declared subscriptions;
+            // old modules without `get-subscriptions` fall back to a wildcard
+            // subscription inside `WasmHookBridge::get_subscriptions()`.
             //
-            // NOTE: when the real `get_subscriptions()` call is wired up here,
-            // `GrpcHookBridge::get_subscriptions()` already handles servers
-            // that respond with gRPC UNIMPLEMENTED (code 12) gracefully by
-            // falling back to this same wildcard subscription — so old hook
-            // servers will continue to work without changes.
-            //
-            // Future: a `register-hook` function in the `kernel-service`
-            // host import interface will let WASM hooks dynamically
-            // add/remove subscriptions at runtime, replacing this
-            // host-side registration entirely.
+            // NOTE: `GrpcHookBridge` uses the trait default (wildcard) here.
+            // Its async `get_subscriptions` RPC with UNIMPLEMENTED fallback is
+            // invoked through a separate async registration path for gRPC hooks.
+            let config = serde_json::json!({});
             let subscriptions_result: Vec<(String, i32, String)> =
-                vec![("*".to_string(), 0i32, "wasm-hook".to_string())];
+                hook.get_subscriptions(&config);
 
             let hooks_registry = coordinator.inner.hooks_shared();
             for (event, priority, name) in &subscriptions_result {

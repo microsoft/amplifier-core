@@ -355,6 +355,23 @@ pub trait HookHandler: Send + Sync {
         event: &str,
         data: Value,
     ) -> Pin<Box<dyn Future<Output = Result<HookResult, HookError>> + Send + '_>>;
+
+    /// Return the event subscriptions this hook wants to receive.
+    ///
+    /// `config` is the module's JSON configuration (from bundle YAML).  The
+    /// return value is a list of `(event, priority, name)` tuples.
+    ///
+    /// # Default behaviour
+    ///
+    /// Returns a single wildcard subscription `[("*", 0, "hook")]` so that
+    /// existing implementors automatically receive every event without
+    /// needing to override this method.  WASM hooks compiled against the
+    /// current WIT will override this to return their declared subscriptions;
+    /// old WASM modules without the `get-subscriptions` export fall back to
+    /// the same wildcard via [`crate::bridges::wasm_hook::WasmHookBridge`].
+    fn get_subscriptions(&self, _config: &serde_json::Value) -> Vec<(String, i32, String)> {
+        vec![("*".to_string(), 0, "hook".to_string())]
+    }
 }
 
 // ---------------------------------------------------------------------------
