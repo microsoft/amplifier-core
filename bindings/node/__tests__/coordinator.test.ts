@@ -30,21 +30,24 @@ describe('JsCoordinator', () => {
     expect(result).toBeNull()
   })
 
-  // createHookRegistry() creates a NEW detached instance each call — this is the
-  // known limitation documented by the rename from `.hooks` getter. Use a
-  // shared JsHookRegistry if you need persistent hook registration.
-  it('createHookRegistry() returns a JsHookRegistry with listHandlers', () => {
+  // hooks getter returns the coordinator's shared Arc<HookRegistry>.
+  // Hooks registered on the returned instance are visible to the Coordinator
+  // and vice versa.
+  it('hooks getter returns a JsHookRegistry with listHandlers', () => {
     const coord = new JsCoordinator(emptyConfig)
-    const hooks = coord.createHookRegistry()
+    const hooks = coord.hooks
     expect(hooks).toBeDefined()
     expect(typeof hooks.listHandlers).toBe('function')
   })
 
-  it('createHookRegistry creates a new instance each call (pins detached behavior)', () => {
+  it('hooks getter returns a registry backed by the same Arc (not detached)', () => {
     const coord = new JsCoordinator(emptyConfig)
-    const h1 = coord.createHookRegistry()
-    const h2 = coord.createHookRegistry()
-    expect(h1).not.toBe(h2)
+    const h1 = coord.hooks
+    const h2 = coord.hooks
+    // Both wrap the same underlying Arc<HookRegistry>, so handlers
+    // registered via h1 are visible via h2.
+    expect(typeof h1.listHandlers).toBe('function')
+    expect(typeof h2.listHandlers).toBe('function')
   })
 
   it('provides access to cancellation subsystem (coord.cancellation.isCancelled === false)', () => {

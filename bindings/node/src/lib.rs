@@ -385,18 +385,6 @@ impl JsHookRegistry {
         }
     }
 
-    /// Creates a new **detached** (empty) registry.
-    ///
-    /// Unlike `JsCancellationToken::from_inner`, HookRegistry cannot be cheaply
-    /// cloned or wrapped from a reference, so this always creates an empty
-    /// registry. When Coordinator manages ownership, this should accept
-    /// `Arc<HookRegistry>` to share state.
-    pub fn new_detached() -> Self {
-        Self {
-            inner: Arc::new(amplifier_core::HookRegistry::new()),
-        }
-    }
-
     /// Register a hook handler for the given event name.
     ///
     /// ## Handler signature
@@ -519,28 +507,16 @@ impl JsCoordinator {
         }
     }
 
-    /// Creates a new **detached** (empty) JsHookRegistry.
+    /// The coordinator's hook registry — shared via `Arc`, not copied.
     ///
-    /// ⚠️  **Each call returns a brand-new, empty registry** — hooks registered
-    /// on one instance are invisible to the next. This is a known limitation:
-    /// `Coordinator` owns its `HookRegistry` by value, not behind `Arc`, so
-    /// the binding cannot share state across calls.
-    ///
-    /// The method name (`createHookRegistry`) intentionally signals "creates new
-    /// instance" — a getter property would imply referential stability in JS.
-    ///
-    /// **Workaround:** create a `JsHookRegistry` directly and hold a reference.
-    ///
-    /// Future TODO #1: restructure the kernel to hold `Arc<HookRegistry>` inside
-    /// `Coordinator` so this method can share the same registry instance.
-    #[napi]
-    pub fn create_hook_registry(&self) -> JsHookRegistry {
-        log::warn!(
-            "JsCoordinator::createHookRegistry() — returns a new detached HookRegistry; \
-             hooks registered on one call are NOT visible via the Coordinator's internal \
-             registry. Hold the returned instance directly. (Future TODO #1)"
-        );
-        JsHookRegistry::new_detached()
+    /// Returns a `JsHookRegistry` wrapping the coordinator's real
+    /// `Arc<HookRegistry>` obtained via `hooks_shared()`. Hooks registered
+    /// on the returned instance are visible to the Coordinator and vice versa.
+    #[napi(getter)]
+    pub fn hooks(&self) -> JsHookRegistry {
+        JsHookRegistry {
+            inner: self.inner.hooks_shared(),
+        }
     }
 
     #[napi(getter)]
