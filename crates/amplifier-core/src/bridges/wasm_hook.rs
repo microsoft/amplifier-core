@@ -23,6 +23,25 @@ use super::wasm_tool::create_linker_and_store;
 /// The WIT interface name used by `cargo component` for hook handler exports.
 const INTERFACE_NAME: &str = "amplifier:modules/hook-handler@1.0.0";
 
+/// Shorthand for the common boxed-error result used throughout WASM bridges.
+type WasmResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+/// Rust mirror of the WIT `event-subscription` record exported by hook modules.
+///
+/// Used exclusively for lifting the Component Model return value of
+/// `get-subscriptions`.  Converted to `(String, i32, String)` tuples at the
+/// public API boundary.
+#[derive(wasmtime::component::ComponentType, wasmtime::component::Lift, Debug, Clone)]
+#[component(record)]
+struct WasmEventSubscription {
+    #[component(name = "event")]
+    event: String,
+    #[component(name = "priority")]
+    priority: i32,
+    #[component(name = "name")]
+    name: String,
+}
+
 /// Helper: call the `handle` export on a fresh component instance.
 ///
 /// The envelope bytes must be a JSON-serialized object:
@@ -31,7 +50,7 @@ fn call_handle(
     engine: &Engine,
     component: &Component,
     envelope_bytes: Vec<u8>,
-) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+) -> WasmResult<Vec<u8>> {
     let (linker, mut store) = create_linker_and_store(engine, &super::WasmLimits::default())?;
     let instance = linker.instantiate(&mut store, component)?;
 
@@ -46,6 +65,32 @@ fn call_handle(
         Ok(bytes) => Ok(bytes),
         Err(err) => Err(err.into()),
     }
+}
+
+/// Helper: call the `get-subscriptions` export on a fresh component instance.
+///
+/// `config_bytes` must be a JSON-serialized configuration blob (from bundle YAML).
+/// Returns a vec of `(event, priority, name)` tuples describing the hook's
+/// desired subscriptions.
+fn call_get_subscriptions(
+    engine: &Engine,
+    component: &Component,
+    config_bytes: Vec<u8>,
+) -> WasmResult<Vec<(String, i32, String)>> {
+    let (linker, mut store) = create_linker_and_store(engine, &super::WasmLimits::default())?;
+    let instance = linker.instantiate(&mut store, component)?;
+
+    let func = super::get_typed_func::<(Vec<u8>,), (Vec<WasmEventSubscription>,)>(
+        &instance,
+        &mut store,
+        "get-subscriptions",
+        INTERFACE_NAME,
+    )?;
+    let (subs,) = func.call(&mut store, (config_bytes,))?;
+    Ok(subs
+        .into_iter()
+        .map(|s| (s.event, s.priority, s.name))
+        .collect())
 }
 
 /// A bridge that loads a WASM Component and exposes it as a native [`HookHandler`].
@@ -64,16 +109,31 @@ impl WasmHookBridge {
     pub fn from_bytes(
         wasm_bytes: &[u8],
         engine: Arc<Engine>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> WasmResult<Self> {
         let component = Component::new(&engine, wasm_bytes)?;
         Ok(Self { engine, component })
+    }
+
+    /// Query the component for its event subscriptions.
+    ///
+    /// Instantiates the component, calls `get-subscriptions` with the given
+    /// JSON config (serialized to bytes), and returns a vec of
+    /// `(event, priority, name)` tuples.
+    pub fn get_subscriptions(
+        &self,
+        config: &serde_json::Value,
+    ) -> WasmResult<Vec<(String, i32, String)>> {
+        let config_bytes = serde_json::to_vec(config).map_err(|e| {
+            format!("failed to serialize config for get-subscriptions: {e}")
+        })?;
+        call_get_subscriptions(&self.engine, &self.component, config_bytes)
     }
 
     /// Convenience: load a WASM hook component from a file path.
     pub fn from_file(
         path: &Path,
         engine: Arc<Engine>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> WasmResult<Self> {
         let bytes =
             std::fs::read(path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
         Self::from_bytes(&bytes, engine)
@@ -168,6 +228,24 @@ mod tests {
         let mut config = wasmtime::Config::new();
         config.wasm_component_model(true);
         Arc::new(Engine::new(&config).expect("engine creation failed"))
+    }
+
+    #[test]
+    fn deny_hook_get_subscriptions_returns_expected() {
+        let engine = make_engine();
+        let bytes = deny_hook_wasm_bytes();
+        let bridge = WasmHookBridge::from_bytes(&bytes, engine).expect("from_bytes should succeed");
+
+        let config = serde_json::json!({});
+        let subs = bridge
+            .get_subscriptions(&config)
+            .expect("get_subscriptions should succeed");
+
+        assert_eq!(subs.len(), 1, "deny-hook declares exactly one subscription");
+        let (event, priority, name) = &subs[0];
+        assert_eq!(event, "tool:pre");
+        assert_eq!(*priority, 0);
+        assert_eq!(name, "deny-all");
     }
 
     #[tokio::test]

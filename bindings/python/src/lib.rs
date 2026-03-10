@@ -3742,10 +3742,27 @@ fn load_and_mount_wasm(
             dict.set_item("name", &provider_name)?;
         }
         amplifier_core::module_resolver::LoadedModule::Hook(hook) => {
-            // Wrap in PyWasmHook — returned to caller for registration
-            let wrapper = Py::new(py, PyWasmHook { inner: hook })?;
-            dict.set_item("status", "loaded")?;
-            dict.set_item("wrapper", wrapper)?;
+            // Register the WASM hook with the coordinator's Rust-side hook
+            // registry so it participates in `emit()` dispatch.
+            //
+            // TODO: call `WasmHookBridge::get_subscriptions` when it is
+            // exposed on `Arc<dyn HookHandler>`.  For now we use a wildcard
+            // subscription so the hook receives every event.
+            //
+            // Future: a `register-hook` function in the `kernel-service`
+            // host import interface will let WASM hooks dynamically
+            // add/remove subscriptions at runtime, replacing this
+            // host-side registration entirely.
+            let subscriptions_result: Vec<(String, i32, String)> =
+                vec![("*".to_string(), 0i32, "wasm-hook".to_string())];
+
+            let hooks_registry = coordinator.inner.hooks_shared();
+            for (event, priority, name) in &subscriptions_result {
+                let _ = hooks_registry.register(event, hook.clone(), *priority, Some(name.clone()));
+            }
+
+            dict.set_item("status", "mounted")?;
+            dict.set_item("subscriptions_count", subscriptions_result.len())?;
         }
         amplifier_core::module_resolver::LoadedModule::Context(context) => {
             // Wrap in PyWasmContext and mount into coordinator's mount_points["context"]
