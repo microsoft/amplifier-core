@@ -35,7 +35,7 @@ def _make_loader(module_to_mount_fn: dict):
     """Return a mock loader whose load() returns the configured mount function."""
     loader = AsyncMock()
 
-    async def _load(module_id, config=None, source_hint=None):
+    async def _load(module_id, config=None, source_hint=None, coordinator=None):
         return module_to_mount_fn[module_id]
 
     loader.load.side_effect = _load
@@ -155,7 +155,7 @@ async def test_multi_instance_providers_both_mounted():
 
     call_count = {"n": 0}
 
-    async def load_side_effect(module_id, config=None, source_hint=None):
+    async def load_side_effect(module_id, config=None, source_hint=None, coordinator=None):
         if module_id == "loop-basic":
             return AsyncMock(return_value=None)
         if module_id == "context-simple":
@@ -289,7 +289,7 @@ async def test_duplicate_module_with_instance_id_passes():
         await coord.mount("providers", provider_b, name="mock")
         return None
 
-    async def load_side_effect(module_id, config=None, source_hint=None):
+    async def load_side_effect(module_id, config=None, source_hint=None, coordinator=None):
         if module_id == "loop-basic":
             return AsyncMock(return_value=None)
         if module_id == "context-simple":
@@ -367,7 +367,7 @@ async def test_duplicate_module_one_missing_instance_id_allowed():
         await coord.mount("providers", named_instance, name="mock")
         return None
 
-    async def load_side_effect(module_id, config=None, source_hint=None):
+    async def load_side_effect(module_id, config=None, source_hint=None, coordinator=None):
         if module_id == "loop-basic":
             return AsyncMock(return_value=None)
         if module_id == "context-simple":
@@ -429,7 +429,7 @@ async def test_mixed_instance_id_preserves_default_entry():
 
     call_count = {"n": 0}
 
-    async def load_side_effect(module_id, config=None, source_hint=None):
+    async def load_side_effect(module_id, config=None, source_hint=None, coordinator=None):
         if module_id == "loop-basic":
             return AsyncMock(return_value=None)
         if module_id == "context-simple":
