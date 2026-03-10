@@ -823,4 +823,43 @@ mod tests {
         let dict = coord.to_dict();
         assert_eq!(dict["has_approval_provider"], serde_json::json!(true));
     }
+
+    // ---------------------------------------------------------------
+    // DisplayService get/set
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn display_service_none_initially() {
+        let coord = Coordinator::new_for_test();
+        assert!(coord.display_service().is_none());
+    }
+
+    #[test]
+    fn set_and_get_display_service() {
+        let coord = Coordinator::new_for_test();
+        let display = Arc::new(crate::testing::FakeDisplayService::new());
+        coord.set_display_service(display);
+        assert!(coord.display_service().is_some());
+    }
+
+    #[tokio::test]
+    async fn display_service_records_messages() {
+        let display = Arc::new(crate::testing::FakeDisplayService::new());
+        display.show_message("hello", "info", "test").await.unwrap();
+        let messages = display.recorded_messages();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0], ("hello".to_string(), "info".to_string(), "test".to_string()));
+    }
+
+    #[test]
+    fn to_dict_includes_has_display_service() {
+        let coord = Coordinator::new_for_test();
+        let dict = coord.to_dict();
+        assert_eq!(dict["has_display_service"], serde_json::json!(false));
+
+        let display = Arc::new(crate::testing::FakeDisplayService::new());
+        coord.set_display_service(display);
+        let dict = coord.to_dict();
+        assert_eq!(dict["has_display_service"], serde_json::json!(true));
+    }
 }

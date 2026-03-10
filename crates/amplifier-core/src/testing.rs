@@ -498,6 +498,35 @@ impl ApprovalProvider for FakeApprovalProvider {
 }
 
 // ---------------------------------------------------------------------------
+// FakeDisplayService
+// ---------------------------------------------------------------------------
+
+/// A fake display service that records messages for test assertions.
+///
+/// The `DisplayService` trait impl will be added once the trait is defined.
+pub struct FakeDisplayService {
+    messages: Mutex<Vec<(String, String, String)>>, // (message, level, source)
+}
+
+impl FakeDisplayService {
+    pub fn new() -> Self {
+        Self {
+            messages: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn recorded_messages(&self) -> Vec<(String, String, String)> {
+        self.messages.lock().unwrap().clone()
+    }
+}
+
+impl Default for FakeDisplayService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
