@@ -704,4 +704,31 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0], serde_json::json!({"key": "value"}));
     }
+
+    #[tokio::test]
+    async fn hooks_shared_returns_arc_to_same_registry() {
+        let coord = Coordinator::new_for_test();
+
+        // Obtain shared Arc to the hook registry
+        let shared_hooks = coord.hooks_shared();
+
+        // Register a handler on the shared clone
+        let handler = Arc::new(crate::testing::FakeHookHandler::new());
+        shared_hooks.register("test:shared", handler.clone(), 0, Some("shared-handler".into()));
+
+        // Emit via the original coordinator's hooks() — the handler MUST fire
+        // because hooks_shared() returns the same registry, not a copy.
+        coord
+            .hooks()
+            .emit("test:shared", serde_json::json!({"from": "coordinator"}))
+            .await;
+
+        let events = handler.recorded_events();
+        assert_eq!(
+            events.len(),
+            1,
+            "handler registered on hooks_shared() clone must fire when emitting via hooks()"
+        );
+        assert_eq!(events[0].0, "test:shared");
+    }
 }
