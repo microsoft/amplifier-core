@@ -325,6 +325,64 @@ impl amplifier_core::traits::ApprovalProvider for PyApprovalProviderBridge {
 }
 
 // ---------------------------------------------------------------------------
+// PyDisplayServiceBridge — wraps a Python DisplaySystem as a Rust DisplayService
+// ---------------------------------------------------------------------------
+
+/// Bridges a Python `DisplaySystem` object into the Rust [`DisplayService`] trait.
+///
+/// The Python `DisplaySystem` protocol has:
+///   `show_message(message, level, source)`
+///
+/// The Rust `DisplayService` trait has:
+///   `show_message(&self, message: &str, level: &str, source: &str) -> Pin<Box<...>>`
+///
+/// Display is fire-and-forget — errors are logged but do not propagate.
+struct PyDisplayServiceBridge {
+    py_obj: Py<PyAny>,
+}
+
+// Safety: Py<PyAny> is Send+Sync (PyO3 handles GIL acquisition).
+unsafe impl Send for PyDisplayServiceBridge {}
+unsafe impl Sync for PyDisplayServiceBridge {}
+
+impl amplifier_core::traits::DisplayService for PyDisplayServiceBridge {
+    fn show_message(
+        &self,
+        message: &str,
+        level: &str,
+        source: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), AmplifierError>> + Send + '_>> {
+        let message = message.to_string();
+        let level = level.to_string();
+        let source = source.to_string();
+        let py_obj = Python::try_attach(|py| self.py_obj.clone_ref(py));
+
+        Box::pin(async move {
+            let py_obj = py_obj.ok_or_else(|| {
+                AmplifierError::Session(SessionError::Other {
+                    message: "Failed to attach to Python runtime for display".to_string(),
+                })
+            })?;
+
+            Python::try_attach(|py| -> PyResult<()> {
+                py_obj.call_method(py, "show_message", (&message, &level, &source), None)?;
+                Ok(())
+            })
+            .ok_or_else(|| {
+                AmplifierError::Session(SessionError::Other {
+                    message: "Failed to attach to Python runtime for display".to_string(),
+                })
+            })?
+            .map_err(|e| {
+                AmplifierError::Session(SessionError::Other {
+                    message: format!("Python display call error: {e}"),
+                })
+            })
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // PySession — wraps amplifier_core::Session (Milestone 3)
 // ---------------------------------------------------------------------------
 
@@ -2210,6 +2268,26 @@ impl PyCoordinator {
     /// Set the display system.
     #[setter]
     fn set_display_system(&mut self, value: Py<PyAny>) {
+        // Set or clear the Rust-side display service based on whether value is None
+        match Python::try_attach(|py| -> PyResult<()> {
+            if value.bind(py).is_none() {
+                // No clear method exists; setting None just keeps Python-side ref
+            } else {
+                let bridge = Arc::new(PyDisplayServiceBridge {
+                    py_obj: value.clone_ref(py),
+                });
+                self.inner.set_display_service(bridge);
+            }
+            Ok(())
+        }) {
+            Some(Ok(())) => {}
+            Some(Err(e)) => {
+                log::warn!("Failed to set display service bridge: {e}");
+            }
+            None => {
+                log::warn!("Could not attach to Python runtime while setting display service");
+            }
+        }
         self.display_system_obj = value;
     }
 
@@ -2310,6 +2388,9 @@ impl PyCoordinator {
 
         // has_approval_provider: whether a Rust-side approval provider is mounted
         dict.set_item("has_approval_provider", self.inner.has_approval_provider())?;
+
+        // has_display_service: whether a Rust-side display service is mounted
+        dict.set_item("has_display_service", self.inner.has_display_service())?;
 
         Ok(dict)
     }
