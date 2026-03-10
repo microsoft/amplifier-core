@@ -3468,11 +3468,30 @@ unsafe impl Sync for PyWasmOrchestrator {}
 
 #[pymethods]
 impl PyWasmOrchestrator {
-    /// Execute the orchestrator with a prompt.
+    /// Execute the WASM orchestrator with a prompt.
     ///
-    /// Async method — currently the WASM orchestrator uses only `prompt`.
-    /// The Rust `Orchestrator::execute` trait requires context, providers,
-    /// tools, hooks, and coordinator — we provide empty/null defaults for now.
+    /// # Why all 6 parameters are accepted
+    ///
+    /// `_session_exec.run_orchestrator()` always passes all 6 keyword arguments
+    /// (`prompt`, `context`, `providers`, `tools`, `hooks`, `coordinator`) to
+    /// every orchestrator — Python and WASM alike.  If this method's signature
+    /// did not accept them, Python would raise `TypeError: execute() got an
+    /// unexpected keyword argument …` at call time.
+    ///
+    /// # Why 5 parameters are discarded
+    ///
+    /// WASM guests cannot receive arbitrary Python objects across the sandbox
+    /// boundary.  Instead, they access kernel services (context, providers,
+    /// tools, hooks, coordinator) via **`kernel-service` host imports** defined
+    /// in the WIT interface.  The Python-side objects are therefore accepted
+    /// here solely for signature compatibility and then dropped.
+    ///
+    /// # Future enhancement
+    ///
+    /// Forward relevant session state (e.g. context messages, tool manifests)
+    /// to WASM guests by plumbing them through the `kernel-service` host
+    /// imports, so that WASM orchestrators can interact with the same kernel
+    /// services available to Python orchestrators.
     #[pyo3(signature = (prompt, context=None, providers=None, tools=None, hooks=None, coordinator=None))]
     #[allow(clippy::too_many_arguments)]
     fn execute<'py>(
@@ -3486,8 +3505,11 @@ impl PyWasmOrchestrator {
         coordinator: Option<Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner.clone();
-        // Silence unused variable warnings — these params are accepted for
-        // API compatibility but not forwarded to WASM orchestrators yet.
+        // Protocol conformance: these params are required by the unified dispatch
+        // path in `_session_exec.run_orchestrator()` which always passes all 6
+        // keyword arguments.  WASM guests access kernel services (context,
+        // providers, tools, hooks, coordinator) via host imports defined in the
+        // WIT `kernel-service` interface, not via Python parameters.
         let _ = (context, providers, tools, hooks, coordinator);
 
         wrap_future_as_coroutine(
@@ -3773,6 +3795,11 @@ fn load_and_mount_wasm(
         }
         amplifier_core::module_resolver::LoadedModule::Orchestrator(orchestrator) => {
             // Wrap in PyWasmOrchestrator and mount into coordinator's mount_points["orchestrator"]
+            log::warn!(
+                "WASM orchestrator mounted — context/providers/tools/hooks/coordinator \
+                 are not forwarded to WASM guests in this version. \
+                 The WASM guest accesses kernel services via host imports instead."
+            );
             let wrapper = Py::new(
                 py,
                 PyWasmOrchestrator {
