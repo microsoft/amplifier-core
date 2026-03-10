@@ -1,0 +1,31 @@
+// Minimal WIT for hook-module world.
+// Extracted from the main amplifier-modules.wit to avoid pulling in
+// interfaces that are only needed by other module worlds.
+
+package amplifier:modules@1.0.0;
+
+/// Hook handler interface — responds to lifecycle events.
+interface hook-handler {
+    /// Handle a lifecycle event (HookHandleRequest proto, serialized).
+    /// Returns proto-serialized HookResult on success.
+    handle: func(event: list<u8>) -> result<list<u8>, string>;
+
+    /// Return the events this hook wants to receive, along with priority
+    /// and a human-readable name for each subscription.
+    ///
+    /// `config` is the module's JSON configuration blob (from bundle YAML),
+    /// serialized as bytes so the hook can adjust its subscriptions at
+    /// load time.
+    get-subscriptions: func(config: list<u8>) -> list<event-subscription>;
+
+    record event-subscription {
+        event: string,
+        priority: s32,
+        name: string,
+    }
+}
+
+/// Tier 1: Pure-compute hook handler module.
+world hook-module {
+    export hook-handler;
+}
