@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::traits::{Orchestrator, Tool};
+use crate::traits::{ApprovalProvider, ContextManager, HookHandler, Orchestrator, Provider, Tool};
 
 /// Supported transport types.
 #[derive(Debug, Clone, PartialEq)]
@@ -49,6 +49,54 @@ pub async fn load_grpc_orchestrator(
     let bridge =
         crate::bridges::grpc_orchestrator::GrpcOrchestratorBridge::connect(endpoint, session_id)
             .await?;
+    Ok(Arc::new(bridge))
+}
+
+/// Load a provider module via gRPC transport.
+///
+/// # Arguments
+///
+/// * `endpoint` — gRPC endpoint URL (e.g. `"http://localhost:50051"`).
+pub async fn load_grpc_provider(
+    endpoint: &str,
+) -> Result<Arc<dyn Provider>, Box<dyn std::error::Error + Send + Sync>> {
+    let bridge = crate::bridges::grpc_provider::GrpcProviderBridge::connect(endpoint).await?;
+    Ok(Arc::new(bridge))
+}
+
+/// Load a hook handler module via gRPC transport.
+///
+/// # Arguments
+///
+/// * `endpoint` — gRPC endpoint URL (e.g. `"http://localhost:50051"`).
+pub async fn load_grpc_hook(
+    endpoint: &str,
+) -> Result<Arc<dyn HookHandler>, Box<dyn std::error::Error + Send + Sync>> {
+    let bridge = crate::bridges::grpc_hook::GrpcHookBridge::connect(endpoint).await?;
+    Ok(Arc::new(bridge))
+}
+
+/// Load a context manager module via gRPC transport.
+///
+/// # Arguments
+///
+/// * `endpoint` — gRPC endpoint URL (e.g. `"http://localhost:50051"`).
+pub async fn load_grpc_context(
+    endpoint: &str,
+) -> Result<Arc<dyn ContextManager>, Box<dyn std::error::Error + Send + Sync>> {
+    let bridge = crate::bridges::grpc_context::GrpcContextBridge::connect(endpoint).await?;
+    Ok(Arc::new(bridge))
+}
+
+/// Load an approval provider module via gRPC transport.
+///
+/// # Arguments
+///
+/// * `endpoint` — gRPC endpoint URL (e.g. `"http://localhost:50051"`).
+pub async fn load_grpc_approval(
+    endpoint: &str,
+) -> Result<Arc<dyn ApprovalProvider>, Box<dyn std::error::Error + Send + Sync>> {
+    let bridge = crate::bridges::grpc_approval::GrpcApprovalBridge::connect(endpoint).await?;
     Ok(Arc::new(bridge))
 }
 
