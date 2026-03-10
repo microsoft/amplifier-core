@@ -27,6 +27,10 @@ impl Transport {
 }
 
 /// Load a tool module via gRPC transport.
+///
+/// # Arguments
+///
+/// * `endpoint` — gRPC endpoint URL (e.g. `"http://localhost:50051"`).
 pub async fn load_grpc_tool(
     endpoint: &str,
 ) -> Result<Arc<dyn Tool>, Box<dyn std::error::Error + Send + Sync>> {
@@ -120,7 +124,7 @@ pub fn load_wasm_tool(
 pub fn load_wasm_hook(
     wasm_bytes: &[u8],
     engine: Arc<wasmtime::Engine>,
-) -> Result<Arc<dyn crate::traits::HookHandler>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Arc<dyn HookHandler>, Box<dyn std::error::Error + Send + Sync>> {
     let bridge = crate::bridges::wasm_hook::WasmHookBridge::from_bytes(wasm_bytes, engine)?;
     Ok(Arc::new(bridge))
 }
@@ -130,7 +134,7 @@ pub fn load_wasm_hook(
 pub fn load_wasm_context(
     wasm_bytes: &[u8],
     engine: Arc<wasmtime::Engine>,
-) -> Result<Arc<dyn crate::traits::ContextManager>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Arc<dyn ContextManager>, Box<dyn std::error::Error + Send + Sync>> {
     let bridge = crate::bridges::wasm_context::WasmContextBridge::from_bytes(wasm_bytes, engine)?;
     Ok(Arc::new(bridge))
 }
@@ -140,7 +144,7 @@ pub fn load_wasm_context(
 pub fn load_wasm_approval(
     wasm_bytes: &[u8],
     engine: Arc<wasmtime::Engine>,
-) -> Result<Arc<dyn crate::traits::ApprovalProvider>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Arc<dyn ApprovalProvider>, Box<dyn std::error::Error + Send + Sync>> {
     let bridge = crate::bridges::wasm_approval::WasmApprovalBridge::from_bytes(wasm_bytes, engine)?;
     Ok(Arc::new(bridge))
 }
@@ -150,7 +154,7 @@ pub fn load_wasm_approval(
 pub fn load_wasm_provider(
     wasm_bytes: &[u8],
     engine: Arc<wasmtime::Engine>,
-) -> Result<Arc<dyn crate::traits::Provider>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Arc<dyn Provider>, Box<dyn std::error::Error + Send + Sync>> {
     let bridge = crate::bridges::wasm_provider::WasmProviderBridge::from_bytes(wasm_bytes, engine)?;
     Ok(Arc::new(bridge))
 }
