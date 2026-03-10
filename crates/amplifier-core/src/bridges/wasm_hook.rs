@@ -106,10 +106,7 @@ impl WasmHookBridge {
     /// Load a WASM hook component from raw bytes.
     ///
     /// Compiles the Component and caches it for reuse across `handle()` calls.
-    pub fn from_bytes(
-        wasm_bytes: &[u8],
-        engine: Arc<Engine>,
-    ) -> WasmResult<Self> {
+    pub fn from_bytes(wasm_bytes: &[u8], engine: Arc<Engine>) -> WasmResult<Self> {
         let component = Component::new(&engine, wasm_bytes)?;
         Ok(Self { engine, component })
     }
@@ -123,17 +120,13 @@ impl WasmHookBridge {
         &self,
         config: &serde_json::Value,
     ) -> WasmResult<Vec<(String, i32, String)>> {
-        let config_bytes = serde_json::to_vec(config).map_err(|e| {
-            format!("failed to serialize config for get-subscriptions: {e}")
-        })?;
+        let config_bytes = serde_json::to_vec(config)
+            .map_err(|e| format!("failed to serialize config for get-subscriptions: {e}"))?;
         call_get_subscriptions(&self.engine, &self.component, config_bytes)
     }
 
     /// Convenience: load a WASM hook component from a file path.
-    pub fn from_file(
-        path: &Path,
-        engine: Arc<Engine>,
-    ) -> WasmResult<Self> {
+    pub fn from_file(path: &Path, engine: Arc<Engine>) -> WasmResult<Self> {
         let bytes =
             std::fs::read(path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
         Self::from_bytes(&bytes, engine)
