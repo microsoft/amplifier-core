@@ -578,16 +578,12 @@ impl JsCoordinator {
 ///
 /// Lifecycle: `new AmplifierSession(config) → initialize() → execute(prompt) → cleanup()`.
 /// Wires together Coordinator, HookRegistry, and CancellationToken.
-///
-/// Known limitation: `coordinator` getter creates a separate Coordinator instance
-/// because the kernel Session owns its Coordinator by value, not behind Arc.
-/// Sharing requires restructuring the Rust kernel — tracked as Future TODO #1.
 #[napi]
 pub struct JsAmplifierSession {
     inner: Arc<Mutex<amplifier_core::Session>>,
     cached_session_id: String,
     cached_parent_id: Option<String>,
-    cached_config: HashMap<String, serde_json::Value>,
+    cached_coordinator: Option<JsCoordinator>,
 }
 
 #[napi]
@@ -601,11 +597,8 @@ impl JsAmplifierSession {
         let value: serde_json::Value = serde_json::from_str(&config_json)
             .map_err(|e| Error::from_reason(format!("Invalid config JSON: {e}")))?;
 
-        let config = amplifier_core::SessionConfig::from_value(value.clone())
+        let config = amplifier_core::SessionConfig::from_value(value)
             .map_err(|e| Error::from_reason(e.to_string()))?;
-
-        let cached_config: HashMap<String, serde_json::Value> = serde_json::from_value(value)
-            .map_err(|e| Error::from_reason(format!("invalid JSON: {e}")))?;
 
         let session = amplifier_core::Session::new(config, session_id.clone(), parent_id.clone());
         let cached_session_id = session.session_id().to_string();
@@ -614,7 +607,7 @@ impl JsAmplifierSession {
             inner: Arc::new(Mutex::new(session)),
             cached_session_id,
             cached_parent_id: parent_id,
-            cached_config,
+            cached_coordinator: None,
         })
     }
 
@@ -657,42 +650,44 @@ impl JsAmplifierSession {
         }
     }
 
-    /// Creates a new **fresh** JsCoordinator from this session's cached config.
+    /// The session's coordinator — shared via `Arc`, not copied.
     ///
-    /// ⚠️  **Each call allocates a new Coordinator** — capabilities registered on
-    /// one instance are invisible to the next. This is a known limitation:
-    /// `Session` owns its `Coordinator` by value, not behind `Arc`, so the
-    /// binding cannot expose the session's live coordinator.
-    ///
-    /// The method name (`createCoordinator`) intentionally signals "creates new
-    /// instance" — a getter property would imply referential stability in JS.
-    ///
-    /// **Workaround:** call `createCoordinator()` once, hold the returned instance,
-    /// and register capabilities on it before passing it to other APIs.
-    ///
-    /// Future TODO #1: restructure the kernel to hold `Arc<Coordinator>` inside
-    /// `Session` so this method can return a handle to the session's actual coordinator.
-    #[napi]
-    pub fn create_coordinator(&self) -> JsCoordinator {
-        log::warn!(
-            "JsAmplifierSession::createCoordinator() — returns a new Coordinator built from \
-             cached config; capabilities registered on one call are NOT visible on the next. \
-             Hold the returned instance directly. (Future TODO #1)"
-        );
-        JsCoordinator {
-            inner: Arc::new(amplifier_core::Coordinator::new(self.cached_config.clone())),
+    /// Returns a `JsCoordinator` wrapping the session's real `Arc<Coordinator>`.
+    /// Repeated calls return the same underlying coordinator instance.
+    #[napi(getter)]
+    pub fn coordinator(&mut self) -> JsCoordinator {
+        if let Some(ref cached) = self.cached_coordinator {
+            return JsCoordinator {
+                inner: Arc::clone(&cached.inner),
+            };
         }
+        // First call: extract the Arc<Coordinator> from the session.
+        // try_lock is safe here — the Mutex is only held during async execute/cleanup.
+        let coord_arc = match self.inner.try_lock() {
+            Ok(session) => session.coordinator_shared(),
+            Err(_) => {
+                log::warn!(
+                    "JsAmplifierSession::coordinator() — session lock held, \
+                     creating coordinator from default config as fallback"
+                );
+                Arc::new(amplifier_core::Coordinator::new(Default::default()))
+            }
+        };
+        let js_coord = JsCoordinator {
+            inner: coord_arc,
+        };
+        self.cached_coordinator = Some(JsCoordinator {
+            inner: Arc::clone(&js_coord.inner),
+        });
+        js_coord
     }
 
     #[napi]
     pub fn set_initialized(&self) {
         match self.inner.try_lock() {
             Ok(session) => session.set_initialized(),
-            // State mutation failed — unlike read-only getters, this warrants a warning.
-            // Lock contention only occurs during async cleanup(), so this is unlikely
-            // in practice, but callers should know the mutation didn't happen.
-            Err(_) => eprintln!(
-                "amplifier-core-node: set_initialized() skipped — session lock held (cleanup in progress?)"
+            Err(_) => log::warn!(
+                "JsAmplifierSession::set_initialized() skipped — session lock held (cleanup in progress?)"
             ),
         }
     }
