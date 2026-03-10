@@ -5,8 +5,8 @@ Rust engine resolves a module as WASM, returning a callable mount
 function that registers the tool in the coordinator's mount_points.
 """
 
-import os
 import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -22,13 +22,8 @@ from amplifier_core.loader import ModuleLoader
 @pytest.fixture
 def wasm_fixture_path():
     """Path to the echo-tool.wasm fixture file. Skips if missing."""
-    path = os.path.join(
-        os.path.dirname(__file__),
-        "fixtures",
-        "wasm",
-        "echo-tool.wasm",
-    )
-    if not os.path.exists(path):
+    path = Path(__file__).parent / "fixtures" / "wasm" / "echo-tool.wasm"
+    if not path.exists():
         pytest.skip(f"WASM fixture not found: {path}")
     return path
 
