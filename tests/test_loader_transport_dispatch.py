@@ -165,6 +165,11 @@ async def test_grpc_dispatch_routes_to_grpc_loader(mock_coordinator):
         # -- Verify ----------------------------------------------------------
         # The error message must contain gRPC-related keywords, confirming
         # the loader dispatched to the gRPC path (not the Python path).
+        # NOTE: This assertion relies on upstream error-message content
+        # (e.g. from grpcio or ImportError text).  It's a pragmatic
+        # tradeoff — installing grpcio just for this test would add a
+        # heavy dependency.  If the assertion breaks after a library
+        # upgrade, update ``grpc_keywords`` to match the new wording.
         error_msg = str(exc_info.value).lower()
         grpc_keywords = ("grpc", "grpcio", "connect", "channel")
         assert any(kw in error_msg for kw in grpc_keywords), (

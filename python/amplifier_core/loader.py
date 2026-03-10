@@ -631,11 +631,18 @@ class ModuleLoader:
 
         Args:
             module_path: Path to the .wasm file or directory containing it.
-            coordinator: The coordinator instance for mounting.
+            coordinator: Reserved for future WASM lifecycle management.
+                Currently unused — the inner closure receives its own
+                ``coord`` argument at mount time.  Kept for signature
+                parity with ``_make_grpc_mount``.
 
         Returns:
             Async mount function that loads and mounts the WASM module.
         """
+        # Re-import from _engine: the dispatch block already proved the module
+        # exists (resolve_module succeeded), but load_and_mount_wasm could be
+        # absent in a version-mismatch scenario.  That ImportError propagates
+        # to the caller's outer try/except, which is intentional.
         from amplifier_core._engine import load_and_mount_wasm
 
         async def wasm_mount(coord: ModuleCoordinator) -> Callable | None:
