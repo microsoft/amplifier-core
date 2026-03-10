@@ -360,7 +360,7 @@ impl amplifier_core::traits::DisplayService for PyDisplayServiceBridge {
         Box::pin(async move {
             let py_obj = py_obj.ok_or_else(|| {
                 AmplifierError::Session(SessionError::Other {
-                    message: "Failed to attach to Python runtime for display".to_string(),
+                    message: "Failed to attach to Python runtime for display (clone)".to_string(),
                 })
             })?;
 
@@ -370,7 +370,7 @@ impl amplifier_core::traits::DisplayService for PyDisplayServiceBridge {
             })
             .ok_or_else(|| {
                 AmplifierError::Session(SessionError::Other {
-                    message: "Failed to attach to Python runtime for display".to_string(),
+                    message: "Failed to attach to Python runtime for display (call)".to_string(),
                 })
             })?
             .map_err(|e| {
