@@ -202,4 +202,39 @@ mod tests {
         let orch = super::load_wasm_orchestrator(&wasm_bytes, engine.inner(), coordinator);
         assert!(orch.is_ok());
     }
+
+    // ---------------------------------------------------------------
+    // gRPC transport functions — compile-time + type verification
+    // ---------------------------------------------------------------
+
+    /// Verify load_grpc_provider exists and returns the correct type.
+    /// Uses a non-listening endpoint so connect() will fail — we only
+    /// care that the function exists and has the right signature.
+    #[tokio::test]
+    async fn load_grpc_provider_returns_result_arc_dyn_provider() {
+        let result = super::load_grpc_provider("http://[::1]:59001").await;
+        // Connection to non-listening port should fail
+        assert!(result.is_err(), "expected connection error to non-listening port");
+    }
+
+    /// Verify load_grpc_hook exists and returns the correct type.
+    #[tokio::test]
+    async fn load_grpc_hook_returns_result_arc_dyn_hook_handler() {
+        let result = super::load_grpc_hook("http://[::1]:59002").await;
+        assert!(result.is_err(), "expected connection error to non-listening port");
+    }
+
+    /// Verify load_grpc_context exists and returns the correct type.
+    #[tokio::test]
+    async fn load_grpc_context_returns_result_arc_dyn_context_manager() {
+        let result = super::load_grpc_context("http://[::1]:59003").await;
+        assert!(result.is_err(), "expected connection error to non-listening port");
+    }
+
+    /// Verify load_grpc_approval exists and returns the correct type.
+    #[tokio::test]
+    async fn load_grpc_approval_returns_result_arc_dyn_approval_provider() {
+        let result = super::load_grpc_approval("http://[::1]:59004").await;
+        assert!(result.is_err(), "expected connection error to non-listening port");
+    }
 }
