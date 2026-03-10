@@ -8,7 +8,7 @@ import uuid
 from typing import TYPE_CHECKING
 from typing import Any
 
-from ._session_init import initialize_session
+from ._session_init import _safe_exception_str, initialize_session
 from .coordinator import ModuleCoordinator
 from .loader import ModuleLoader
 from .models import SessionStatus
@@ -19,18 +19,6 @@ if TYPE_CHECKING:
     from .display import DisplaySystem
 
 logger = logging.getLogger(__name__)
-
-
-def _safe_exception_str(e: BaseException) -> str:
-    """
-    CRITICAL: Explicitly handle exception string conversion for Windows cp1252 compatibility.
-    Default encoding can fail on non-cp1252 characters, causing a crash during error handling.
-    We fall back to repr() which is safer as it escapes problematic characters.
-    """
-    try:
-        return str(e)
-    except UnicodeDecodeError:
-        return repr(e)
 
 
 class AmplifierSession:
