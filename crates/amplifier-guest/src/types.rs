@@ -36,6 +36,14 @@ impl Default for ToolResult {
     }
 }
 
+/// A subscription declaring which event a hook wants to receive.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventSubscription {
+    pub event: String,
+    pub priority: i32,
+    pub name: String,
+}
+
 /// Action a hook handler can take in response to a lifecycle event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -634,6 +642,47 @@ mod tests {
         let json_str = serde_json::to_string(&original).unwrap();
         let deserialized: ModelInfo = serde_json::from_str(&json_str).unwrap();
         assert_eq!(deserialized, original);
+    }
+
+    // --- EventSubscription tests ---
+
+    #[test]
+    fn test_event_subscription_creation() {
+        let sub = EventSubscription {
+            event: "before_tool".to_string(),
+            priority: 10,
+            name: "my-hook".to_string(),
+        };
+        assert_eq!(sub.event, "before_tool");
+        assert_eq!(sub.priority, 10);
+        assert_eq!(sub.name, "my-hook");
+    }
+
+    #[test]
+    fn test_event_subscription_serde_roundtrip() {
+        let sub = EventSubscription {
+            event: "after_tool".to_string(),
+            priority: -5,
+            name: "cleanup-hook".to_string(),
+        };
+        let json_str = serde_json::to_string(&sub).unwrap();
+        let deserialized: EventSubscription = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(deserialized.event, "after_tool");
+        assert_eq!(deserialized.priority, -5);
+        assert_eq!(deserialized.name, "cleanup-hook");
+    }
+
+    #[test]
+    fn test_event_subscription_clone() {
+        let sub = EventSubscription {
+            event: "before_completion".to_string(),
+            priority: 0,
+            name: "observer".to_string(),
+        };
+        let cloned = sub.clone();
+        assert_eq!(cloned.event, sub.event);
+        assert_eq!(cloned.priority, sub.priority);
+        assert_eq!(cloned.name, sub.name);
     }
 
     // --- Re-export test ---

@@ -26,6 +26,23 @@ interface hook-handler {
     /// Handle a lifecycle event (HookHandleRequest proto, serialized).
     /// Returns proto-serialized HookResult on success.
     handle: func(event: list<u8>) -> result<list<u8>, string>;
+
+    /// Return the events this hook wants to receive, along with priority
+    /// and a human-readable name for each subscription.
+    ///
+    /// `config` is the module's JSON configuration blob (from bundle YAML),
+    /// serialized as bytes so the hook can adjust its subscriptions at
+    /// load time.
+    ///
+    /// Future: a `register-hook` function in `kernel-service` will let
+    /// hooks dynamically add/remove subscriptions at runtime.
+    get-subscriptions: func(config: list<u8>) -> list<event-subscription>;
+}
+
+record event-subscription {
+    event: string,
+    priority: s32,
+    name: string,
 }
 
 /// Context manager interface — owns conversation memory policy.
