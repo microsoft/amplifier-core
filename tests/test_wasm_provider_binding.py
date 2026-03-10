@@ -5,8 +5,6 @@ interface: name property, get_info(), list_models(), complete(), parse_tool_call
 and __repr__.
 """
 
-import pytest
-
 
 class TestWasmProviderExport:
     """WasmProvider must be importable from the Rust _engine module."""
@@ -34,10 +32,26 @@ class TestWasmProviderExport:
         """WasmProvider must have a list_models method."""
         from amplifier_core._engine import WasmProvider
 
-        assert hasattr(WasmProvider, "list_models"), "WasmProvider missing 'list_models'"
+        assert hasattr(WasmProvider, "list_models"), (
+            "WasmProvider missing 'list_models'"
+        )
 
     def test_wasm_provider_has_complete(self):
         """WasmProvider must have a complete method."""
         from amplifier_core._engine import WasmProvider
 
         assert hasattr(WasmProvider, "complete"), "WasmProvider missing 'complete'"
+
+    def test_wasm_provider_has_parse_tool_calls(self):
+        """WasmProvider must have a parse_tool_calls method."""
+        from amplifier_core._engine import WasmProvider
+
+        assert hasattr(WasmProvider, "parse_tool_calls"), (
+            "WasmProvider missing 'parse_tool_calls'"
+        )
+
+    def test_wasm_provider_has_repr(self):
+        """WasmProvider must have a __repr__ method."""
+        from amplifier_core._engine import WasmProvider
+
+        assert hasattr(WasmProvider, "__repr__"), "WasmProvider missing '__repr__'"
