@@ -2797,14 +2797,15 @@ impl PyWasmTool {
 // PyWasmProvider — thin Python wrapper around a Rust Arc<dyn Provider>
 // ---------------------------------------------------------------------------
 
-/// Python-visible wrapper for a WASM-loaded provider module.
+/// Thin Python wrapper around a Rust `Arc<dyn Provider>` loaded from WASM.
 ///
 /// Bridges the Rust `Arc<dyn Provider>` trait object into Python's provider
 /// protocol, so WASM providers can be mounted into a coordinator's
 /// `mount_points["providers"]` dict alongside native Python provider modules.
 ///
-/// Exposes: `name` (property), `get_info()` (sync), `list_models()` (async),
-/// `complete(request)` (async), `parse_tool_calls(response)` (sync).
+/// Implements the Python Provider protocol: `name`, `get_info`, `list_models`,
+/// `complete`, `parse_tool_calls`. Created automatically by
+/// `load_and_mount_wasm()` when a WASM provider module is detected.
 #[pyclass(name = "WasmProvider")]
 struct PyWasmProvider {
     inner: Arc<dyn amplifier_core::traits::Provider>,
@@ -2950,12 +2951,14 @@ impl PyWasmProvider {
 // PyWasmHook — thin Python wrapper around a Rust Arc<dyn HookHandler>
 // ---------------------------------------------------------------------------
 
-/// Python-visible wrapper for a WASM-loaded hook handler module.
+/// Thin Python wrapper around a Rust `Arc<dyn HookHandler>` loaded from WASM.
 ///
 /// Bridges the Rust `Arc<dyn HookHandler>` trait object into Python,
 /// so WASM hook modules can be used from the Python session.
 ///
-/// Exposes: `handle(event, data)` (async).
+/// Implements the Python hook protocol: `handle(event, data)` (async).
+/// Created automatically by `load_and_mount_wasm()` when a WASM hook
+/// module is detected.
 #[pyclass(name = "WasmHook")]
 struct PyWasmHook {
     inner: Arc<dyn amplifier_core::traits::HookHandler>,
@@ -3023,15 +3026,15 @@ impl PyWasmHook {
 // PyWasmContext — thin Python wrapper around a Rust Arc<dyn ContextManager>
 // ---------------------------------------------------------------------------
 
-/// Python-visible wrapper for a WASM-loaded context manager module.
+/// Thin Python wrapper around a Rust `Arc<dyn ContextManager>` loaded from WASM.
 ///
 /// Bridges the Rust `Arc<dyn ContextManager>` trait object into Python's
 /// context protocol, so WASM context modules can be mounted into a
 /// coordinator's `mount_points["context"]` slot.
 ///
-/// Exposes: `add_message(message)` (async), `get_messages()` (async),
-/// `get_messages_for_request(request)` (async), `set_messages(messages)` (async),
-/// `clear()` (async).
+/// Implements the Python context protocol: `add_message`, `get_messages`,
+/// `get_messages_for_request`, `set_messages`, `clear`. Created automatically
+/// by `load_and_mount_wasm()` when a WASM context module is detected.
 #[pyclass(name = "WasmContext")]
 struct PyWasmContext {
     inner: Arc<dyn amplifier_core::traits::ContextManager>,
@@ -3214,14 +3217,15 @@ impl PyWasmContext {
 // PyWasmOrchestrator — thin Python wrapper around a Rust Arc<dyn Orchestrator>
 // ---------------------------------------------------------------------------
 
-/// Python-visible wrapper for a WASM-loaded orchestrator module.
+/// Thin Python wrapper around a Rust `Arc<dyn Orchestrator>` loaded from WASM.
 ///
 /// Bridges the Rust `Arc<dyn Orchestrator>` trait object into Python's
 /// orchestrator protocol, so WASM orchestrator modules can be mounted
 /// into a coordinator's `mount_points["orchestrator"]` slot.
 ///
-/// Exposes: `execute(prompt, context=None, providers=None, tools=None,
-/// hooks=None, coordinator=None)` (async).
+/// Implements the Python orchestrator protocol: `execute(prompt, ...)` (async).
+/// Created automatically by `load_and_mount_wasm()` when a WASM orchestrator
+/// module is detected.
 #[pyclass(name = "WasmOrchestrator")]
 struct PyWasmOrchestrator {
     inner: Arc<dyn amplifier_core::traits::Orchestrator>,
@@ -3346,12 +3350,14 @@ impl amplifier_core::traits::ContextManager for NullContextManager {
 // PyWasmApproval — thin Python wrapper around a Rust Arc<dyn ApprovalProvider>
 // ---------------------------------------------------------------------------
 
-/// Python-visible wrapper for a WASM-loaded approval provider module.
+/// Thin Python wrapper around a Rust `Arc<dyn ApprovalProvider>` loaded from WASM.
 ///
 /// Bridges the Rust `Arc<dyn ApprovalProvider>` trait object into Python,
 /// so WASM approval modules can be used from the Python session.
 ///
-/// Exposes: `request_approval(request)` (async).
+/// Implements the Python approval protocol: `request_approval(request)` (async).
+/// Created automatically by `load_and_mount_wasm()` when a WASM approval
+/// module is detected.
 #[pyclass(name = "WasmApproval")]
 struct PyWasmApproval {
     inner: Arc<dyn amplifier_core::traits::ApprovalProvider>,

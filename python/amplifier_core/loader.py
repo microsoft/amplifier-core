@@ -627,7 +627,12 @@ class ModuleLoader:
     def _make_wasm_mount(
         self, module_path: Path, coordinator: ModuleCoordinator
     ) -> Callable[[ModuleCoordinator], Awaitable[Callable | None]]:
-        """Create a mount closure for a WASM module.
+        """Return a mount function that loads a WASM module via Rust ``load_and_mount_wasm()``.
+
+        Calls the Rust ``load_and_mount_wasm()`` binding which resolves the
+        module manifest, instantiates a WASM engine, and mounts the loaded
+        module directly into the coordinator's ``mount_points`` dict (e.g.
+        ``mount_points["tools"]`` for tool modules).
 
         Args:
             module_path: Path to the .wasm file or directory containing it.
@@ -659,10 +664,12 @@ class ModuleLoader:
         config: dict[str, Any] | None,
         coordinator: ModuleCoordinator,
     ) -> Callable[[ModuleCoordinator], Awaitable[Callable | None]]:
-        """Create a mount closure for a gRPC module.
+        """Return a mount function that loads a gRPC module via the gRPC loader bridge.
 
-        Reads amplifier.toml from the module directory for gRPC configuration,
-        then delegates to loader_grpc.load_grpc_module.
+        Reads ``amplifier.toml`` from the module directory for endpoint and
+        service configuration, then delegates to the gRPC loader bridge
+        (``loader_grpc.load_grpc_module``) which handles channel setup,
+        protobuf negotiation, and adapter wrapping.
 
         Args:
             module_path: Path to the module directory containing amplifier.toml.
@@ -671,7 +678,7 @@ class ModuleLoader:
             coordinator: The coordinator instance.
 
         Returns:
-            Async mount function from the gRPC loader.
+            Async mount function from the gRPC loader bridge.
         """
         from .loader_grpc import load_grpc_module
 
