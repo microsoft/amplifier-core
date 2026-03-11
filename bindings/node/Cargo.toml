@@ -1,6 +1,6 @@
 [package]
 name = "amplifier-core-node"
-version = "1.1.1"
+version = "1.2.0"
 edition = "2021"
 description = "Napi-RS bridge for amplifier-core Rust kernel"
 license = "MIT"
