@@ -167,6 +167,12 @@ macro_rules! export_tool {
 pub trait HookHandler {
     /// Handles a lifecycle event, returning an action the host should take.
     fn handle(&self, event: &str, data: Value) -> Result<HookResult, String>;
+
+    /// Returns the events this hook wants to receive, along with priority
+    /// and a human-readable name for each subscription.
+    ///
+    /// `config` is the module's JSON configuration (from bundle YAML).
+    fn get_subscriptions(&self, config: Value) -> Vec<EventSubscription>;
 }
 
 /// Exports a [`HookHandler`] implementation as WASM guest entry points.
@@ -214,6 +220,20 @@ macro_rules! export_hook {
                 let result = <$hook_type as $crate::HookHandler>::handle(get_hook(), event_str, data)?;
                 $crate::__macro_support::serde_json::to_vec(&result)
                     .map_err(|e| e.to_string())
+            }
+
+            fn get_subscriptions(config: ::std::vec::Vec<u8>) -> ::std::vec::Vec<bindings::exports::amplifier::modules::hook_handler::EventSubscription> {
+                let config_val: $crate::Value =
+                    $crate::__macro_support::serde_json::from_slice(&config)
+                        .unwrap_or($crate::Value::Null);
+                let subs = <$hook_type as $crate::HookHandler>::get_subscriptions(get_hook(), config_val);
+                subs.into_iter()
+                    .map(|s| bindings::exports::amplifier::modules::hook_handler::EventSubscription {
+                        event: s.event,
+                        priority: s.priority,
+                        name: s.name,
+                    })
+                    .collect()
             }
         }
 
@@ -804,6 +824,14 @@ mod hook_handler_tests {
                 _ => Ok(HookResult::default()),
             }
         }
+
+        fn get_subscriptions(&self, _config: Value) -> Vec<EventSubscription> {
+            vec![EventSubscription {
+                event: "before_tool".to_string(),
+                priority: 10,
+                name: "test-hook".to_string(),
+            }]
+        }
     }
 
     #[test]
@@ -832,6 +860,36 @@ mod hook_handler_tests {
         let hr = result.unwrap();
         assert_eq!(hr.action, HookAction::Continue);
     }
+
+    #[test]
+    fn test_hook_handler_get_subscriptions() {
+        let hook = TestHook;
+        let config = json!({"enabled": true});
+        let subs = hook.get_subscriptions(config);
+        assert_eq!(subs.len(), 1);
+        assert_eq!(subs[0].event, "before_tool");
+        assert_eq!(subs[0].priority, 10);
+        assert_eq!(subs[0].name, "test-hook");
+    }
+
+    #[test]
+    fn test_hook_handler_get_subscriptions_empty() {
+        #[derive(Default)]
+        struct EmptySubsHook;
+
+        impl HookHandler for EmptySubsHook {
+            fn handle(&self, _event: &str, _data: Value) -> Result<HookResult, String> {
+                Ok(HookResult::default())
+            }
+            fn get_subscriptions(&self, _config: Value) -> Vec<EventSubscription> {
+                vec![]
+            }
+        }
+
+        let hook = EmptySubsHook;
+        let subs = hook.get_subscriptions(json!({}));
+        assert!(subs.is_empty());
+    }
 }
 
 #[cfg(test)]
@@ -845,6 +903,10 @@ mod hook_macro_tests {
     impl HookHandler for MacroTestHook {
         fn handle(&self, _event: &str, _data: Value) -> Result<HookResult, String> {
             Ok(HookResult::default())
+        }
+
+        fn get_subscriptions(&self, _config: Value) -> Vec<EventSubscription> {
+            vec![]
         }
     }
 

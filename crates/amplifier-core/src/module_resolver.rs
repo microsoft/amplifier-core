@@ -12,7 +12,6 @@
 //! 4. Error
 
 use std::path::{Path, PathBuf};
-#[cfg(feature = "wasm")]
 use std::sync::Arc;
 
 use crate::models::ModuleType;
@@ -419,7 +418,40 @@ pub enum ModuleResolverError {
 /// Returned by [`load_module`] after dispatch to the appropriate transport bridge.
 /// The `PythonDelegated` variant is a signal to the Python host that it should
 /// load the module itself via importlib.
-#[cfg(feature = "wasm")]
+///
+/// # Examples
+///
+/// Dispatch on transport to mount a module on the coordinator:
+///
+/// ```rust
+/// use amplifier_core::module_resolver::LoadedModule;
+/// use amplifier_core::coordinator::Coordinator;
+/// use amplifier_core::testing::FakeTool;
+/// use std::sync::Arc;
+///
+/// let coord = Coordinator::new_for_test();
+///
+/// // Simulate a loaded tool module
+/// let loaded = LoadedModule::Tool(Arc::new(FakeTool::new("echo", "echoes")));
+///
+/// match loaded {
+///     LoadedModule::Tool(tool) => {
+///         let name = tool.name().to_string();
+///         coord.mount_tool(&name, tool);
+///     }
+///     LoadedModule::Provider(p) => {
+///         let name = p.name().to_string();
+///         coord.mount_provider(&name, p);
+///     }
+///     LoadedModule::PythonDelegated { package_name } => {
+///         // Signal to Python host: import this package
+///         println!("Python host should import: {package_name}");
+///     }
+///     _ => { /* handle other variants */ }
+/// }
+///
+/// assert_eq!(coord.tool_names(), vec!["echo".to_string()]);
+/// ```
 pub enum LoadedModule {
     /// A loaded tool module.
     Tool(Arc<dyn crate::traits::Tool>),
@@ -440,7 +472,6 @@ pub enum LoadedModule {
     },
 }
 
-#[cfg(feature = "wasm")]
 impl LoadedModule {
     /// Returns the variant name as a static string (for diagnostics).
     pub fn variant_name(&self) -> &'static str {
@@ -625,6 +656,7 @@ pub fn scan_for_wasm_file(dir: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn module_manifest_can_be_constructed() {
@@ -1450,5 +1482,56 @@ artifact = "module.wasm"
             err_msg.contains(wrong_hash),
             "error should include the expected (wrong) hash: {err_msg}"
         );
+    }
+
+    // --- Feature-gate independence tests ---
+
+    /// resolve_module() works for Python packages without the wasm feature.
+    /// This test runs unconditionally (no #[cfg(feature = "wasm")]).
+    #[test]
+    fn resolve_module_python_without_wasm_feature() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        std::fs::write(dir.path().join("__init__.py"), b"# package").expect("write");
+
+        let manifest = resolve_module(dir.path()).expect("should resolve Python package");
+        assert_eq!(manifest.transport, Transport::Python);
+        assert_eq!(manifest.module_type, ModuleType::Tool);
+    }
+
+    /// resolve_module() works for gRPC modules (via amplifier.toml) without the wasm feature.
+    #[test]
+    fn resolve_module_grpc_via_toml_without_wasm_feature() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let toml_content = r#"
+[module]
+transport = "grpc"
+type = "provider"
+
+[grpc]
+endpoint = "http://localhost:50051"
+"#;
+        std::fs::write(dir.path().join("amplifier.toml"), toml_content).expect("write toml");
+
+        let manifest = resolve_module(dir.path()).expect("should resolve gRPC module");
+        assert_eq!(manifest.transport, Transport::Grpc);
+        assert_eq!(manifest.module_type, ModuleType::Provider);
+        match &manifest.artifact {
+            ModuleArtifact::GrpcEndpoint(ep) => assert_eq!(ep, "http://localhost:50051"),
+            _ => panic!("expected GrpcEndpoint artifact"),
+        }
+    }
+
+    /// LoadedModule variants can be constructed and matched without wasm feature.
+    #[test]
+    fn loaded_module_variants_accessible_without_wasm_feature() {
+        let tool: Arc<dyn crate::traits::Tool> =
+            Arc::new(crate::testing::FakeTool::new("test", "test tool"));
+        let loaded = LoadedModule::Tool(tool);
+        assert_eq!(loaded.variant_name(), "Tool");
+
+        let loaded_py = LoadedModule::PythonDelegated {
+            package_name: "my_module".to_string(),
+        };
+        assert_eq!(loaded_py.variant_name(), "PythonDelegated");
     }
 }

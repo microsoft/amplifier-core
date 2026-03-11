@@ -178,6 +178,7 @@ class ModuleLoader:
         module_id: str,
         config: dict[str, Any] | None = None,
         source_hint: str | dict | None = None,
+        coordinator: ModuleCoordinator | None = None,
     ) -> Callable[[ModuleCoordinator], Awaitable[Callable | None]]:
         """
         Load a specific module using source resolution.
@@ -186,6 +187,11 @@ class ModuleLoader:
             module_id: Module identifier
             config: Optional module configuration
             source_hint: Optional source URI/object from bundle config
+            coordinator: Optional coordinator for polyglot dispatch.
+                When provided and the resolved module is non-Python,
+                dispatch routes to the appropriate polyglot loader
+                (WASM or gRPC). When None, all modules load via the
+                Python path (backward compatible).
 
         Returns:
             Mount function for the module
@@ -253,8 +259,38 @@ class ModuleLoader:
                         f"Added '{path_str}' to sys.path for module '{module_id}'"
                     )
 
-                # Validate module before loading
+                # --- Transport dispatch (polyglot) ---
+                # Check transport BEFORE validation: non-Python modules
+                # (WASM, gRPC) don't have Python packages to validate.
+                if coordinator is not None:
+                    try:
+                        from amplifier_core._engine import resolve_module
+
+                        manifest = resolve_module(str(module_path))
+                        transport = manifest.get("transport", "python")
+
+                        if transport == "wasm":
+                            return self._make_wasm_mount(module_path, coordinator)
+
+                        if transport == "grpc":
+                            return await self._make_grpc_mount(
+                                module_path, module_id, config, coordinator
+                            )
+
+                        # transport == "python" or unknown → fall through
+                    except ImportError:
+                        logger.debug(
+                            "Rust engine not available, falling through to Python loader"
+                        )
+                    except Exception as engine_err:
+                        logger.warning(
+                            f"resolve_module failed for '{module_id}': {engine_err}, "
+                            "falling through to Python loader"
+                        )
+
+                # Validate module before loading (Python modules only at this point)
                 await self._validate_module(module_id, module_path, config=config)
+
             except Exception as resolve_error:
                 # Import here to avoid circular dependency
                 from .module_sources import ModuleNotFoundError as SourceNotFoundError
@@ -587,6 +623,78 @@ class ModuleLoader:
                 return item
 
         return None
+
+    def _make_wasm_mount(
+        self, module_path: Path, coordinator: ModuleCoordinator
+    ) -> Callable[[ModuleCoordinator], Awaitable[Callable | None]]:
+        """Return a mount function that loads a WASM module via Rust ``load_and_mount_wasm()``.
+
+        Calls the Rust ``load_and_mount_wasm()`` binding which resolves the
+        module manifest, instantiates a WASM engine, and mounts the loaded
+        module directly into the coordinator's ``mount_points`` dict (e.g.
+        ``mount_points["tools"]`` for tool modules).
+
+        Args:
+            module_path: Path to the .wasm file or directory containing it.
+            coordinator: Reserved for future WASM lifecycle management.
+                Currently unused — the inner closure receives its own
+                ``coord`` argument at mount time.  Kept for signature
+                parity with ``_make_grpc_mount``.
+
+        Returns:
+            Async mount function that loads and mounts the WASM module.
+        """
+        # Re-import from _engine: the dispatch block already proved the module
+        # exists (resolve_module succeeded), but load_and_mount_wasm could be
+        # absent in a version-mismatch scenario.  That ImportError propagates
+        # to the caller's outer try/except, which is intentional.
+        from amplifier_core._engine import load_and_mount_wasm
+
+        async def wasm_mount(coord: ModuleCoordinator) -> Callable | None:
+            result = load_and_mount_wasm(coord, str(module_path))
+            logger.info(f"[module:mount] WASM mounted: {result}")
+            return None  # No cleanup function for WASM modules
+
+        return wasm_mount
+
+    async def _make_grpc_mount(
+        self,
+        module_path: Path,
+        module_id: str,
+        config: dict[str, Any] | None,
+        coordinator: ModuleCoordinator,
+    ) -> Callable[[ModuleCoordinator], Awaitable[Callable | None]]:
+        """Return a mount function that loads a gRPC module via the gRPC loader bridge.
+
+        Reads ``amplifier.toml`` from the module directory for endpoint and
+        service configuration, then delegates to the gRPC loader bridge
+        (``loader_grpc.load_grpc_module``) which handles channel setup,
+        protobuf negotiation, and adapter wrapping.
+
+        Args:
+            module_path: Path to the module directory containing amplifier.toml.
+            module_id: Module identifier.
+            config: Optional module configuration.
+            coordinator: The coordinator instance.
+
+        Returns:
+            Async mount function from the gRPC loader bridge.
+        """
+        from .loader_grpc import load_grpc_module
+
+        # Read amplifier.toml for gRPC config
+        try:
+            import tomli
+        except ImportError:
+            import tomllib as tomli  # type: ignore[no-redef]
+
+        toml_path = module_path / "amplifier.toml"
+        meta: dict[str, Any] = {}
+        if toml_path.exists():
+            with open(toml_path, "rb") as f:
+                meta = tomli.load(f)
+
+        return await load_grpc_module(module_id, config, meta, coordinator)
 
     async def initialize(
         self, module: Any, coordinator: ModuleCoordinator

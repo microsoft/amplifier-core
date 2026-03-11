@@ -675,8 +675,8 @@ mod tests {
 
         // Register low priority first, high priority second -- should execute
         // high first because lower number = higher priority.
-        registry.register("test:event", h2, 10, Some("low-priority".into()));
-        registry.register("test:event", h1, 5, Some("high-priority".into()));
+        let _ = registry.register("test:event", h2, 10, Some("low-priority".into()));
+        let _ = registry.register("test:event", h1, 5, Some("high-priority".into()));
 
         registry.emit("test:event", serde_json::json!({})).await;
         let order = log.lock().await;
@@ -697,8 +697,8 @@ mod tests {
         }));
         let never_called = Arc::new(CountingHandler::new());
 
-        registry.register("test:event", deny_handler, 0, Some("denier".into()));
-        registry.register(
+        let _ = registry.register("test:event", deny_handler, 0, Some("denier".into()));
+        let _ = registry.register(
             "test:event",
             never_called.clone(),
             10,
@@ -730,8 +730,8 @@ mod tests {
         }));
 
         // inject runs first (priority 0), ask runs second (priority 10)
-        registry.register("test:event", inject, 0, None);
-        registry.register("test:event", ask, 10, None);
+        let _ = registry.register("test:event", inject, 0, None);
+        let _ = registry.register("test:event", ask, 10, None);
 
         let result = registry.emit("test:event", serde_json::json!({})).await;
         assert_eq!(result.action, HookAction::AskUser);
@@ -748,7 +748,7 @@ mod tests {
             key: "added",
             value: "true",
         });
-        registry.register("test:event", modifier, 0, None);
+        let _ = registry.register("test:event", modifier, 0, None);
 
         let result = registry
             .emit("test:event", serde_json::json!({"original": true}))
@@ -771,8 +771,8 @@ mod tests {
             value: "2",
         });
 
-        registry.register("test:event", m1, 0, None);
-        registry.register("test:event", m2, 10, None);
+        let _ = registry.register("test:event", m1, 0, None);
+        let _ = registry.register("test:event", m2, 10, None);
 
         let result = registry.emit("test:event", serde_json::json!({})).await;
         let data = result.data.unwrap();
@@ -798,8 +798,8 @@ mod tests {
             ..Default::default()
         }));
 
-        registry.register("test:event", i1, 0, None);
-        registry.register("test:event", i2, 10, None);
+        let _ = registry.register("test:event", i1, 0, None);
+        let _ = registry.register("test:event", i2, 10, None);
 
         let result = registry.emit("test:event", serde_json::json!({})).await;
         assert_eq!(result.action, HookAction::InjectContext);
@@ -839,7 +839,7 @@ mod tests {
         }));
 
         let capture = Arc::new(CaptureHandler::new());
-        registry.register("test:event", capture.clone(), 0, None);
+        let _ = registry.register("test:event", capture.clone(), 0, None);
 
         registry
             .emit("test:event", serde_json::json!({"custom": true}))
@@ -857,7 +857,7 @@ mod tests {
         }));
 
         let capture = Arc::new(CaptureHandler::new());
-        registry.register("test:event", capture.clone(), 0, None);
+        let _ = registry.register("test:event", capture.clone(), 0, None);
 
         registry
             .emit("test:event", serde_json::json!({"key": "override"}))
@@ -876,8 +876,8 @@ mod tests {
         let failing = Arc::new(FailingHandler);
         let succeeding = Arc::new(CountingHandler::new());
 
-        registry.register("test:event", failing, 0, None);
-        registry.register("test:event", succeeding.clone(), 10, None);
+        let _ = registry.register("test:event", failing, 0, None);
+        let _ = registry.register("test:event", succeeding.clone(), 10, None);
 
         let result = registry.emit("test:event", serde_json::json!({})).await;
         assert_eq!(result.action, HookAction::Continue);
@@ -894,8 +894,8 @@ mod tests {
         let h1 = Arc::new(DataHandler(serde_json::json!("result-1")));
         let h2 = Arc::new(DataHandler(serde_json::json!("result-2")));
 
-        registry.register("test:event", h1, 0, None);
-        registry.register("test:event", h2, 10, None);
+        let _ = registry.register("test:event", h1, 0, None);
+        let _ = registry.register("test:event", h2, 10, None);
 
         let results = registry
             .emit_and_collect(
@@ -931,8 +931,8 @@ mod tests {
             ..Default::default()
         }));
 
-        registry.register("test:event", failing, 0, Some("failing_handler".into()));
-        registry.register("test:event", simple, 10, Some("simple_handler".into()));
+        let _ = registry.register("test:event", failing, 0, Some("failing_handler".into()));
+        let _ = registry.register("test:event", simple, 10, Some("simple_handler".into()));
 
         let results = registry
             .emit_and_collect(
@@ -956,8 +956,8 @@ mod tests {
             ..Default::default()
         }));
 
-        registry.register("test:event", slow, 0, Some("slow_handler".into()));
-        registry.register("test:event", simple, 10, Some("fast_handler".into()));
+        let _ = registry.register("test:event", slow, 0, Some("slow_handler".into()));
+        let _ = registry.register("test:event", simple, 10, Some("fast_handler".into()));
 
         let results = registry
             .emit_and_collect(
@@ -978,8 +978,8 @@ mod tests {
     async fn list_handlers_returns_names() {
         let registry = HookRegistry::new();
         let h = Arc::new(SimpleHandler(HookResult::default()));
-        registry.register("tool:pre", h.clone(), 0, Some("my-hook".into()));
-        registry.register("tool:post", h, 0, Some("other-hook".into()));
+        let _ = registry.register("tool:pre", h.clone(), 0, Some("my-hook".into()));
+        let _ = registry.register("tool:post", h, 0, Some("other-hook".into()));
 
         let handlers = registry.list_handlers(None);
         assert!(handlers.contains_key("tool:pre"));
@@ -991,8 +991,8 @@ mod tests {
     async fn list_handlers_filters_by_event() {
         let registry = HookRegistry::new();
         let h = Arc::new(SimpleHandler(HookResult::default()));
-        registry.register("tool:pre", h.clone(), 0, Some("my-hook".into()));
-        registry.register("tool:post", h, 0, Some("other-hook".into()));
+        let _ = registry.register("tool:pre", h.clone(), 0, Some("my-hook".into()));
+        let _ = registry.register("tool:post", h, 0, Some("other-hook".into()));
 
         let handlers = registry.list_handlers(Some("tool:pre"));
         assert!(handlers.contains_key("tool:pre"));
@@ -1007,7 +1007,7 @@ mod tests {
     async fn test_emit_stamps_timestamp() {
         let registry = HookRegistry::new();
         let capture = Arc::new(CaptureHandler::new());
-        registry.register("test:event", capture.clone(), 0, None);
+        let _ = registry.register("test:event", capture.clone(), 0, None);
 
         registry
             .emit("test:event", serde_json::json!({"key": "value"}))
@@ -1027,7 +1027,7 @@ mod tests {
     async fn test_emit_timestamp_is_infrastructure_owned() {
         let registry = HookRegistry::new();
         let capture = Arc::new(CaptureHandler::new());
-        registry.register("test:event", capture.clone(), 0, None);
+        let _ = registry.register("test:event", capture.clone(), 0, None);
 
         // Caller tries to supply their own timestamp — infrastructure must overwrite it
         registry
@@ -1054,7 +1054,7 @@ mod tests {
     async fn test_emit_and_collect_does_not_stamp_timestamp() {
         let registry = HookRegistry::new();
         let capture = Arc::new(CaptureHandler::new());
-        registry.register("test:event", capture.clone(), 0, None);
+        let _ = registry.register("test:event", capture.clone(), 0, None);
 
         registry
             .emit_and_collect(
@@ -1080,7 +1080,7 @@ mod tests {
     async fn handlers_only_called_for_registered_event() {
         let registry = HookRegistry::new();
         let counter = Arc::new(CountingHandler::new());
-        registry.register("tool:pre", counter.clone(), 0, None);
+        let _ = registry.register("tool:pre", counter.clone(), 0, None);
 
         // Emit a different event
         registry.emit("tool:post", serde_json::json!({})).await;
@@ -1157,7 +1157,7 @@ mod tests {
 
         let registry = HookRegistry::new();
         let failing = Arc::new(FailingHandler);
-        registry.register(
+        let _ = registry.register(
             "test:log_error_event",
             failing,
             0,
@@ -1197,7 +1197,7 @@ mod tests {
             key: "injected_key",
             value: "injected_value",
         });
-        registry.register(
+        let _ = registry.register(
             "test:modify_no_warn",
             modifier,
             0,

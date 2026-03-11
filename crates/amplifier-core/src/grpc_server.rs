@@ -577,7 +577,7 @@ mod tests {
 
         let coord = Arc::new(Coordinator::new(Default::default()));
         let handler = Arc::new(FakeHookHandler::new());
-        coord
+        let _ = coord
             .hooks()
             .register("test:event", handler.clone(), 0, Some("test-hook".into()));
         let service = KernelServiceImpl::new(coord);
@@ -607,7 +607,7 @@ mod tests {
             ..Default::default()
         };
         let handler = Arc::new(FakeHookHandler::with_result(deny_result));
-        coord
+        let _ = coord
             .hooks()
             .register("test:event", handler, 0, Some("deny-hook".into()));
         let service = KernelServiceImpl::new(coord);
@@ -699,7 +699,7 @@ mod tests {
             ..Default::default()
         };
         let handler = Arc::new(FakeHookHandler::with_result(result_with_data));
-        coord
+        let _ = coord
             .hooks()
             .register("collect:event", handler, 0, Some("data-hook".into()));
         let service = KernelServiceImpl::new(coord);
@@ -740,7 +740,7 @@ mod tests {
                 ..Default::default()
             };
             let handler = Arc::new(FakeHookHandler::with_result(result_with_data));
-            coord.hooks().register(
+            let _ = coord.hooks().register(
                 "multi:event",
                 handler,
                 i as i32,

@@ -29,7 +29,9 @@ use serde_json::Value;
 use crate::errors::{AmplifierError, ContextError, HookError, ProviderError, ToolError};
 use crate::messages::{ChatRequest, ChatResponse, ContentBlock, ToolCall, ToolSpec};
 use crate::models::{HookResult, ModelInfo, ProviderInfo, ToolResult};
-use crate::traits::{ApprovalProvider, ContextManager, HookHandler, Orchestrator, Provider, Tool};
+use crate::traits::{
+    ApprovalProvider, ContextManager, DisplayService, HookHandler, Orchestrator, Provider, Tool,
+};
 
 // ---------------------------------------------------------------------------
 // EchoTool
@@ -494,6 +496,49 @@ impl ApprovalProvider for FakeApprovalProvider {
             remember: false,
         };
         Box::pin(async move { Ok(response) })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// FakeDisplayService
+// ---------------------------------------------------------------------------
+
+/// A fake display service that records `(message, level, source)` tuples for test assertions.
+pub struct FakeDisplayService {
+    messages: Mutex<Vec<(String, String, String)>>, // (message, level, source)
+}
+
+impl FakeDisplayService {
+    pub fn new() -> Self {
+        Self {
+            messages: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn recorded_messages(&self) -> Vec<(String, String, String)> {
+        self.messages.lock().unwrap().clone()
+    }
+}
+
+impl Default for FakeDisplayService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DisplayService for FakeDisplayService {
+    fn show_message(
+        &self,
+        message: &str,
+        level: &str,
+        source: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), crate::errors::AmplifierError>> + Send + '_>> {
+        self.messages.lock().unwrap().push((
+            message.to_string(),
+            level.to_string(),
+            source.to_string(),
+        ));
+        Box::pin(async { Ok(()) })
     }
 }
 

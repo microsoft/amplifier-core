@@ -1,60 +1,46 @@
-"""Tests for WASM module mounting via loader_dispatch.
+"""Tests for WASM module mounting via loader.load() dispatch.
 
-Verifies that WASM modules loaded through loader_dispatch are actually
+Verifies that WASM modules loaded through loader.load() are actually
 mounted into the coordinator's mount_points, not just loaded and discarded.
 
 Uses mocks to avoid slow WASM compilation on ARM64 while still verifying
-the critical behavior: _noop_mount is replaced with a real bridge that
-calls load_and_mount_wasm.
+the critical behavior: the mount closure returned by loader.load() calls
+load_and_mount_wasm at mount time.
 """
 
-import os
 import sys
-import tempfile
-from unittest.mock import MagicMock, patch
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from amplifier_core.loader import ModuleLoader
+
+MODULE_ID = "echo-tool"
+
 
 @pytest.fixture
-def fixture_dir():
-    """Create a temp directory referencing the echo-tool fixture location."""
-    # Use the real fixture path for documentation clarity, but the mock
-    # means we won't actually read WASM files during the test.
-    fixture_base = os.path.join(
-        os.path.dirname(__file__),
-        "..",
-        "..",
-        "tests",
-        "fixtures",
-        "wasm",
+def wasm_fixture_path():
+    """Path to the echo-tool.wasm fixture file. Skips if missing."""
+    path = (
+        Path(__file__).parent
+        / ".."
+        / ".."
+        / "tests"
+        / "fixtures"
+        / "wasm"
+        / f"{MODULE_ID}.wasm"
     )
-    wasm_path = os.path.join(fixture_base, "echo-tool.wasm")
-    if not os.path.exists(wasm_path):
-        pytest.skip(f"WASM fixture not found: {wasm_path}")
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Write an amplifier.toml so Python fallback detects wasm transport
-        toml_path = os.path.join(tmpdir, "amplifier.toml")
-        with open(toml_path, "w") as f:
-            f.write('[module]\ntransport = "wasm"\ntype = "tool"\n')
-        yield tmpdir
+    if not path.exists():
+        pytest.skip(f"WASM fixture not found: {path}")
+    return path
 
 
-@pytest.mark.asyncio
-async def test_wasm_tool_mounts_into_coordinator(fixture_dir):
-    """WASM tool loaded via loader_dispatch is actually registered in coordinator.mount_points['tools'].
-
-    With the old _noop_mount, the mount function did nothing and the tool
-    was never registered.  With the real bridge, load_and_mount_wasm is
-    called at mount time and the tool appears in mount_points['tools'].
-    """
-    from amplifier_core.loader_dispatch import load_module
-
-    # Mock coordinator with real mount_points dict structure
-    coordinator = MagicMock()
-    coordinator.loader = None
-    coordinator.mount_points = {
+@pytest.fixture
+def mock_coordinator():
+    """MagicMock coordinator with real mount_points structure."""
+    coord = MagicMock()
+    coord.mount_points = {
         "orchestrator": None,
         "providers": {},
         "tools": {},
@@ -62,45 +48,72 @@ async def test_wasm_tool_mounts_into_coordinator(fixture_dir):
         "hooks": MagicMock(),
         "module-source-resolver": None,
     }
+    return coord
 
-    # Mock the Rust _engine module
+
+@pytest.mark.asyncio
+async def test_wasm_tool_mounts_into_coordinator(wasm_fixture_path, mock_coordinator):
+    """WASM tool loaded via loader.load() is actually registered in coordinator.mount_points['tools'].
+
+    With the old _noop_mount, the mount function did nothing and the tool
+    was never registered.  With the real bridge, load_and_mount_wasm is
+    called at mount time and the tool appears in mount_points['tools'].
+    """
+    # -- Mock source resolution -----------------------------------------------
+    fake_source = MagicMock()
+    fake_source.resolve.return_value = wasm_fixture_path
+
+    mock_resolver = MagicMock()
+    mock_resolver.async_resolve = AsyncMock(return_value=fake_source)
+
+    # Wire resolver into coordinator
+    mock_coordinator.get.return_value = mock_resolver
+
+    # -- Mock Rust engine -----------------------------------------------------
     fake_engine = MagicMock()
     fake_engine.resolve_module.return_value = {
         "transport": "wasm",
-        "name": "echo-tool",
+        "name": MODULE_ID,
     }
 
     # Simulate what load_and_mount_wasm does: mount tool into coordinator
     def fake_load_and_mount(coord, path):
         tool_mock = MagicMock()
-        tool_mock.name = "echo-tool"
-        coord.mount_points["tools"]["echo-tool"] = tool_mock
-        return {"status": "mounted", "module_type": "tool", "name": "echo-tool"}
+        tool_mock.name = MODULE_ID
+        coord.mount_points["tools"][MODULE_ID] = tool_mock
+        return {"status": "mounted", "module_type": "tool", "name": MODULE_ID}
 
     fake_engine.load_and_mount_wasm = MagicMock(side_effect=fake_load_and_mount)
-    # Also provide load_wasm_from_path for backward compat (old code path)
-    fake_engine.load_wasm_from_path.return_value = {
-        "status": "loaded",
-        "module_type": "tool",
-    }
+
+    # -- Execute --------------------------------------------------------------
+    loader = ModuleLoader(coordinator=mock_coordinator)
 
     with patch.dict(sys.modules, {"amplifier_core._engine": fake_engine}):
-        mount_fn = await load_module("echo-tool", {}, fixture_dir, coordinator)
+        mount_fn = await loader.load(
+            MODULE_ID,
+            {},
+            source_hint="/fake/path",
+            coordinator=mock_coordinator,  # type: ignore[call-arg]
+        )
 
-    # mount_fn must be callable
+    # -- Verify ---------------------------------------------------------------
+    # 1. mount_fn must be callable
     assert callable(mount_fn)
 
-    # Before calling mount: tools should still be empty
-    assert "echo-tool" not in coordinator.mount_points["tools"]
+    # 2. echo-tool NOT in mount_points before calling mount
+    assert MODULE_ID not in mock_coordinator.mount_points["tools"]
 
-    # Call the mount function — this is where the tool gets registered
-    await mount_fn(coordinator)  # type: ignore[misc]
+    # 3. Call the mount function — this is where the tool gets registered
+    with patch.dict(sys.modules, {"amplifier_core._engine": fake_engine}):
+        await mount_fn(mock_coordinator)  # type: ignore[misc]
 
-    # The tool must now be in the coordinator's mount_points
-    tools = coordinator.mount_points["tools"]
-    assert "echo-tool" in tools, (
-        f"'echo-tool' not found in mount_points['tools']. Keys: {list(tools.keys())}"
+    # 4. echo-tool IS in mount_points after calling mount
+    tools = mock_coordinator.mount_points["tools"]
+    assert MODULE_ID in tools, (
+        f"'{MODULE_ID}' not found in mount_points['tools']. Keys: {list(tools.keys())}"
     )
 
-    # Verify load_and_mount_wasm was called with the coordinator and path
-    fake_engine.load_and_mount_wasm.assert_called_once_with(coordinator, fixture_dir)
+    # 5. load_and_mount_wasm was called with correct args
+    fake_engine.load_and_mount_wasm.assert_called_once_with(
+        mock_coordinator, str(wasm_fixture_path)
+    )

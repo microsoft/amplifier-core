@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::traits::{Orchestrator, Tool};
+use crate::traits::{ApprovalProvider, ContextManager, HookHandler, Orchestrator, Provider, Tool};
 
 /// Supported transport types.
 #[derive(Debug, Clone, PartialEq)]
@@ -27,6 +27,10 @@ impl Transport {
 }
 
 /// Load a tool module via gRPC transport.
+///
+/// # Arguments
+///
+/// * `endpoint` — gRPC endpoint URL (e.g. `"http://localhost:50051"`).
 pub async fn load_grpc_tool(
     endpoint: &str,
 ) -> Result<Arc<dyn Tool>, Box<dyn std::error::Error + Send + Sync>> {
@@ -52,6 +56,111 @@ pub async fn load_grpc_orchestrator(
     Ok(Arc::new(bridge))
 }
 
+/// Load a provider module via gRPC transport.
+///
+/// Connects to a remote `ProviderService` and returns an `Arc<dyn Provider>`
+/// that is indistinguishable from a local provider.
+///
+/// # Arguments
+///
+/// * `endpoint` — gRPC endpoint URL (e.g. `"http://localhost:50051"`).
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// use amplifier_core::transport::load_grpc_provider;
+///
+/// let provider = load_grpc_provider("http://localhost:50051").await?;
+/// println!("Connected to provider: {}", provider.name());
+/// # Ok(())
+/// # }
+/// ```
+pub async fn load_grpc_provider(
+    endpoint: &str,
+) -> Result<Arc<dyn Provider>, Box<dyn std::error::Error + Send + Sync>> {
+    let bridge = crate::bridges::grpc_provider::GrpcProviderBridge::connect(endpoint).await?;
+    Ok(Arc::new(bridge))
+}
+
+/// Load a hook handler module via gRPC transport.
+///
+/// Connects to a remote `HookService` and returns an `Arc<dyn HookHandler>`
+/// that is indistinguishable from a local hook handler.
+///
+/// # Arguments
+///
+/// * `endpoint` — gRPC endpoint URL (e.g. `"http://localhost:50051"`).
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// use amplifier_core::transport::load_grpc_hook;
+///
+/// let hook = load_grpc_hook("http://localhost:50051").await?;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn load_grpc_hook(
+    endpoint: &str,
+) -> Result<Arc<dyn HookHandler>, Box<dyn std::error::Error + Send + Sync>> {
+    let bridge = crate::bridges::grpc_hook::GrpcHookBridge::connect(endpoint).await?;
+    Ok(Arc::new(bridge))
+}
+
+/// Load a context manager module via gRPC transport.
+///
+/// Connects to a remote `ContextService` and returns an `Arc<dyn ContextManager>`
+/// that is indistinguishable from a local context manager.
+///
+/// # Arguments
+///
+/// * `endpoint` — gRPC endpoint URL (e.g. `"http://localhost:50051"`).
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// use amplifier_core::transport::load_grpc_context;
+///
+/// let context = load_grpc_context("http://localhost:50051").await?;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn load_grpc_context(
+    endpoint: &str,
+) -> Result<Arc<dyn ContextManager>, Box<dyn std::error::Error + Send + Sync>> {
+    let bridge = crate::bridges::grpc_context::GrpcContextBridge::connect(endpoint).await?;
+    Ok(Arc::new(bridge))
+}
+
+/// Load an approval provider module via gRPC transport.
+///
+/// Connects to a remote `ApprovalService` and returns an `Arc<dyn ApprovalProvider>`
+/// that is indistinguishable from a local approval provider.
+///
+/// # Arguments
+///
+/// * `endpoint` — gRPC endpoint URL (e.g. `"http://localhost:50051"`).
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+/// use amplifier_core::transport::load_grpc_approval;
+///
+/// let approval = load_grpc_approval("http://localhost:50051").await?;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn load_grpc_approval(
+    endpoint: &str,
+) -> Result<Arc<dyn ApprovalProvider>, Box<dyn std::error::Error + Send + Sync>> {
+    let bridge = crate::bridges::grpc_approval::GrpcApprovalBridge::connect(endpoint).await?;
+    Ok(Arc::new(bridge))
+}
+
 /// Load a native Rust tool module (zero-overhead, no bridge).
 pub fn load_native_tool(tool: impl Tool + 'static) -> Arc<dyn Tool> {
     Arc::new(tool)
@@ -72,7 +181,7 @@ pub fn load_wasm_tool(
 pub fn load_wasm_hook(
     wasm_bytes: &[u8],
     engine: Arc<wasmtime::Engine>,
-) -> Result<Arc<dyn crate::traits::HookHandler>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Arc<dyn HookHandler>, Box<dyn std::error::Error + Send + Sync>> {
     let bridge = crate::bridges::wasm_hook::WasmHookBridge::from_bytes(wasm_bytes, engine)?;
     Ok(Arc::new(bridge))
 }
@@ -82,7 +191,7 @@ pub fn load_wasm_hook(
 pub fn load_wasm_context(
     wasm_bytes: &[u8],
     engine: Arc<wasmtime::Engine>,
-) -> Result<Arc<dyn crate::traits::ContextManager>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Arc<dyn ContextManager>, Box<dyn std::error::Error + Send + Sync>> {
     let bridge = crate::bridges::wasm_context::WasmContextBridge::from_bytes(wasm_bytes, engine)?;
     Ok(Arc::new(bridge))
 }
@@ -92,7 +201,7 @@ pub fn load_wasm_context(
 pub fn load_wasm_approval(
     wasm_bytes: &[u8],
     engine: Arc<wasmtime::Engine>,
-) -> Result<Arc<dyn crate::traits::ApprovalProvider>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Arc<dyn ApprovalProvider>, Box<dyn std::error::Error + Send + Sync>> {
     let bridge = crate::bridges::wasm_approval::WasmApprovalBridge::from_bytes(wasm_bytes, engine)?;
     Ok(Arc::new(bridge))
 }
@@ -102,7 +211,7 @@ pub fn load_wasm_approval(
 pub fn load_wasm_provider(
     wasm_bytes: &[u8],
     engine: Arc<wasmtime::Engine>,
-) -> Result<Arc<dyn crate::traits::Provider>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Arc<dyn Provider>, Box<dyn std::error::Error + Send + Sync>> {
     let bridge = crate::bridges::wasm_provider::WasmProviderBridge::from_bytes(wasm_bytes, engine)?;
     Ok(Arc::new(bridge))
 }
@@ -201,5 +310,52 @@ mod tests {
         let coordinator = std::sync::Arc::new(crate::coordinator::Coordinator::new_for_test());
         let orch = super::load_wasm_orchestrator(&wasm_bytes, engine.inner(), coordinator);
         assert!(orch.is_ok());
+    }
+
+    // ---------------------------------------------------------------
+    // gRPC transport functions — compile-time + type verification
+    // ---------------------------------------------------------------
+
+    /// Verify load_grpc_provider exists and returns the correct type.
+    /// Uses a non-listening endpoint so connect() will fail — we only
+    /// care that the function exists and has the right signature.
+    #[tokio::test]
+    async fn load_grpc_provider_returns_result_arc_dyn_provider() {
+        let result = super::load_grpc_provider("http://[::1]:59001").await;
+        // Connection to non-listening port should fail
+        assert!(
+            result.is_err(),
+            "expected connection error to non-listening port"
+        );
+    }
+
+    /// Verify load_grpc_hook exists and returns the correct type.
+    #[tokio::test]
+    async fn load_grpc_hook_returns_result_arc_dyn_hook_handler() {
+        let result = super::load_grpc_hook("http://[::1]:59002").await;
+        assert!(
+            result.is_err(),
+            "expected connection error to non-listening port"
+        );
+    }
+
+    /// Verify load_grpc_context exists and returns the correct type.
+    #[tokio::test]
+    async fn load_grpc_context_returns_result_arc_dyn_context_manager() {
+        let result = super::load_grpc_context("http://[::1]:59003").await;
+        assert!(
+            result.is_err(),
+            "expected connection error to non-listening port"
+        );
+    }
+
+    /// Verify load_grpc_approval exists and returns the correct type.
+    #[tokio::test]
+    async fn load_grpc_approval_returns_result_arc_dyn_approval_provider() {
+        let result = super::load_grpc_approval("http://[::1]:59004").await;
+        assert!(
+            result.is_err(),
+            "expected connection error to non-listening port"
+        );
     }
 }

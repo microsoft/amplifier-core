@@ -61,6 +61,7 @@ async def initialize_session(
             orchestrator_id,
             orchestrator_config,
             source_hint=orchestrator_source,
+            coordinator=coordinator,
         )
         cleanup = await orchestrator_mount(coordinator)
         if cleanup:
@@ -84,7 +85,10 @@ async def initialize_session(
     logger.info(f"Loading context manager: {context_id}")
     try:
         context_mount = await loader.load(
-            context_id, context_config, source_hint=context_source
+            context_id,
+            context_config,
+            source_hint=context_source,
+            coordinator=coordinator,
         )
         cleanup = await context_mount(coordinator)
         if cleanup:
@@ -142,6 +146,7 @@ async def initialize_session(
                 module_id,
                 provider_config.get("config", {}),
                 source_hint=provider_config.get("source"),
+                coordinator=coordinator,
             )
             cleanup = await provider_mount(coordinator)
             if cleanup:
@@ -188,6 +193,7 @@ async def initialize_session(
                 module_id,
                 tool_config.get("config", {}),
                 source_hint=tool_config.get("source"),
+                coordinator=coordinator,
             )
             cleanup = await tool_mount(coordinator)
             if cleanup:
@@ -209,6 +215,7 @@ async def initialize_session(
                 module_id,
                 hook_config.get("config", {}),
                 source_hint=hook_config.get("source"),
+                coordinator=coordinator,
             )
             cleanup = await hook_mount(coordinator)
             if cleanup:

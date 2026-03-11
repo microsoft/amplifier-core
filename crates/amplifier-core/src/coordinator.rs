@@ -27,7 +27,9 @@ use serde_json::Value;
 
 use crate::cancellation::CancellationToken;
 use crate::hooks::HookRegistry;
-use crate::traits::{ContextManager, Orchestrator, Provider, Tool};
+use crate::traits::{
+    ApprovalProvider, ContextManager, DisplayService, Orchestrator, Provider, Tool,
+};
 
 // ---------------------------------------------------------------------------
 // Type aliases for cleanup and contributor callbacks
@@ -77,7 +79,7 @@ pub struct Coordinator {
     tools: Mutex<HashMap<String, Arc<dyn Tool>>>,
 
     // -- Subsystems --
-    hooks: HookRegistry,
+    hooks: Arc<HookRegistry>,
     cancellation: CancellationToken,
 
     // -- Capabilities & contributions --
@@ -89,6 +91,10 @@ pub struct Coordinator {
 
     // -- Config --
     config: HashMap<String, Value>,
+
+    // -- App-layer services --
+    approval_provider: Mutex<Option<Arc<dyn ApprovalProvider>>>,
+    display_service: Mutex<Option<Arc<dyn DisplayService>>>,
 
     // -- Turn tracking --
     current_turn_injections: Mutex<usize>,
@@ -102,12 +108,14 @@ impl Coordinator {
             context: Mutex::new(None),
             providers: Mutex::new(HashMap::new()),
             tools: Mutex::new(HashMap::new()),
-            hooks: HookRegistry::new(),
+            hooks: Arc::new(HookRegistry::new()),
             cancellation: CancellationToken::new(),
             capabilities: Mutex::new(HashMap::new()),
             channels: Mutex::new(HashMap::new()),
             cleanup_functions: Mutex::new(Vec::new()),
             config,
+            approval_provider: Mutex::new(None),
+            display_service: Mutex::new(None),
             current_turn_injections: Mutex::new(0),
         }
     }
@@ -210,6 +218,45 @@ impl Coordinator {
         self.context.lock().unwrap().is_some()
     }
 
+    // -- App-layer service: ApprovalProvider --
+
+    /// Set the approval provider (single slot).
+    pub fn set_approval_provider(&self, provider: Arc<dyn ApprovalProvider>) {
+        *self.approval_provider.lock().unwrap() = Some(provider);
+    }
+
+    /// Clear the approval provider.
+    pub fn clear_approval_provider(&self) {
+        *self.approval_provider.lock().unwrap() = None;
+    }
+
+    /// Get the approval provider, if mounted.
+    pub fn approval_provider(&self) -> Option<Arc<dyn ApprovalProvider>> {
+        self.approval_provider.lock().unwrap().clone()
+    }
+
+    /// Whether an approval provider is mounted.
+    pub fn has_approval_provider(&self) -> bool {
+        self.approval_provider.lock().unwrap().is_some()
+    }
+
+    // -- App-layer service: DisplayService --
+
+    /// Set the display service (single slot).
+    pub fn set_display_service(&self, service: Arc<dyn DisplayService>) {
+        *self.display_service.lock().unwrap() = Some(service);
+    }
+
+    /// Get the display service, if mounted.
+    pub fn display_service(&self) -> Option<Arc<dyn DisplayService>> {
+        self.display_service.lock().unwrap().clone()
+    }
+
+    /// Whether a display service is mounted.
+    pub fn has_display_service(&self) -> bool {
+        self.display_service.lock().unwrap().is_some()
+    }
+
     /// Names of all registered capabilities.
     pub fn capability_names(&self) -> Vec<String> {
         self.capabilities.lock().unwrap().keys().cloned().collect()
@@ -218,7 +265,8 @@ impl Coordinator {
     /// Return a JSON-compatible dict of all coordinator state for serialization/introspection.
     ///
     /// Returns a `HashMap` with keys: `tools`, `providers`, `has_orchestrator`,
-    /// `has_context`, `capabilities` — matching the universal Coordinator API.
+    /// `has_context`, `capabilities`, `has_approval_provider`,
+    /// `has_display_service` — matching the universal Coordinator API.
     pub fn to_dict(&self) -> HashMap<String, serde_json::Value> {
         let mut dict = HashMap::new();
         dict.insert("tools".to_string(), serde_json::json!(self.tool_names()));
@@ -238,6 +286,14 @@ impl Coordinator {
             "capabilities".to_string(),
             serde_json::json!(self.capability_names()),
         );
+        dict.insert(
+            "has_approval_provider".to_string(),
+            serde_json::json!(self.has_approval_provider()),
+        );
+        dict.insert(
+            "has_display_service".to_string(),
+            serde_json::json!(self.has_display_service()),
+        );
         dict
     }
 
@@ -246,6 +302,32 @@ impl Coordinator {
     /// Reference to the hook registry.
     pub fn hooks(&self) -> &HookRegistry {
         &self.hooks
+    }
+
+    /// Shared ownership of the hook registry.
+    ///
+    /// Returns a clone of the `Arc<HookRegistry>`, enabling binding layers
+    /// (Node, Go, etc.) to hold long-lived shared references to the same
+    /// registry instance that the Coordinator uses internally.
+    ///
+    /// The existing [`hooks()`](Self::hooks) method continues to return
+    /// `&HookRegistry` via `Arc::Deref` — all existing call sites are
+    /// unchanged.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::sync::Arc;
+    /// use amplifier_core::coordinator::Coordinator;
+    ///
+    /// let coord = Coordinator::new_for_test();
+    /// let shared: Arc<amplifier_core::hooks::HookRegistry> = coord.hooks_shared();
+    ///
+    /// // Both point to the same registry
+    /// assert_eq!(coord.hooks().list_handlers(None).len(), shared.list_handlers(None).len());
+    /// ```
+    pub fn hooks_shared(&self) -> Arc<HookRegistry> {
+        Arc::clone(&self.hooks)
     }
 
     /// Reference to the cancellation token.
@@ -703,5 +785,109 @@ mod tests {
         // Only the good contributor's result should be present
         assert_eq!(results.len(), 1);
         assert_eq!(results[0], serde_json::json!({"key": "value"}));
+    }
+
+    #[tokio::test]
+    async fn hooks_shared_returns_arc_to_same_registry() {
+        let coord = Coordinator::new_for_test();
+
+        // Obtain shared Arc to the hook registry
+        let shared_hooks = coord.hooks_shared();
+
+        // Register a handler on the shared clone
+        let handler = Arc::new(crate::testing::FakeHookHandler::new());
+        let _ = shared_hooks.register(
+            "test:shared",
+            handler.clone(),
+            0,
+            Some("shared-handler".into()),
+        );
+
+        // Emit via the original coordinator's hooks() — the handler MUST fire
+        // because hooks_shared() returns the same registry, not a copy.
+        coord
+            .hooks()
+            .emit("test:shared", serde_json::json!({"from": "coordinator"}))
+            .await;
+
+        let events = handler.recorded_events();
+        assert_eq!(
+            events.len(),
+            1,
+            "handler registered on hooks_shared() clone must fire when emitting via hooks()"
+        );
+        assert_eq!(events[0].0, "test:shared");
+    }
+
+    // ---------------------------------------------------------------
+    // ApprovalProvider get/set
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn approval_provider_none_initially() {
+        let coord = Coordinator::new_for_test();
+        assert!(coord.approval_provider().is_none());
+    }
+
+    #[test]
+    fn set_and_get_approval_provider() {
+        let coord = Coordinator::new_for_test();
+        let provider = Arc::new(crate::testing::FakeApprovalProvider::approving());
+        coord.set_approval_provider(provider);
+        assert!(coord.approval_provider().is_some());
+    }
+
+    #[test]
+    fn to_dict_includes_has_approval_provider() {
+        let coord = Coordinator::new_for_test();
+        let dict = coord.to_dict();
+        assert_eq!(dict["has_approval_provider"], serde_json::json!(false));
+
+        let provider = Arc::new(crate::testing::FakeApprovalProvider::approving());
+        coord.set_approval_provider(provider);
+        let dict = coord.to_dict();
+        assert_eq!(dict["has_approval_provider"], serde_json::json!(true));
+    }
+
+    // ---------------------------------------------------------------
+    // DisplayService get/set
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn display_service_none_initially() {
+        let coord = Coordinator::new_for_test();
+        assert!(coord.display_service().is_none());
+    }
+
+    #[test]
+    fn set_and_get_display_service() {
+        let coord = Coordinator::new_for_test();
+        let display = Arc::new(crate::testing::FakeDisplayService::new());
+        coord.set_display_service(display);
+        assert!(coord.display_service().is_some());
+    }
+
+    #[tokio::test]
+    async fn display_service_records_messages() {
+        let display = Arc::new(crate::testing::FakeDisplayService::new());
+        display.show_message("hello", "info", "test").await.unwrap();
+        let messages = display.recorded_messages();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(
+            messages[0],
+            ("hello".to_string(), "info".to_string(), "test".to_string())
+        );
+    }
+
+    #[test]
+    fn to_dict_includes_has_display_service() {
+        let coord = Coordinator::new_for_test();
+        let dict = coord.to_dict();
+        assert_eq!(dict["has_display_service"], serde_json::json!(false));
+
+        let display = Arc::new(crate::testing::FakeDisplayService::new());
+        coord.set_display_service(display);
+        let dict = coord.to_dict();
+        assert_eq!(dict["has_display_service"], serde_json::json!(true));
     }
 }

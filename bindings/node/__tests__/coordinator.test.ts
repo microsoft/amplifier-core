@@ -30,21 +30,25 @@ describe('JsCoordinator', () => {
     expect(result).toBeNull()
   })
 
-  // createHookRegistry() creates a NEW detached instance each call — this is the
-  // known limitation documented by the rename from `.hooks` getter. Use a
-  // shared JsHookRegistry if you need persistent hook registration.
-  it('createHookRegistry() returns a JsHookRegistry with listHandlers', () => {
+  // hooks is now a getter that returns the coordinator's real Arc<HookRegistry>.
+  it('hooks getter returns a JsHookRegistry with listHandlers', () => {
     const coord = new JsCoordinator(emptyConfig)
-    const hooks = coord.createHookRegistry()
+    const hooks = coord.hooks
     expect(hooks).toBeDefined()
     expect(typeof hooks.listHandlers).toBe('function')
   })
 
-  it('createHookRegistry creates a new instance each call (pins detached behavior)', () => {
+  it('hooks getter shares state — handlers registered on one call are visible on next', () => {
     const coord = new JsCoordinator(emptyConfig)
-    const h1 = coord.createHookRegistry()
-    const h2 = coord.createHookRegistry()
-    expect(h1).not.toBe(h2)
+    const h1 = coord.hooks
+    // Register a handler on h1
+    h1.register('test:event', (_event: string, _data: string) => {
+      return JSON.stringify({ action: 'Continue' })
+    }, 0, 'test-handler')
+    // h2 should see the same handler
+    const h2 = coord.hooks
+    const handlers = h2.listHandlers()
+    expect(handlers['test:event']).toContain('test-handler')
   })
 
   it('provides access to cancellation subsystem (coord.cancellation.isCancelled === false)', () => {

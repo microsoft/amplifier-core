@@ -14,7 +14,7 @@ from amplifier_core import ModuleCoordinator
 from amplifier_core import ToolResult
 
 
-class TestCoordinator(ModuleCoordinator):
+class MockCoordinator(ModuleCoordinator):
     """Test coordinator with additional debugging capabilities.
 
     Subclasses the Rust-backed ModuleCoordinator (via _rust_wrappers).
@@ -159,9 +159,9 @@ class ScriptedOrchestrator:
         return response
 
 
-def create_test_coordinator() -> TestCoordinator:
+def create_test_coordinator() -> MockCoordinator:
     """Create a test coordinator with basic setup."""
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
 
     # Add mock tools
     coordinator.mount_points["tools"]["echo"] = MockTool("echo", "Echo response")

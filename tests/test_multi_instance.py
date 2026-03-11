@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 
 from amplifier_core.session import AmplifierSession as PyAmplifierSession
 from amplifier_core._session_init import initialize_session
-from amplifier_core.testing import TestCoordinator
+from amplifier_core.testing import MockCoordinator
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +35,7 @@ def _make_loader(module_to_mount_fn: dict):
     """Return a mock loader whose load() returns the configured mount function."""
     loader = AsyncMock()
 
-    async def _load(module_id, config=None, source_hint=None):
+    async def _load(module_id, config=None, source_hint=None, coordinator=None):
         return module_to_mount_fn[module_id]
 
     loader.load.side_effect = _load
@@ -72,7 +72,7 @@ async def test_single_instance_no_remapping():
         }
     )
 
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
     coordinator.loader = loader
 
     await initialize_session(config, coordinator, session_id="test", parent_id=None)
@@ -113,7 +113,7 @@ async def test_instance_id_remapping_removes_default_key():
         }
     )
 
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
     coordinator.loader = loader
 
     await initialize_session(config, coordinator, session_id="test", parent_id=None)
@@ -155,7 +155,7 @@ async def test_multi_instance_providers_both_mounted():
 
     call_count = {"n": 0}
 
-    async def load_side_effect(module_id, config=None, source_hint=None):
+    async def load_side_effect(module_id, config=None, source_hint=None, coordinator=None):
         if module_id == "loop-basic":
             return AsyncMock(return_value=None)
         if module_id == "context-simple":
@@ -176,7 +176,7 @@ async def test_multi_instance_providers_both_mounted():
         ],
     }
 
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
     coordinator.loader = loader
 
     await initialize_session(config, coordinator, session_id="test", parent_id=None)
@@ -225,7 +225,7 @@ async def test_session_py_instance_id_remapping():
 
     # Replace the session's coordinator with our tracking one so we can inspect
     # mount/unmount history after initialization.
-    tracking_coordinator = TestCoordinator()
+    tracking_coordinator = MockCoordinator()
     tracking_coordinator.loader = loader
     session.coordinator = tracking_coordinator
 
@@ -267,7 +267,7 @@ async def test_duplicate_module_without_instance_id_raises():
         }
     )
 
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
     coordinator.loader = loader
 
     with pytest.raises(ValueError, match="instance_id"):
@@ -289,7 +289,7 @@ async def test_duplicate_module_with_instance_id_passes():
         await coord.mount("providers", provider_b, name="mock")
         return None
 
-    async def load_side_effect(module_id, config=None, source_hint=None):
+    async def load_side_effect(module_id, config=None, source_hint=None, coordinator=None):
         if module_id == "loop-basic":
             return AsyncMock(return_value=None)
         if module_id == "context-simple":
@@ -310,7 +310,7 @@ async def test_duplicate_module_with_instance_id_passes():
         ],
     }
 
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
     coordinator.loader = loader
 
     # Should not raise
@@ -339,7 +339,7 @@ async def test_single_module_no_instance_id_ok():
         }
     )
 
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
     coordinator.loader = loader
 
     # Should not raise
@@ -367,7 +367,7 @@ async def test_duplicate_module_one_missing_instance_id_allowed():
         await coord.mount("providers", named_instance, name="mock")
         return None
 
-    async def load_side_effect(module_id, config=None, source_hint=None):
+    async def load_side_effect(module_id, config=None, source_hint=None, coordinator=None):
         if module_id == "loop-basic":
             return AsyncMock(return_value=None)
         if module_id == "context-simple":
@@ -388,7 +388,7 @@ async def test_duplicate_module_one_missing_instance_id_allowed():
         ],
     }
 
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
     coordinator.loader = loader
 
     # Should NOT raise — one default entry is allowed
@@ -429,7 +429,7 @@ async def test_mixed_instance_id_preserves_default_entry():
 
     call_count = {"n": 0}
 
-    async def load_side_effect(module_id, config=None, source_hint=None):
+    async def load_side_effect(module_id, config=None, source_hint=None, coordinator=None):
         if module_id == "loop-basic":
             return AsyncMock(return_value=None)
         if module_id == "context-simple":
@@ -453,7 +453,7 @@ async def test_mixed_instance_id_preserves_default_entry():
         ],
     }
 
-    coordinator = TestCoordinator()
+    coordinator = MockCoordinator()
     coordinator.loader = loader
 
     await initialize_session(config, coordinator, session_id="test", parent_id=None)
@@ -498,7 +498,7 @@ async def test_session_py_no_instance_id_no_remap():
 
     session = PyAmplifierSession(config, loader=loader)
 
-    tracking_coordinator = TestCoordinator()
+    tracking_coordinator = MockCoordinator()
     tracking_coordinator.loader = loader
     session.coordinator = tracking_coordinator
 

@@ -18,6 +18,7 @@
 //!   four primary module types that session/coordinator manages.
 //! - [`HookHandler`] participates in the hook dispatch pipeline.
 //! - [`ApprovalProvider`] provides UI-driven approval gates.
+//! - [`DisplayService`] provides UI-driven message display.
 //!
 //! All data types referenced here are defined in [`crate::models`],
 //! [`crate::messages`], and [`crate::errors`].
@@ -354,6 +355,23 @@ pub trait HookHandler: Send + Sync {
         event: &str,
         data: Value,
     ) -> Pin<Box<dyn Future<Output = Result<HookResult, HookError>> + Send + '_>>;
+
+    /// Return the event subscriptions this hook wants to receive.
+    ///
+    /// `config` is the module's JSON configuration (from bundle YAML).  The
+    /// return value is a list of `(event, priority, name)` tuples.
+    ///
+    /// # Default behaviour
+    ///
+    /// Returns a single wildcard subscription `[("*", 0, "hook")]` so that
+    /// existing implementors automatically receive every event without
+    /// needing to override this method.  WASM hooks compiled against the
+    /// current WIT will override this to return their declared subscriptions;
+    /// old WASM modules without the `get-subscriptions` export fall back to
+    /// the same wildcard via [`crate::bridges::wasm_hook::WasmHookBridge`].
+    fn get_subscriptions(&self, _config: &serde_json::Value) -> Vec<(String, i32, String)> {
+        vec![("*".to_string(), 0, "hook".to_string())]
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -396,6 +414,39 @@ pub trait ApprovalProvider: Send + Sync {
 }
 
 // ---------------------------------------------------------------------------
+// DisplayService
+// ---------------------------------------------------------------------------
+
+/// Interface for UI components that display messages to the user.
+///
+/// When modules or the kernel need to show status messages, warnings, or
+/// informational text to the user, they call the registered `DisplayService`.
+///
+/// # Object safety
+///
+/// This trait is object-safe: `Arc<dyn DisplayService>` is the standard storage type.
+pub trait DisplayService: Send + Sync {
+    /// Display a message to the user.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` — The text to display.
+    /// * `level` — Severity or kind (e.g. `"info"`, `"warning"`, `"error"`).
+    /// * `source` — Origin of the message (e.g. module or component name).
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` when the message has been presented.
+    /// `Err(AmplifierError)` on infrastructure failure.
+    fn show_message(
+        &self,
+        message: &str,
+        level: &str,
+        source: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), AmplifierError>> + Send + '_>>;
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -414,5 +465,6 @@ mod tests {
         fn _assert_context(_: Arc<dyn ContextManager>) {}
         fn _assert_hook(_: Arc<dyn HookHandler>) {}
         fn _assert_approval(_: Arc<dyn ApprovalProvider>) {}
+        fn _assert_display(_: Arc<dyn DisplayService>) {}
     }
 }

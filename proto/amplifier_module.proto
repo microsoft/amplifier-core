@@ -482,6 +482,19 @@ message HookHandleRequest {
   string data_json = 2;
 }
 
+// GetSubscriptions: allows a hook module to declare which events it handles.
+message GetSubscriptionsRequest {
+  string config_json = 1;
+}
+message GetSubscriptionsResponse {
+  repeated EventSubscription subscriptions = 1;
+}
+message EventSubscription {
+  string event    = 1;
+  int32  priority = 2;
+  string name     = 3;
+}
+
 // ---------------------------------------------------------------------------
 // Module services
 // ---------------------------------------------------------------------------
@@ -512,6 +525,12 @@ service ContextService {
 // Hook module contract — event interception.
 service HookService {
   rpc Handle(HookHandleRequest) returns (HookResult);
+
+  // Return the event subscriptions this hook wants to receive.
+  // The host calls this at mount time and registers the subscriptions itself.
+  // A future RegisterHook RPC on KernelService will allow bidirectional
+  // registration where the module pushes subscriptions to the kernel.
+  rpc GetSubscriptions(GetSubscriptionsRequest) returns (GetSubscriptionsResponse);
 }
 
 // Approval module contract — human-in-the-loop approval.

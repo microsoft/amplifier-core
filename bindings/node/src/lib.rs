@@ -385,18 +385,6 @@ impl JsHookRegistry {
         }
     }
 
-    /// Creates a new **detached** (empty) registry.
-    ///
-    /// Unlike `JsCancellationToken::from_inner`, HookRegistry cannot be cheaply
-    /// cloned or wrapped from a reference, so this always creates an empty
-    /// registry. When Coordinator manages ownership, this should accept
-    /// `Arc<HookRegistry>` to share state.
-    pub fn new_detached() -> Self {
-        Self {
-            inner: Arc::new(amplifier_core::HookRegistry::new()),
-        }
-    }
-
     /// Register a hook handler for the given event name.
     ///
     /// ## Handler signature
@@ -519,28 +507,16 @@ impl JsCoordinator {
         }
     }
 
-    /// Creates a new **detached** (empty) JsHookRegistry.
+    /// The coordinator's hook registry — shared via `Arc`, not copied.
     ///
-    /// ⚠️  **Each call returns a brand-new, empty registry** — hooks registered
-    /// on one instance are invisible to the next. This is a known limitation:
-    /// `Coordinator` owns its `HookRegistry` by value, not behind `Arc`, so
-    /// the binding cannot share state across calls.
-    ///
-    /// The method name (`createHookRegistry`) intentionally signals "creates new
-    /// instance" — a getter property would imply referential stability in JS.
-    ///
-    /// **Workaround:** create a `JsHookRegistry` directly and hold a reference.
-    ///
-    /// Future TODO #1: restructure the kernel to hold `Arc<HookRegistry>` inside
-    /// `Coordinator` so this method can share the same registry instance.
-    #[napi]
-    pub fn create_hook_registry(&self) -> JsHookRegistry {
-        log::warn!(
-            "JsCoordinator::createHookRegistry() — returns a new detached HookRegistry; \
-             hooks registered on one call are NOT visible via the Coordinator's internal \
-             registry. Hold the returned instance directly. (Future TODO #1)"
-        );
-        JsHookRegistry::new_detached()
+    /// Returns a `JsHookRegistry` wrapping the coordinator's real
+    /// `Arc<HookRegistry>` obtained via `hooks_shared()`. Hooks registered
+    /// on the returned instance are visible to the Coordinator and vice versa.
+    #[napi(getter)]
+    pub fn hooks(&self) -> JsHookRegistry {
+        JsHookRegistry {
+            inner: self.inner.hooks_shared(),
+        }
     }
 
     #[napi(getter)]
@@ -579,15 +555,15 @@ impl JsCoordinator {
 /// Lifecycle: `new AmplifierSession(config) → initialize() → execute(prompt) → cleanup()`.
 /// Wires together Coordinator, HookRegistry, and CancellationToken.
 ///
-/// Known limitation: `coordinator` getter creates a separate Coordinator instance
-/// because the kernel Session owns its Coordinator by value, not behind Arc.
-/// Sharing requires restructuring the Rust kernel — tracked as Future TODO #1.
+/// The `coordinator` getter returns the session's real `Arc<Coordinator>`,
+/// and `coordinator.hooks` returns the real `Arc<HookRegistry>` — both
+/// shared, not copied.
 #[napi]
 pub struct JsAmplifierSession {
     inner: Arc<Mutex<amplifier_core::Session>>,
     cached_session_id: String,
     cached_parent_id: Option<String>,
-    cached_config: HashMap<String, serde_json::Value>,
+    cached_coordinator: Option<JsCoordinator>,
 }
 
 #[napi]
@@ -601,11 +577,8 @@ impl JsAmplifierSession {
         let value: serde_json::Value = serde_json::from_str(&config_json)
             .map_err(|e| Error::from_reason(format!("Invalid config JSON: {e}")))?;
 
-        let config = amplifier_core::SessionConfig::from_value(value.clone())
+        let config = amplifier_core::SessionConfig::from_value(value)
             .map_err(|e| Error::from_reason(e.to_string()))?;
-
-        let cached_config: HashMap<String, serde_json::Value> = serde_json::from_value(value)
-            .map_err(|e| Error::from_reason(format!("invalid JSON: {e}")))?;
 
         let session = amplifier_core::Session::new(config, session_id.clone(), parent_id.clone());
         let cached_session_id = session.session_id().to_string();
@@ -614,7 +587,7 @@ impl JsAmplifierSession {
             inner: Arc::new(Mutex::new(session)),
             cached_session_id,
             cached_parent_id: parent_id,
-            cached_config,
+            cached_coordinator: None,
         })
     }
 
@@ -657,42 +630,45 @@ impl JsAmplifierSession {
         }
     }
 
-    /// Creates a new **fresh** JsCoordinator from this session's cached config.
+    /// The session's coordinator — shared via `Arc`, not copied.
     ///
-    /// ⚠️  **Each call allocates a new Coordinator** — capabilities registered on
-    /// one instance are invisible to the next. This is a known limitation:
-    /// `Session` owns its `Coordinator` by value, not behind `Arc`, so the
-    /// binding cannot expose the session's live coordinator.
+    /// Returns a `JsCoordinator` wrapping the session's real `Arc<Coordinator>`.
+    /// Repeated calls return the same underlying coordinator instance.
     ///
-    /// The method name (`createCoordinator`) intentionally signals "creates new
-    /// instance" — a getter property would imply referential stability in JS.
-    ///
-    /// **Workaround:** call `createCoordinator()` once, hold the returned instance,
-    /// and register capabilities on it before passing it to other APIs.
-    ///
-    /// Future TODO #1: restructure the kernel to hold `Arc<Coordinator>` inside
-    /// `Session` so this method can return a handle to the session's actual coordinator.
-    #[napi]
-    pub fn create_coordinator(&self) -> JsCoordinator {
-        log::warn!(
-            "JsAmplifierSession::createCoordinator() — returns a new Coordinator built from \
-             cached config; capabilities registered on one call are NOT visible on the next. \
-             Hold the returned instance directly. (Future TODO #1)"
-        );
-        JsCoordinator {
-            inner: Arc::new(amplifier_core::Coordinator::new(self.cached_config.clone())),
+    /// Takes `&mut self` because the first call caches the coordinator internally.
+    /// This is safe because NAPI JS objects are single-threaded — no concurrent access.
+    #[napi(getter)]
+    pub fn coordinator(&mut self) -> JsCoordinator {
+        if let Some(ref cached) = self.cached_coordinator {
+            return JsCoordinator {
+                inner: Arc::clone(&cached.inner),
+            };
         }
+        // First call: extract the Arc<Coordinator> from the session.
+        // try_lock is safe here — the Mutex is only held during async execute/cleanup.
+        let coord_arc = match self.inner.try_lock() {
+            Ok(session) => session.coordinator_shared(),
+            Err(_) => {
+                log::warn!(
+                    "JsAmplifierSession::coordinator() — session lock held, \
+                     creating coordinator from default config as fallback"
+                );
+                Arc::new(amplifier_core::Coordinator::new(Default::default()))
+            }
+        };
+        let js_coord = JsCoordinator { inner: coord_arc };
+        self.cached_coordinator = Some(JsCoordinator {
+            inner: Arc::clone(&js_coord.inner),
+        });
+        js_coord
     }
 
     #[napi]
     pub fn set_initialized(&self) {
         match self.inner.try_lock() {
             Ok(session) => session.set_initialized(),
-            // State mutation failed — unlike read-only getters, this warrants a warning.
-            // Lock contention only occurs during async cleanup(), so this is unlikely
-            // in practice, but callers should know the mutation didn't happen.
-            Err(_) => eprintln!(
-                "amplifier-core-node: set_initialized() skipped — session lock held (cleanup in progress?)"
+            Err(_) => log::warn!(
+                "JsAmplifierSession::set_initialized() skipped — session lock held (cleanup in progress?)"
             ),
         }
     }

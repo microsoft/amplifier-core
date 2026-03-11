@@ -162,22 +162,13 @@ export declare class JsCoordinator {
   registerCapability(name: string, valueJson: string): void
   getCapability(name: string): string | null
   /**
-   * Creates a new **detached** (empty) JsHookRegistry.
+   * The coordinator's hook registry — shared via `Arc`, not copied.
    *
-   * ⚠吅  **Each call returns a brand-new, empty registry** — hooks registered
-   * on one instance are invisible to the next. This is a known limitation:
-   * `Coordinator` owns its `HookRegistry` by value, not behind `Arc`, so
-   * the binding cannot share state across calls.
-   *
-   * The method name (`createHookRegistry`) intentionally signals "creates new
-   * instance" — a getter property would imply referential stability in JS.
-   *
-   * **Workaround:** create a `JsHookRegistry` directly and hold a reference.
-   *
-   * Future TODO #1: restructure the kernel to hold `Arc<HookRegistry>` inside
-   * `Coordinator` so this method can share the same registry instance.
+   * Returns a `JsHookRegistry` wrapping the coordinator's real
+   * `Arc<HookRegistry>` obtained via `hooks_shared()`. Hooks registered
+   * on the returned instance are visible to the Coordinator and vice versa.
    */
-  createHookRegistry(): JsHookRegistry
+  get hooks(): JsHookRegistry
   get cancellation(): JsCancellationToken
   get config(): string
   resetTurn(): void
@@ -190,9 +181,9 @@ export declare class JsCoordinator {
  * Lifecycle: `new AmplifierSession(config) → initialize() → execute(prompt) → cleanup()`.
  * Wires together Coordinator, HookRegistry, and CancellationToken.
  *
- * Known limitation: `coordinator` getter creates a separate Coordinator instance
- * because the kernel Session owns its Coordinator by value, not behind Arc.
- * Sharing requires restructuring the Rust kernel — tracked as Future TODO #1.
+ * The `coordinator` getter returns the session's real `Arc<Coordinator>`,
+ * and `coordinator.hooks` returns the real `Arc<HookRegistry>` — both
+ * shared, not copied.
  */
 export declare class JsAmplifierSession {
   constructor(configJson: string, sessionId?: string | undefined | null, parentId?: string | undefined | null)
@@ -212,23 +203,15 @@ export declare class JsAmplifierSession {
    */
   get status(): string
   /**
-   * Creates a new **fresh** JsCoordinator from this session's cached config.
+   * The session's coordinator — shared via `Arc`, not copied.
    *
-   * ⚠吅  **Each call allocates a new Coordinator** — capabilities registered on
-   * one instance are invisible to the next. This is a known limitation:
-   * `Session` owns its `Coordinator` by value, not behind `Arc`, so the
-   * binding cannot expose the session's live coordinator.
+   * Returns a `JsCoordinator` wrapping the session's real `Arc<Coordinator>`.
+   * Repeated calls return the same underlying coordinator instance.
    *
-   * The method name (`createCoordinator`) intentionally signals "creates new
-   * instance" — a getter property would imply referential stability in JS.
-   *
-   * **Workaround:** call `createCoordinator()` once, hold the returned instance,
-   * and register capabilities on it before passing it to other APIs.
-   *
-   * Future TODO #1: restructure the kernel to hold `Arc<Coordinator>` inside
-   * `Session` so this method can return a handle to the session's actual coordinator.
+   * Takes `&mut self` because the first call caches the coordinator internally.
+   * This is safe because NAPI JS objects are single-threaded — no concurrent access.
    */
-  createCoordinator(): JsCoordinator
+  get coordinator(): JsCoordinator
   setInitialized(): void
   cleanup(): Promise<void>
 }

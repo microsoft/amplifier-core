@@ -13,6 +13,24 @@ pub mod exports {
                 #[doc(hidden)]
                 static __FORCE_SECTION_REF: fn() = super::super::super::super::__link_custom_section_describing_imports;
                 use super::super::super::super::_rt;
+                #[derive(Clone)]
+                pub struct EventSubscription {
+                    pub event: _rt::String,
+                    pub priority: i32,
+                    pub name: _rt::String,
+                }
+                impl ::core::fmt::Debug for EventSubscription {
+                    fn fmt(
+                        &self,
+                        f: &mut ::core::fmt::Formatter<'_>,
+                    ) -> ::core::fmt::Result {
+                        f.debug_struct("EventSubscription")
+                            .field("event", &self.event)
+                            .field("priority", &self.priority)
+                            .field("name", &self.name)
+                            .finish()
+                    }
+                }
                 #[doc(hidden)]
                 #[allow(non_snake_case)]
                 pub unsafe fn _export_handle_cabi<T: Guest>(
@@ -82,10 +100,115 @@ pub mod exports {
                         }
                     }
                 }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn _export_get_subscriptions_cabi<T: Guest>(
+                    arg0: *mut u8,
+                    arg1: usize,
+                ) -> *mut u8 {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    let len0 = arg1;
+                    let result1 = T::get_subscriptions(
+                        _rt::Vec::from_raw_parts(arg0.cast(), len0, len0),
+                    );
+                    let ptr2 = (&raw mut _RET_AREA.0).cast::<u8>();
+                    let vec6 = result1;
+                    let len6 = vec6.len();
+                    let layout6 = _rt::alloc::Layout::from_size_align_unchecked(
+                        vec6.len() * (5 * ::core::mem::size_of::<*const u8>()),
+                        ::core::mem::size_of::<*const u8>(),
+                    );
+                    let result6 = if layout6.size() != 0 {
+                        let ptr = _rt::alloc::alloc(layout6).cast::<u8>();
+                        if ptr.is_null() {
+                            _rt::alloc::handle_alloc_error(layout6);
+                        }
+                        ptr
+                    } else {
+                        ::core::ptr::null_mut()
+                    };
+                    for (i, e) in vec6.into_iter().enumerate() {
+                        let base = result6
+                            .add(i * (5 * ::core::mem::size_of::<*const u8>()));
+                        {
+                            let EventSubscription {
+                                event: event3,
+                                priority: priority3,
+                                name: name3,
+                            } = e;
+                            let vec4 = (event3.into_bytes()).into_boxed_slice();
+                            let ptr4 = vec4.as_ptr().cast::<u8>();
+                            let len4 = vec4.len();
+                            ::core::mem::forget(vec4);
+                            *base
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len4;
+                            *base.add(0).cast::<*mut u8>() = ptr4.cast_mut();
+                            *base
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<i32>() = _rt::as_i32(priority3);
+                            let vec5 = (name3.into_bytes()).into_boxed_slice();
+                            let ptr5 = vec5.as_ptr().cast::<u8>();
+                            let len5 = vec5.len();
+                            ::core::mem::forget(vec5);
+                            *base
+                                .add(4 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len5;
+                            *base
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr5.cast_mut();
+                        }
+                    }
+                    *ptr2.add(::core::mem::size_of::<*const u8>()).cast::<usize>() = len6;
+                    *ptr2.add(0).cast::<*mut u8>() = result6;
+                    ptr2
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn __post_return_get_subscriptions<T: Guest>(arg0: *mut u8) {
+                    let l0 = *arg0.add(0).cast::<*mut u8>();
+                    let l1 = *arg0
+                        .add(::core::mem::size_of::<*const u8>())
+                        .cast::<usize>();
+                    let base6 = l0;
+                    let len6 = l1;
+                    for i in 0..len6 {
+                        let base = base6
+                            .add(i * (5 * ::core::mem::size_of::<*const u8>()));
+                        {
+                            let l2 = *base.add(0).cast::<*mut u8>();
+                            let l3 = *base
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l2, l3, 1);
+                            let l4 = *base
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l5 = *base
+                                .add(4 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l4, l5, 1);
+                        }
+                    }
+                    _rt::cabi_dealloc(
+                        base6,
+                        len6 * (5 * ::core::mem::size_of::<*const u8>()),
+                        ::core::mem::size_of::<*const u8>(),
+                    );
+                }
                 pub trait Guest {
                     /// Handle a lifecycle event (HookHandleRequest proto, serialized).
                     /// Returns proto-serialized HookResult on success.
                     fn handle(event: _rt::Vec<u8>) -> Result<_rt::Vec<u8>, _rt::String>;
+                    /// Return the events this hook wants to receive, along with priority
+                    /// and a human-readable name for each subscription.
+                    ///
+                    /// `config` is the module's JSON configuration blob (from bundle YAML),
+                    /// serialized as bytes so the hook can adjust its subscriptions at
+                    /// load time.
+                    fn get_subscriptions(
+                        config: _rt::Vec<u8>,
+                    ) -> _rt::Vec<EventSubscription>;
                 }
                 #[doc(hidden)]
                 macro_rules! __export_amplifier_modules_hook_handler_1_0_0_cabi {
@@ -97,7 +220,17 @@ pub mod exports {
                         arg1) } } #[unsafe (export_name =
                         "cabi_post_amplifier:modules/hook-handler@1.0.0#handle")] unsafe
                         extern "C" fn _post_return_handle(arg0 : * mut u8,) { unsafe {
-                        $($path_to_types)*:: __post_return_handle::<$ty > (arg0) } } };
+                        $($path_to_types)*:: __post_return_handle::<$ty > (arg0) } }
+                        #[unsafe (export_name =
+                        "amplifier:modules/hook-handler@1.0.0#get-subscriptions")] unsafe
+                        extern "C" fn export_get_subscriptions(arg0 : * mut u8, arg1 :
+                        usize,) -> * mut u8 { unsafe { $($path_to_types)*::
+                        _export_get_subscriptions_cabi::<$ty > (arg0, arg1) } } #[unsafe
+                        (export_name =
+                        "cabi_post_amplifier:modules/hook-handler@1.0.0#get-subscriptions")]
+                        unsafe extern "C" fn _post_return_get_subscriptions(arg0 : * mut
+                        u8,) { unsafe { $($path_to_types)*::
+                        __post_return_get_subscriptions::<$ty > (arg0) } } };
                     };
                 }
                 #[doc(hidden)]
@@ -120,6 +253,7 @@ pub mod exports {
 #[rustfmt::skip]
 mod _rt {
     #![allow(dead_code, clippy::all)]
+    pub use alloc_crate::string::String;
     #[cfg(target_arch = "wasm32")]
     pub fn run_ctors_once() {
         wit_bindgen_rt::run_ctors_once();
@@ -132,9 +266,67 @@ mod _rt {
         let layout = alloc::Layout::from_size_align_unchecked(size, align);
         alloc::dealloc(ptr, layout);
     }
-    pub use alloc_crate::string::String;
-    extern crate alloc as alloc_crate;
+    pub fn as_i32<T: AsI32>(t: T) -> i32 {
+        t.as_i32()
+    }
+    pub trait AsI32 {
+        fn as_i32(self) -> i32;
+    }
+    impl<'a, T: Copy + AsI32> AsI32 for &'a T {
+        fn as_i32(self) -> i32 {
+            (*self).as_i32()
+        }
+    }
+    impl AsI32 for i32 {
+        #[inline]
+        fn as_i32(self) -> i32 {
+            self as i32
+        }
+    }
+    impl AsI32 for u32 {
+        #[inline]
+        fn as_i32(self) -> i32 {
+            self as i32
+        }
+    }
+    impl AsI32 for i16 {
+        #[inline]
+        fn as_i32(self) -> i32 {
+            self as i32
+        }
+    }
+    impl AsI32 for u16 {
+        #[inline]
+        fn as_i32(self) -> i32 {
+            self as i32
+        }
+    }
+    impl AsI32 for i8 {
+        #[inline]
+        fn as_i32(self) -> i32 {
+            self as i32
+        }
+    }
+    impl AsI32 for u8 {
+        #[inline]
+        fn as_i32(self) -> i32 {
+            self as i32
+        }
+    }
+    impl AsI32 for char {
+        #[inline]
+        fn as_i32(self) -> i32 {
+            self as i32
+        }
+    }
+    impl AsI32 for usize {
+        #[inline]
+        fn as_i32(self) -> i32 {
+            self as i32
+        }
+    }
     pub use alloc_crate::alloc;
+    extern crate alloc as alloc_crate;
 }
 /// Generates `#[unsafe(no_mangle)]` functions to export the specified type as
 /// the root implementation of all generated traits.
@@ -173,9 +365,11 @@ pub(crate) use __export_hook_module_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 251] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07z\x01A\x02\x01A\x02\x01\
-B\x04\x01p}\x01j\x01\0\x01s\x01@\x01\x05event\0\0\x01\x04\0\x06handle\x01\x02\x04\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 340] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xd2\x01\x01A\x02\x01\
+A\x02\x01B\x09\x01r\x03\x05events\x08priorityz\x04names\x04\0\x12event-subscript\
+ion\x03\0\0\x01p}\x01j\x01\x02\x01s\x01@\x01\x05event\x02\0\x03\x04\0\x06handle\x01\
+\x04\x01p\x01\x01@\x01\x06config\x02\0\x05\x04\0\x11get-subscriptions\x01\x06\x04\
 \0$amplifier:modules/hook-handler@1.0.0\x05\0\x04\0#amplifier:modules/hook-modul\
 e@1.0.0\x04\0\x0b\x11\x01\0\x0bhook-module\x03\0\0\0G\x09producers\x01\x0cproces\
 sed-by\x02\x0dwit-component\x070.227.1\x10wit-bindgen-rust\x060.41.0";

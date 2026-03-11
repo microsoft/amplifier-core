@@ -34,22 +34,26 @@ describe('JsAmplifierSession', () => {
     expect(session.status).toBe('running')
   })
 
-  // createCoordinator() creates a NEW Coordinator from cached config each call —
-  // this is the known limitation documented by the rename from `.coordinator` getter.
-  it('createCoordinator() returns a coordinator built from session config', () => {
+  // coordinator is now a getter that returns the session's real Arc<Coordinator>.
+  it('coordinator getter returns the session coordinator', () => {
     const session = new JsAmplifierSession(validConfig)
-    const coord = session.createCoordinator()
+    const coord = session.coordinator
     expect(coord).toBeDefined()
     // Verify coordinator was constructed from the session's config, not a default
     const coordConfig = JSON.parse(coord.config)
     expect(coordConfig).toHaveProperty('session')
   })
 
-  it('createCoordinator creates a new instance each call (pins detached behavior)', () => {
+  it('coordinator getter returns the same instance on repeated calls', () => {
     const session = new JsAmplifierSession(validConfig)
-    const c1 = session.createCoordinator()
-    const c2 = session.createCoordinator()
-    expect(c1).not.toBe(c2)
+    const c1 = session.coordinator
+    const c2 = session.coordinator
+    // Both should wrap the same underlying Arc<Coordinator>.
+    // We verify by registering a capability on one and reading it from the other.
+    c1.registerCapability('test-cap', JSON.stringify(true))
+    const result = c2.getCapability('test-cap')
+    expect(result).not.toBeNull()
+    expect(JSON.parse(result as string)).toBe(true)
   })
 
   it('setInitialized marks session as initialized', () => {

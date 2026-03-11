@@ -69,3 +69,6 @@ dev = [
 testpaths = ["tests", "bindings/python/tests"]
 addopts = "--import-mode=importlib"
 asyncio_mode = "strict"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]

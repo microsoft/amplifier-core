@@ -84,7 +84,7 @@ from .testing import EventRecorder
 from .testing import MockContextManager
 from .testing import MockTool
 from .testing import ScriptedOrchestrator
-from .testing import TestCoordinator
+from .testing import MockCoordinator
 from .testing import create_test_coordinator
 from .testing import wait_for
 from .utils.retry import classify_error_message
@@ -168,7 +168,7 @@ __all__ = [
     "ToolCallContent",
     "ToolResultContent",
     # Testing utilities
-    "TestCoordinator",
+    "MockCoordinator",
     "MockTool",
     "MockContextManager",
     "EventRecorder",
