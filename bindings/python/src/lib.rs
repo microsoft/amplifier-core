@@ -3777,8 +3777,7 @@ fn load_and_mount_wasm(
             // Its async `get_subscriptions` RPC with UNIMPLEMENTED fallback is
             // invoked through a separate async registration path for gRPC hooks.
             let config = serde_json::json!({});
-            let subscriptions_result: Vec<(String, i32, String)> =
-                hook.get_subscriptions(&config);
+            let subscriptions_result: Vec<(String, i32, String)> = hook.get_subscriptions(&config);
 
             let hooks_registry = coordinator.inner.hooks_shared();
             for (event, priority, name) in &subscriptions_result {
