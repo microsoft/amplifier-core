@@ -124,7 +124,7 @@ def test_submodule_imports_testing():
         MockContextManager,
         MockTool,
         ScriptedOrchestrator,
-        TestCoordinator,
+        MockCoordinator,
         create_test_coordinator,
         wait_for,
     )
