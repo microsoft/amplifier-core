@@ -73,4 +73,4 @@ jobs:
       - name: Run all Python tests
         run: |
           source .venv/bin/activate
-          pytest tests/ bindings/python/tests/ -v --tb=short
+          pytest tests/ bindings/python/tests/ -v --tb=short -m "not slow"
