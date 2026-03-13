@@ -67,7 +67,7 @@ EXPECTED_SYMBOLS = [
     "ToolCallContent",
     "ToolResultContent",
     # Testing utilities
-    "TestCoordinator",
+    "MockCoordinator",
     "MockTool",
     "MockContextManager",
     "EventRecorder",
