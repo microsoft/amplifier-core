@@ -45,31 +45,51 @@ jobs:
           name: wheels-linux-aarch64
           path: dist/*.whl
 
-  build-sdist:
-    name: Build source distribution
-    runs-on: ubuntu-latest
+  build-macos-x86_64:
+    name: Build wheels (macOS x86_64)
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - uses: PyO3/maturin-action@v1
         with:
-          command: sdist
-          args: --out dist
+          target: x86_64-apple-darwin
+          args: --release --out dist --find-interpreter
       - uses: actions/upload-artifact@v4
         with:
-          name: sdist
-          path: dist/*.tar.gz
+          name: wheels-macos-x86_64
+          path: dist/*.whl
+
+  build-windows-arm64:
+    name: Build wheels (Windows arm64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64-pc-windows-msvc
+          args: --release --out dist --find-interpreter
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-arm64
+          path: dist/*.whl
 
   publish:
     name: Publish to PyPI
     runs-on: ubuntu-latest
-    needs: [build-wheels, build-linux-aarch64, build-sdist]
+    needs: [build-wheels, build-linux-aarch64, build-macos-x86_64, build-windows-arm64]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       id-token: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: '{wheels-*,sdist}'
+          pattern: 'wheels-*'
           merge-multiple: true
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
