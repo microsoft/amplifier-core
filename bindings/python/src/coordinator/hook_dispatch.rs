@@ -328,19 +328,12 @@ impl PyCoordinator {
                             "Approval requested but no approval system provided (hook={})",
                             hook_name_owned
                         );
-                        let deny_result: Py<PyAny> =
-                            Python::try_attach(|py| -> PyResult<Py<PyAny>> {
-                                let kwargs = PyDict::new(py);
-                                kwargs.set_item("action", "deny")?;
-                                kwargs.set_item("reason", "No approval system available")?;
-                                hook_result_cls.call(py, (), Some(&kwargs))
-                            })
-                            .ok_or_else(|| {
-                                PyErr::new::<PyRuntimeError, _>(
-                                    "Failed to create deny HookResult",
-                                )
-                            })??;
-                        return Ok(deny_result);
+                        return Self::make_hook_result(
+                            &hook_result_cls,
+                            "deny",
+                            Some("No approval system available"),
+                            "no-approval deny",
+                        );
                     }
 
                     // Call approval_system.request_approval(...)
@@ -350,7 +343,6 @@ impl PyCoordinator {
                         &options,
                         approval_timeout,
                         &approval_default,
-                        &timeout_err_cls,
                     )
                     .await;
 
@@ -363,32 +355,20 @@ impl PyCoordinator {
                             );
 
                             let new_result: Py<PyAny> = if decision == "Deny" {
-                                Python::try_attach(|py| -> PyResult<Py<PyAny>> {
-                                    let kwargs = PyDict::new(py);
-                                    kwargs.set_item("action", "deny")?;
-                                    kwargs.set_item(
-                                        "reason",
-                                        format!("User denied: {}", prompt),
-                                    )?;
-                                    hook_result_cls.call(py, (), Some(&kwargs))
-                                })
-                                .ok_or_else(|| {
-                                    PyErr::new::<PyRuntimeError, _>(
-                                        "Failed to create deny result",
-                                    )
-                                })??
+                                Self::make_hook_result(
+                                    &hook_result_cls,
+                                    "deny",
+                                    Some(&format!("User denied: {}", prompt)),
+                                    "user deny",
+                                )?
                             } else {
                                 // "Allow once" or "Allow always" -> continue
-                                Python::try_attach(|py| -> PyResult<Py<PyAny>> {
-                                    let kwargs = PyDict::new(py);
-                                    kwargs.set_item("action", "continue")?;
-                                    hook_result_cls.call(py, (), Some(&kwargs))
-                                })
-                                .ok_or_else(|| {
-                                    PyErr::new::<PyRuntimeError, _>(
-                                        "Failed to create continue result",
-                                    )
-                                })??
+                                Self::make_hook_result(
+                                    &hook_result_cls,
+                                    "continue",
+                                    None,
+                                    "allow continue",
+                                )?
                             };
                             return Ok(new_result);
                         }
@@ -408,34 +388,22 @@ impl PyCoordinator {
 
                                 let timeout_result: Py<PyAny> =
                                     if approval_default == "deny" {
-                                        Python::try_attach(|py| -> PyResult<Py<PyAny>> {
-                                            let kwargs = PyDict::new(py);
-                                            kwargs.set_item("action", "deny")?;
-                                            kwargs.set_item(
-                                                "reason",
-                                                format!(
-                                                    "Approval timeout - denied by default: {}",
-                                                    prompt
-                                                ),
-                                            )?;
-                                            hook_result_cls.call(py, (), Some(&kwargs))
-                                        })
-                                        .ok_or_else(|| {
-                                            PyErr::new::<PyRuntimeError, _>(
-                                                "Failed to create timeout deny result",
-                                            )
-                                        })??
+                                        Self::make_hook_result(
+                                            &hook_result_cls,
+                                            "deny",
+                                            Some(&format!(
+                                                "Approval timeout - denied by default: {}",
+                                                prompt
+                                            )),
+                                            "timeout deny",
+                                        )?
                                     } else {
-                                        Python::try_attach(|py| -> PyResult<Py<PyAny>> {
-                                            let kwargs = PyDict::new(py);
-                                            kwargs.set_item("action", "continue")?;
-                                            hook_result_cls.call(py, (), Some(&kwargs))
-                                        })
-                                        .ok_or_else(|| {
-                                            PyErr::new::<PyRuntimeError, _>(
-                                                "Failed to create timeout continue result",
-                                            )
-                                        })??
+                                        Self::make_hook_result(
+                                            &hook_result_cls,
+                                            "continue",
+                                            None,
+                                            "timeout continue",
+                                        )?
                                     };
                                 return Ok(timeout_result);
                             }
@@ -454,6 +422,35 @@ impl PyCoordinator {
 }
 
 impl PyCoordinator {
+    /// Construct a HookResult Python object with the given action and optional reason.
+    ///
+    /// Centralises the `Python::try_attach` + `PyDict` + `hook_result_cls.call` pattern
+    /// that would otherwise appear at every early-return site in the approval flow.
+    ///
+    /// # Arguments
+    /// * `hook_result_cls` – the `HookResult` class imported from `amplifier_core.models`
+    /// * `action`          – value for the `action` field (e.g. `"deny"`, `"continue"`)
+    /// * `reason`          – optional value for the `reason` field
+    /// * `context`         – short label used in the error message if construction fails
+    fn make_hook_result(
+        hook_result_cls: &Py<PyAny>,
+        action: &str,
+        reason: Option<&str>,
+        context: &str,
+    ) -> PyResult<Py<PyAny>> {
+        Python::try_attach(|py| -> PyResult<Py<PyAny>> {
+            let kwargs = PyDict::new(py);
+            kwargs.set_item("action", action)?;
+            if let Some(r) = reason {
+                kwargs.set_item("reason", r)?;
+            }
+            hook_result_cls.call(py, (), Some(&kwargs))
+        })
+        .ok_or_else(|| {
+            PyErr::new::<PyRuntimeError, _>(format!("Failed to create {} HookResult", context))
+        })?
+    }
+
     /// Call the Python approval system's request_approval method.
     ///
     /// Handles both sync and async implementations.
@@ -464,7 +461,6 @@ impl PyCoordinator {
         options: &[String],
         timeout: f64,
         default: &str,
-        _timeout_err_cls: &Py<PyAny>,
     ) -> Result<String, PyErr> {
         let prompt = prompt.to_string();
         let options: Vec<String> = options.to_vec();
