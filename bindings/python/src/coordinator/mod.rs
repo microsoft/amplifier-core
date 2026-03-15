@@ -248,6 +248,11 @@ impl PyCoordinator {
         wrap_future_as_coroutine(
             py,
             pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                // Track the first fatal exception (BaseException but NOT Exception subclass).
+                // Fatal exceptions: KeyboardInterrupt, SystemExit — they inherit from BaseException
+                // directly, not from Exception. All cleanup functions run before re-raising.
+                let mut first_fatal: Option<PyErr> = None;
+
                 // Execute in reverse order
                 for (callable, is_async) in callables.iter().rev() {
                     if *is_async {
@@ -262,10 +267,28 @@ impl PyCoordinator {
                             if let Some(Ok(future)) = future_result {
                                 if let Err(e) = future.await {
                                     log::error!("Error during cleanup: {e}");
+                                    if first_fatal.is_none() {
+                                        let is_regular = Python::try_attach(|py| {
+                                            e.is_instance_of::<pyo3::exceptions::PyException>(py)
+                                        })
+                                        .unwrap_or(true);
+                                        if !is_regular {
+                                            first_fatal = Some(e);
+                                        }
+                                    }
                                 }
                             }
                         } else if let Some(Err(e)) = coro_result {
                             log::error!("Error during cleanup: {e}");
+                            if first_fatal.is_none() {
+                                let is_regular = Python::try_attach(|py| {
+                                    e.is_instance_of::<pyo3::exceptions::PyException>(py)
+                                })
+                                .unwrap_or(true);
+                                if !is_regular {
+                                    first_fatal = Some(e);
+                                }
+                            }
                         }
                     } else {
                         // Sync cleanup: call and check if result is a coroutine
@@ -292,6 +315,17 @@ impl PyCoordinator {
                                 if let Some(Ok(future)) = future_result {
                                     if let Err(e) = future.await {
                                         log::error!("Error during cleanup: {e}");
+                                        if first_fatal.is_none() {
+                                            let is_regular = Python::try_attach(|py| {
+                                                e.is_instance_of::<pyo3::exceptions::PyException>(
+                                                    py,
+                                                )
+                                            })
+                                            .unwrap_or(true);
+                                            if !is_regular {
+                                                first_fatal = Some(e);
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -300,12 +334,26 @@ impl PyCoordinator {
                             }
                             Some(Err(e)) => {
                                 log::error!("Error during cleanup: {e}");
+                                if first_fatal.is_none() {
+                                    let is_regular = Python::try_attach(|py| {
+                                        e.is_instance_of::<pyo3::exceptions::PyException>(py)
+                                    })
+                                    .unwrap_or(true);
+                                    if !is_regular {
+                                        first_fatal = Some(e);
+                                    }
+                                }
                             }
                             None => {
                                 // Failed to attach to Python runtime — skip
                             }
                         }
                     }
+                }
+
+                // Re-raise the first fatal exception (if any) after all cleanup functions ran.
+                if let Some(fatal) = first_fatal {
+                    return Err(fatal);
                 }
                 Ok(())
             }),
