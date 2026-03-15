@@ -373,8 +373,31 @@ impl PyCoordinator {
     /// Returns int or None. Matches Python `ModuleCoordinator.injection_budget_per_turn`.
     #[getter]
     fn injection_budget_per_turn<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        self.get_injection_budget_per_turn(py)
+    }
+
+    /// Per-injection size limit from session config (policy).
+    ///
+    /// Returns int or None. Matches Python `ModuleCoordinator.injection_size_limit`.
+    #[getter]
+    fn injection_size_limit<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        self.get_injection_size_limit(py)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Crate-private accessors for injection policy values.
+// The #[getter] methods above delegate to these so Rust callers (e.g.
+// hook_dispatch.rs) have a single canonical implementation.
+// ---------------------------------------------------------------------------
+
+impl PyCoordinator {
+    /// Injection budget per turn from session config. Returns `None` or an int.
+    pub(crate) fn get_injection_budget_per_turn<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Py<PyAny>> {
         let config = self.config_dict.bind(py);
-        // config is a Python dict; use call to get("session")
         let session = config.call_method1("get", ("session",))?;
         if session.is_none() {
             return Ok(py.None());
@@ -387,11 +410,8 @@ impl PyCoordinator {
         }
     }
 
-    /// Per-injection size limit from session config (policy).
-    ///
-    /// Returns int or None. Matches Python `ModuleCoordinator.injection_size_limit`.
-    #[getter]
-    fn injection_size_limit<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+    /// Per-injection size limit from session config. Returns `None` or an int.
+    pub(crate) fn get_injection_size_limit<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
         let config = self.config_dict.bind(py);
         let session = config.call_method1("get", ("session",))?;
         if session.is_none() {

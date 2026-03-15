@@ -100,7 +100,7 @@ impl PyCoordinator {
 
         // Read coordinator config
         let size_limit: Option<usize> = {
-            let val = self.injection_size_limit_raw(py)?;
+            let val = self.get_injection_size_limit(py)?;
             if val.bind(py).is_none() {
                 None
             } else {
@@ -108,7 +108,7 @@ impl PyCoordinator {
             }
         };
         let budget: Option<usize> = {
-            let val = self.injection_budget_raw(py)?;
+            let val = self.get_injection_budget_per_turn(py)?;
             if val.bind(py).is_none() {
                 None
             } else {
