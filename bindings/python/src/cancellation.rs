@@ -24,7 +24,6 @@ pub(crate) struct PyCancellationToken {
 #[pymethods]
 impl PyCancellationToken {
     /// Create a new cancellation token in the `None` state.
-    #[allow(clippy::too_many_arguments)]
     #[new]
     pub(crate) fn new() -> Self {
         Self {

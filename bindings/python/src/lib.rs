@@ -13,7 +13,7 @@
 //! | `RustCancellationToken` | [`PyCancellationToken`] | `amplifier_core::CancellationToken` |
 //! | `RustCoordinator`       | [`PyCoordinator`]    | `amplifier_core::Coordinator` |
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
