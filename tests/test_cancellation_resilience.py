@@ -5,7 +5,7 @@ misses it. These tests verify each fixed site handles CancelledError correctly.
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -179,15 +179,21 @@ async def test_session_cleanup_runs_loader_even_if_coordinator_fails():
     }
     session = AmplifierSession(config=minimal_config)
 
-    # Mock coordinator.cleanup to raise CancelledError
-    session.coordinator.cleanup = AsyncMock(side_effect=asyncio.CancelledError())
     # Mock loader.cleanup to track that it was called
-    session.loader.cleanup = MagicMock()
+    loader_cleanup_mock = MagicMock()
+    session.loader.cleanup = loader_cleanup_mock
 
-    with pytest.raises(asyncio.CancelledError):
-        await session.cleanup()
+    # Mock coordinator.cleanup to raise CancelledError
+    # RustCoordinator.cleanup is read-only on instances; patch at class level instead
+    with patch.object(
+        type(session.coordinator),
+        "cleanup",
+        AsyncMock(side_effect=asyncio.CancelledError()),
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await session.cleanup()
 
-    session.loader.cleanup.assert_called_once()
+    loader_cleanup_mock.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -299,6 +305,7 @@ async def test_trigger_callbacks_reraises_keyboard_interrupt_after_completing():
     """
     try:
         from amplifier_core import RUST_AVAILABLE
+
         if RUST_AVAILABLE:
             pytest.skip("Rust CancellationToken handles KeyboardInterrupt differently")
     except ImportError:
