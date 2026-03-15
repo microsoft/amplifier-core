@@ -273,6 +273,7 @@ impl PyCoordinator {
                             Python::try_attach(|py| -> PyResult<Option<Py<PyAny>>> {
                                 let result = callable.call0(py)?;
                                 let bound = result.bind(py);
+                                // re-import: needs this GIL token's py handle
                                 let inspect = py.import("inspect")?;
                                 let is_coro: bool =
                                     inspect.call_method1("iscoroutine", (bound,))?.extract()?;
@@ -322,7 +323,7 @@ impl PyCoordinator {
     }
 
     // -----------------------------------------------------------------------
-    // to_dict() — audit finding #1
+    // to_dict()
     // -----------------------------------------------------------------------
 
     /// Return a plain Python dict exposing Rust-managed coordinator state.
