@@ -11,6 +11,8 @@ import types
 
 import pytest
 
+pytest.importorskip("amplifier_core._engine")
+
 
 def _make_coordinator(*, injection_size_limit=None, injection_budget_per_turn=None):
     """Create a RustCoordinator with optional session config.
@@ -18,10 +20,7 @@ def _make_coordinator(*, injection_size_limit=None, injection_budget_per_turn=No
     Uses types.SimpleNamespace as a fake session object with configurable
     injection_size_limit and injection_budget_per_turn.
     """
-    try:
-        from amplifier_core._engine import RustCoordinator
-    except ImportError:
-        pytest.skip("Rust engine not available")
+    from amplifier_core._engine import RustCoordinator
 
     config = {"session": {"orchestrator": "loop-basic"}}
     if injection_size_limit is not None:
@@ -45,11 +44,6 @@ def _make_coordinator(*, injection_size_limit=None, injection_budget_per_turn=No
 @pytest.mark.asyncio
 async def test_inject_context_size_limit_exceeded():
     """inject_context raises ValueError when content exceeds the size limit."""
-    try:
-        from amplifier_core._engine import RustCoordinator  # noqa: F401
-    except ImportError:
-        pytest.skip("Rust engine not available")
-
     from amplifier_core.models import HookResult
 
     coord = _make_coordinator(injection_size_limit=10)
@@ -72,11 +66,6 @@ async def test_inject_context_budget_exceeded_logs_warning():
     'x'*40 = 10 tokens (40 // 4), which exceeds budget of 1.
     The injection should proceed and the message should be added to context.
     """
-    try:
-        from amplifier_core._engine import RustCoordinator  # noqa: F401
-    except ImportError:
-        pytest.skip("Rust engine not available")
-
     from amplifier_core.models import HookResult
 
     coord = _make_coordinator(injection_budget_per_turn=1)
@@ -111,11 +100,6 @@ async def test_inject_context_budget_exceeded_logs_warning():
 @pytest.mark.asyncio
 async def test_ask_user_approved():
     """When FakeApproval returns 'Allow once', processed result action is 'continue'."""
-    try:
-        from amplifier_core._engine import RustCoordinator  # noqa: F401
-    except ImportError:
-        pytest.skip("Rust engine not available")
-
     from amplifier_core.models import HookResult
 
     coord = _make_coordinator()
@@ -137,11 +121,6 @@ async def test_ask_user_approved():
 @pytest.mark.asyncio
 async def test_ask_user_denied():
     """When FakeApproval returns 'Deny', processed action is 'deny' with 'User denied' in reason."""
-    try:
-        from amplifier_core._engine import RustCoordinator  # noqa: F401
-    except ImportError:
-        pytest.skip("Rust engine not available")
-
     from amplifier_core.models import HookResult
 
     coord = _make_coordinator()
@@ -164,11 +143,6 @@ async def test_ask_user_denied():
 @pytest.mark.asyncio
 async def test_ask_user_no_approval_system():
     """With no approval system, processed action is 'deny' with 'No approval system' in reason."""
-    try:
-        from amplifier_core._engine import RustCoordinator  # noqa: F401
-    except ImportError:
-        pytest.skip("Rust engine not available")
-
     from amplifier_core.models import HookResult
 
     coord = _make_coordinator()
@@ -186,11 +160,6 @@ async def test_ask_user_no_approval_system():
 @pytest.mark.asyncio
 async def test_ask_user_timeout_deny_default():
     """Approval timeout with deny default: action is 'deny', 'timeout' in reason (case-insensitive)."""
-    try:
-        from amplifier_core._engine import RustCoordinator  # noqa: F401
-    except ImportError:
-        pytest.skip("Rust engine not available")
-
     from amplifier_core.approval import ApprovalTimeoutError
     from amplifier_core.models import HookResult
 
@@ -223,11 +192,6 @@ async def test_ask_user_timeout_deny_default():
 @pytest.mark.asyncio
 async def test_user_message_with_display_system():
     """User message is routed to display system with correct message, level, and source."""
-    try:
-        from amplifier_core._engine import RustCoordinator  # noqa: F401
-    except ImportError:
-        pytest.skip("Rust engine not available")
-
     from amplifier_core.models import HookResult
 
     coord = _make_coordinator()
@@ -259,11 +223,6 @@ async def test_user_message_with_display_system():
 @pytest.mark.asyncio
 async def test_user_message_no_display_falls_back_to_log():
     """With no display system, user message falls back to log without raising."""
-    try:
-        from amplifier_core._engine import RustCoordinator  # noqa: F401
-    except ImportError:
-        pytest.skip("Rust engine not available")
-
     from amplifier_core.models import HookResult
 
     coord = _make_coordinator()
@@ -287,11 +246,6 @@ async def test_user_message_no_display_falls_back_to_log():
 @pytest.mark.asyncio
 async def test_continue_returns_result_unchanged():
     """Continue action: the original result is returned with action=='continue'."""
-    try:
-        from amplifier_core._engine import RustCoordinator  # noqa: F401
-    except ImportError:
-        pytest.skip("Rust engine not available")
-
     from amplifier_core.models import HookResult
 
     coord = _make_coordinator()
