@@ -133,15 +133,15 @@ impl PySession {
         let coord_any: Py<PyAny> = {
             let engine = py.import("amplifier_core._engine")?;
             let coord_cls = engine.getattr("RustCoordinator")?;
-            let kwargs = PyDict::new(py);
-            kwargs.set_item("session", fake_session.clone())?;
+            let coord_kwargs = PyDict::new(py);
+            coord_kwargs.set_item("session", fake_session.clone())?;
             if let Some(ref approval) = approval_system {
-                kwargs.set_item("approval_system", approval)?;
+                coord_kwargs.set_item("approval_system", approval)?;
             }
             if let Some(ref display) = display_system {
-                kwargs.set_item("display_system", display)?;
+                coord_kwargs.set_item("display_system", display)?;
             }
-            let coord = coord_cls.call((), Some(&kwargs))?;
+            let coord = coord_cls.call((), Some(&coord_kwargs))?;
             coord.unbind()
         };
 
