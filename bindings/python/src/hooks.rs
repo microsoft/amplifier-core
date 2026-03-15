@@ -64,7 +64,6 @@ pub(crate) struct PyHookRegistry {
 #[pymethods]
 impl PyHookRegistry {
     /// Create a new empty hook registry.
-    #[allow(clippy::too_many_arguments)]
     #[new]
     pub(crate) fn new() -> Self {
         Self {

@@ -5,10 +5,6 @@
 
 use pyo3::prelude::*;
 
-// ---------------------------------------------------------------------------
-// PyRetryConfig — wraps amplifier_core::retry::RetryConfig
-// ---------------------------------------------------------------------------
-
 /// Python-visible retry configuration wrapper.
 ///
 /// Exposes all fields of the Rust `RetryConfig` as read-only properties,

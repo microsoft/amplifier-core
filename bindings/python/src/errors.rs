@@ -4,10 +4,6 @@
 
 use pyo3::prelude::*;
 
-// ---------------------------------------------------------------------------
-// PyProviderError — exposes amplifier_core::errors::ProviderError fields
-// ---------------------------------------------------------------------------
-
 /// Python-visible provider error with structured fields.
 ///
 /// Exposes `model` and `retry_after` as Python-accessible properties,
