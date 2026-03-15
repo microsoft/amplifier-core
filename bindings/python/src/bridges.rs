@@ -218,9 +218,9 @@ impl amplifier_core::traits::ApprovalProvider for PyApprovalProviderBridge {
                     // Adapt Rust ApprovalRequest to Python ApprovalSystem.request_approval() args:
                     //   prompt: str, options: list[str], timeout: float, default: str
                     let prompt = format!("{}: {}", request.tool_name, request.action);
-                    let options = vec!["approve", "deny"];
+                    let options = vec!["Allow", "Deny"];
                     let timeout = request.timeout.unwrap_or(300.0);
-                    let default = "deny";
+                    let default = "Deny";
 
                     let call_result = py_obj.call_method(
                         py,
