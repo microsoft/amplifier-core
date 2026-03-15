@@ -21,6 +21,19 @@ use crate::helpers::{is_approval_granted, wrap_future_as_coroutine};
 
 use super::PyCoordinator;
 
+/// Truncate a string for safe inclusion in log messages and reason fields.
+///
+/// Prevents hook-controlled prompts from flooding logs or embedding sensitive
+/// data in audit trails. Truncated strings are clearly marked with `...[truncated]`.
+fn truncate_for_log(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max_chars).collect();
+        format!("{}...[truncated]", truncated)
+    }
+}
+
 #[pymethods]
 impl PyCoordinator {
     /// Process a HookResult and route actions to appropriate subsystems.
@@ -32,6 +45,13 @@ impl PyCoordinator {
     /// 2. `ask_user` action → call approval_system.request_approval() (RETURNS EARLY)
     /// 3. `user_message` field (truthy) → call display_system.show_message() (sync)
     /// 4. `suppress_output` → log only (sync)
+    ///
+    /// ## Phase ordering
+    ///
+    /// Phases A–C run synchronously (content sanitization, validation, user_message,
+    /// suppress_output). Phases D–E run in the async block (add_message, approval
+    /// request). This ordering ensures all GIL-holding state mutations complete
+    /// before any async I/O, so no mutable references need to cross the async boundary.
     ///
     /// Args:
     ///     result: HookResult (Pydantic model) from hook execution
@@ -119,10 +139,15 @@ impl PyCoordinator {
         let hook_name_owned = hook_name.to_string();
 
         // -----------------------------------------------------------------------
-        // SYNCHRONOUS: Section 1 — context injection validation + state update
+        // Phase A (sync): context injection — sanitize content, validate
+        //                 size/budget, update state
         //
         // All state mutations happen here (before the async block) so we never
         // need to capture mutable references in a Send + 'static future.
+        //
+        // Sanitization runs FIRST so size and budget limits are enforced against
+        // the content that will actually be injected, not raw hook-provided data.
+        // The budget counter is also incremented only after sanitization succeeds.
         // -----------------------------------------------------------------------
         //
         // `message_to_inject` is the pre-built message dict to pass into the
@@ -131,50 +156,11 @@ impl PyCoordinator {
         let message_to_inject: Option<Py<PyAny>> = if action == "inject_context" {
             match context_injection.as_deref() {
                 Some(content) if !content.is_empty() => {
-                    // 1a. Validate size limit (HARD ERROR — raises ValueError)
+                    // A.1. Sanitize content FIRST (fail closed if unavailable).
                     //
-                    // Use char count (Unicode scalar values) not byte count so
-                    // non-ASCII content (CJK, emoji, etc.) is measured the same
-                    // way Python's len() measures strings.
-                    let char_count = content.chars().count();
-                    if let Some(limit) = size_limit {
-                        if char_count > limit {
-                            log::error!(
-                                "Hook injection too large: {} (chars={}, limit={})",
-                                hook_name_owned,
-                                char_count,
-                                limit
-                            );
-                            return Err(PyErr::new::<PyValueError, _>(format!(
-                                "Context injection exceeds {} characters",
-                                limit
-                            )));
-                        }
-                    }
-
-                    // 1b. Check budget (SOFT WARNING — log but continue)
-                    //
-                    // Token estimate uses char count (matches Python len() semantics).
-                    const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
-                    let tokens = char_count / CHARS_PER_TOKEN_ESTIMATE;
-                    if let Some(budget_val) = budget {
-                        if self.current_turn_injections + tokens > budget_val {
-                            log::warn!(
-                                "Warning: Hook injection budget exceeded \
-                                     (hook={}, current={}, attempted={}, budget={})",
-                                hook_name_owned,
-                                self.current_turn_injections,
-                                tokens,
-                                budget_val
-                            );
-                        }
-                    }
-
-                    // 1c. Update turn injection counter (synchronous, no async needed)
-                    self.current_turn_injections += tokens;
-
-                    // 1d. Sanitize content before injecting (mirrors ToolResult._sanitize_for_llm).
-                    // Falls back to raw content with a warning if the Python function is unavailable.
+                    // Sanitization runs before size/budget checks so limits are
+                    // enforced against the post-sanitized content that will actually
+                    // be stored, not raw hook-provided data.
                     let sanitized_content: String = match py
                         .import("amplifier_core.models")
                         .and_then(|m| m.getattr("_sanitize_for_llm"))
@@ -193,7 +179,52 @@ impl PyCoordinator {
                         }
                     };
 
-                    // 1e. Build message dict for async injection (ONLY if not ephemeral)
+                    // A.2. Validate size limit against sanitized content (HARD ERROR — raises ValueError).
+                    //
+                    // Use char count (Unicode scalar values) not byte count so
+                    // non-ASCII content (CJK, emoji, etc.) is measured the same
+                    // way Python's len() measures strings.
+                    let char_count = sanitized_content.chars().count();
+                    if let Some(limit) = size_limit {
+                        if char_count > limit {
+                            log::error!(
+                                "Hook injection too large: {} (chars={}, limit={})",
+                                hook_name_owned,
+                                char_count,
+                                limit
+                            );
+                            return Err(PyErr::new::<PyValueError, _>(format!(
+                                "Context injection exceeds {} characters",
+                                limit
+                            )));
+                        }
+                    }
+
+                    // A.3. Check budget against sanitized content (SOFT WARNING — log but continue).
+                    //
+                    // Token estimate uses char count (matches Python len() semantics).
+                    const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
+                    let tokens = char_count / CHARS_PER_TOKEN_ESTIMATE;
+                    if let Some(budget_val) = budget {
+                        if self.current_turn_injections + tokens > budget_val {
+                            log::warn!(
+                                "Warning: Hook injection budget exceeded \
+                                     (hook={}, current={}, attempted={}, budget={})",
+                                hook_name_owned,
+                                self.current_turn_injections,
+                                tokens,
+                                budget_val
+                            );
+                        }
+                    }
+
+                    // A.4. Update turn injection counter.
+                    //
+                    // Incremented only after sanitization succeeds — failed
+                    // sanitizations are rejected without charging the budget.
+                    self.current_turn_injections += tokens;
+
+                    // A.5. Build message dict for async injection (ONLY if not ephemeral).
                     let msg_opt = if !ephemeral {
                         let ctx_bound = self.mount_points.bind(py);
                         let ctx_item = ctx_bound.get_item("context")?;
@@ -228,7 +259,7 @@ impl PyCoordinator {
                         None
                     };
 
-                    // 1f. Audit log (always, even if ephemeral).
+                    // A.6. Audit log (always, even if ephemeral).
                     // Reports char count to match Python len() semantics.
                     log::info!(
                         "Hook context injection \
@@ -250,7 +281,7 @@ impl PyCoordinator {
         };
 
         // -----------------------------------------------------------------------
-        // SYNCHRONOUS: Section 3 — user_message (synchronous show_message call)
+        // Phase B (sync): user_message — call display_system.show_message()
         //
         // Fires on result.user_message FIELD being truthy, NOT on action field.
         // Done synchronously to avoid capturing display_system_obj in the future.
@@ -262,10 +293,10 @@ impl PyCoordinator {
 
                     let display_bound = self.display_system_obj.bind(py);
                     if display_bound.is_none() {
-                        log::info!(
+                        log::debug!(
                             "Hook message ({}): {} (hook={})",
                             user_message_level,
-                            msg_text,
+                            truncate_for_log(msg_text, 200),
                             source_name
                         );
                     } else {
@@ -283,14 +314,14 @@ impl PyCoordinator {
         }
 
         // -----------------------------------------------------------------------
-        // SYNCHRONOUS: Section 4 — suppress_output (just log)
+        // Phase C (sync): suppress_output — log only
         // -----------------------------------------------------------------------
         if suppress_output && action != "ask_user" {
             log::debug!("Hook '{}' requested output suppression", hook_name_owned);
         }
 
         // -----------------------------------------------------------------------
-        // Grab context object for async add_message call (section 1d async part)
+        // Grab context object for Phase D async add_message call
         // -----------------------------------------------------------------------
         let context_obj: Py<PyAny> = {
             let mp = self.mount_points.bind(py);
@@ -300,7 +331,7 @@ impl PyCoordinator {
             }
         };
 
-        // Grab approval system for ask_user section
+        // Grab approval system for Phase E ask_user
         let approval_obj = self.approval_system_obj.clone_ref(py);
 
         // Keep the original result to return (for non-ask_user paths)
@@ -322,7 +353,7 @@ impl PyCoordinator {
             py,
             pyo3_async_runtimes::tokio::future_into_py(py, async move {
                 // -------------------------------------------------------
-                // 1d (async). Call add_message on context manager
+                // Phase D (async): context injection — call add_message
                 // -------------------------------------------------------
                 if let Some(message_py) = message_to_inject {
                     let bridge = PyContextManagerBridge {
@@ -332,18 +363,24 @@ impl PyCoordinator {
                 }
 
                 // -------------------------------------------------------
-                // 2. Handle approval request (RETURNS EARLY)
+                // Phase E (async): approval request — call request_approval
+                //                  (RETURNS EARLY)
                 // -------------------------------------------------------
                 if action == "ask_user" {
                     let prompt =
                         approval_prompt.unwrap_or_else(|| "Allow this operation?".to_string());
+
+                    // NOTE: Custom approval_options from hooks must include an "allow"-family
+                    // string (e.g., "Allow", "Allow once", "Allow always") for the approval
+                    // to be granted. is_approval_granted() only matches these specific strings.
+                    // This is fail-closed by design — unknown option strings are treated as denial.
                     let options = approval_options
                         .unwrap_or_else(|| vec!["Allow".to_string(), "Deny".to_string()]);
 
                     log::info!(
                         "Approval requested (hook={}, prompt={}, timeout={}, default={})",
                         hook_name_owned,
-                        prompt,
+                        truncate_for_log(&prompt, 200),
                         approval_timeout,
                         approval_default
                     );
@@ -407,7 +444,10 @@ impl PyCoordinator {
                                 Self::make_hook_result(
                                     &hook_result_cls,
                                     "deny",
-                                    Some(&format!("User denied: {}", prompt)),
+                                    Some(&format!(
+                                        "User denied: {}",
+                                        truncate_for_log(&prompt, 200)
+                                    )),
                                     "user deny",
                                 )?
                             };
@@ -443,7 +483,7 @@ impl PyCoordinator {
                                         "deny",
                                         Some(&format!(
                                             "Approval timeout - denied by default: {}",
-                                            prompt
+                                            truncate_for_log(&prompt, 200)
                                         )),
                                         "timeout deny",
                                     )?
