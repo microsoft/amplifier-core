@@ -1,6 +1,13 @@
 // ---------------------------------------------------------------------------
 // Trait bridges — adapt Python callables into Rust trait objects
 // ---------------------------------------------------------------------------
+//
+// All bridge structs hold a `Py<PyAny>` field. `Py<PyAny>` is Send+Sync in
+// PyO3 >= 0.21 because the GIL is required to dereference it. The explicit
+// `unsafe impl Send/Sync` blocks below are retained for clarity and backward
+// compatibility with tooling that checks for these impls. The safety invariant
+// is that every method reacquires the GIL via `Python::try_attach()` before
+// accessing the inner `Py<PyAny>`.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -12,7 +19,7 @@ use amplifier_core::errors::{AmplifierError, HookError, SessionError};
 use amplifier_core::models::{HookAction, HookResult};
 use amplifier_core::traits::HookHandler;
 
-use crate::helpers::try_model_dump;
+use crate::helpers::{is_approval_granted, try_model_dump};
 
 // ---------------------------------------------------------------------------
 // PyHookHandlerBridge — wraps a Python callable as a Rust HookHandler
@@ -263,10 +270,11 @@ impl amplifier_core::traits::ApprovalProvider for PyApprovalProviderBridge {
                 py_result_or_coro
             };
 
-            // Step 3: Parse result string → ApprovalResponse
+            // Step 3: Parse result string → ApprovalResponse.
+            // Fail-closed: only explicit allow-family strings are accepted.
             let approved = Python::try_attach(|py| -> PyResult<bool> {
                 let result_str: String = py_result.extract(py)?;
-                Ok(result_str.to_lowercase().contains("approve"))
+                Ok(is_approval_granted(&result_str))
             })
             .ok_or_else(|| {
                 AmplifierError::Session(SessionError::Other {

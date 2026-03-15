@@ -17,7 +17,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::bridges::PyContextManagerBridge;
-use crate::helpers::wrap_future_as_coroutine;
+use crate::helpers::{is_approval_granted, wrap_future_as_coroutine};
 
 use super::PyCoordinator;
 
@@ -132,23 +132,31 @@ impl PyCoordinator {
             match context_injection.as_deref() {
                 Some(content) if !content.is_empty() => {
                     // 1a. Validate size limit (HARD ERROR — raises ValueError)
+                    //
+                    // Use char count (Unicode scalar values) not byte count so
+                    // non-ASCII content (CJK, emoji, etc.) is measured the same
+                    // way Python's len() measures strings.
+                    let char_count = content.chars().count();
                     if let Some(limit) = size_limit {
-                        if content.len() > limit {
+                        if char_count > limit {
                             log::error!(
-                                "Hook injection too large: {} (size={}, limit={})",
+                                "Hook injection too large: {} (chars={}, limit={})",
                                 hook_name_owned,
-                                content.len(),
+                                char_count,
                                 limit
                             );
                             return Err(PyErr::new::<PyValueError, _>(format!(
-                                "Context injection exceeds {} bytes",
+                                "Context injection exceeds {} characters",
                                 limit
                             )));
                         }
                     }
 
                     // 1b. Check budget (SOFT WARNING — log but continue)
-                    let tokens = content.len() / 4; // rough 4-chars-per-token
+                    //
+                    // Token estimate uses char count (matches Python len() semantics).
+                    const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
+                    let tokens = char_count / CHARS_PER_TOKEN_ESTIMATE;
                     if let Some(budget_val) = budget {
                         if self.current_turn_injections + tokens > budget_val {
                             log::warn!(
@@ -165,7 +173,26 @@ impl PyCoordinator {
                     // 1c. Update turn injection counter (synchronous, no async needed)
                     self.current_turn_injections += tokens;
 
-                    // 1d. Build message dict for async injection (ONLY if not ephemeral)
+                    // 1d. Sanitize content before injecting (mirrors ToolResult._sanitize_for_llm).
+                    // Falls back to raw content with a warning if the Python function is unavailable.
+                    let sanitized_content: String = match py
+                        .import("amplifier_core.models")
+                        .and_then(|m| m.getattr("_sanitize_for_llm"))
+                        .and_then(|f| f.call1((content,)))
+                        .and_then(|r| r.extract::<String>())
+                    {
+                        Ok(s) => s,
+                        Err(_) => {
+                            log::warn!(
+                                "Failed to sanitize hook injection content for hook '{}', \
+                                 using raw content",
+                                hook_name_owned
+                            );
+                            content.to_string()
+                        }
+                    };
+
+                    // 1e. Build message dict for async injection (ONLY if not ephemeral)
                     let msg_opt = if !ephemeral {
                         let ctx_bound = self.mount_points.bind(py);
                         let ctx_item = ctx_bound.get_item("context")?;
@@ -188,7 +215,7 @@ impl PyCoordinator {
 
                             let msg = PyDict::new(py);
                             msg.set_item("role", &context_injection_role)?;
-                            msg.set_item("content", content)?;
+                            msg.set_item("content", &sanitized_content)?;
                             msg.set_item("metadata", metadata)?;
 
                             Some(msg.into_any().unbind())
@@ -199,13 +226,14 @@ impl PyCoordinator {
                         None
                     };
 
-                    // 1e. Audit log (always, even if ephemeral)
+                    // 1f. Audit log (always, even if ephemeral).
+                    // Reports char count to match Python len() semantics.
                     log::info!(
                         "Hook context injection \
-                             (hook={}, event={}, size={}, role={}, tokens={}, ephemeral={})",
+                             (hook={}, event={}, chars={}, role={}, tokens={}, ephemeral={})",
                         hook_name_owned,
                         event,
-                        content.len(),
+                        char_count,
                         context_injection_role,
                         tokens,
                         ephemeral
@@ -354,20 +382,31 @@ impl PyCoordinator {
                                 decision
                             );
 
-                            let new_result: Py<PyAny> = if decision == "Deny" {
-                                Self::make_hook_result(
-                                    &hook_result_cls,
-                                    "deny",
-                                    Some(&format!("User denied: {}", prompt)),
-                                    "user deny",
-                                )?
-                            } else {
-                                // "Allow once" or "Allow always" -> continue
+                            // Fail-closed: only explicit allow-family strings are
+                            // accepted. Any unexpected value is treated as denial
+                            // and a warning is emitted so operators can diagnose
+                            // a misbehaving approval system.
+                            let new_result: Py<PyAny> = if is_approval_granted(&decision) {
                                 Self::make_hook_result(
                                     &hook_result_cls,
                                     "continue",
                                     None,
                                     "allow continue",
+                                )?
+                            } else {
+                                if !decision.eq_ignore_ascii_case("deny") {
+                                    log::warn!(
+                                        "Approval system returned unexpected decision '{}' \
+                                         for hook '{}' — treating as deny (fail-closed)",
+                                        decision,
+                                        hook_name_owned
+                                    );
+                                }
+                                Self::make_hook_result(
+                                    &hook_result_cls,
+                                    "deny",
+                                    Some(&format!("User denied: {}", prompt)),
+                                    "user deny",
                                 )?
                             };
                             return Ok(new_result);

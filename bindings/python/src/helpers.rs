@@ -4,6 +4,21 @@
 
 use pyo3::prelude::*;
 
+/// Parse an approval system's decision string into a boolean.
+///
+/// Fail-CLOSED: only explicit allow-family strings return `true`.
+/// Any unexpected, empty, or unknown string is treated as a denial.
+/// This ensures that a misbehaving approval system cannot grant access
+/// by returning a surprising value.
+///
+/// Accepted allow strings (case-insensitive): "allow", "allow once", "allow always".
+pub(crate) fn is_approval_granted(decision: &str) -> bool {
+    matches!(
+        decision.to_lowercase().as_str(),
+        "allow" | "allow once" | "allow always"
+    )
+}
+
 /// Wrap a future_into_py result in a Python coroutine via _async_compat._wrap().
 /// This makes PyO3 async methods return proper coroutines (not just awaitables),
 /// ensuring compatibility with asyncio.create_task(), inspect.iscoroutine(), etc.
