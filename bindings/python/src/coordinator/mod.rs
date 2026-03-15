@@ -186,6 +186,7 @@ impl PyCoordinator {
     #[getter]
     fn parent_id<'py>(&self, py: Python<'py>) -> Py<PyAny> {
         match &self.parent_id {
+            // Safety: IntoPyObject<&String> has Error = Infallible — unwrap cannot panic.
             Some(pid) => pid.into_pyobject(py).unwrap().into_any().unbind(),
             None => py.None(),
         }

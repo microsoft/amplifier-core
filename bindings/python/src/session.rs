@@ -57,6 +57,9 @@ impl PySession {
     fn new(
         py: Python<'_>,
         config: &Bound<'_, PyDict>,
+        // loader is accepted for API compatibility with the Python AmplifierSession
+        // constructor signature, but is not used here — _session_init.py retrieves
+        // the loader from the coordinator config, not from this constructor argument.
         #[allow(unused_variables)] loader: Option<Bound<'_, PyAny>>,
         session_id: Option<String>,
         parent_id: Option<String>,
@@ -64,6 +67,15 @@ impl PySession {
         display_system: Option<Bound<'_, PyAny>>,
         is_resumed: bool,
     ) -> PyResult<Self> {
+        // Emit a warning if caller passes a non-None loader — it will be silently
+        // ignored since _session_init.py retrieves the loader from the coordinator.
+        if loader.is_some() {
+            log::warn!(
+                "loader parameter passed to RustSession.__init__ but is not used — \
+                 _session_init.py retrieves the loader from the coordinator config"
+            );
+        }
+
         // ---- Validate config (matching Python AmplifierSession.__init__) ----
         // Python: if not config: raise ValueError("Configuration is required")
         if config.is_empty() {
@@ -186,6 +198,7 @@ impl PySession {
     #[getter]
     fn parent_id<'py>(&self, py: Python<'py>) -> Py<PyAny> {
         match &self.cached_parent_id {
+            // Safety: IntoPyObject<&String> has Error = Infallible — unwrap cannot panic.
             Some(pid) => pid.into_pyobject(py).unwrap().into_any().unbind(),
             None => py.None(),
         }
