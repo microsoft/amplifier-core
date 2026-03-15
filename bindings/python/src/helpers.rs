@@ -38,6 +38,9 @@ pub(crate) fn wrap_future_as_coroutine<'py>(
 pub(crate) fn try_model_dump<'py>(obj: &Bound<'py, PyAny>) -> Bound<'py, PyAny> {
     match obj.call_method0("model_dump") {
         Ok(dict) => dict,
-        Err(_) => obj.clone(),
+        Err(e) => {
+            log::debug!("model_dump() failed (falling back to raw object): {e}");
+            obj.clone()
+        }
     }
 }
