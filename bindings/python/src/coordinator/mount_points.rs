@@ -71,7 +71,7 @@ impl PyCoordinator {
             "orchestrator" | "context" | "module-source-resolver" => {
                 mp.set_item(mount_point, &module)?;
             }
-            "providers" | "tools" | "agents" => {
+            "providers" | "tools" => {
                 let resolved_name = match name {
                     Some(n) => n,
                     None => match module.getattr("name") {
@@ -128,7 +128,7 @@ impl PyCoordinator {
                 })?;
                 Ok(item.unbind())
             }
-            "providers" | "tools" | "agents" => {
+            "providers" | "tools" => {
                 let sub_dict_any = mp.get_item(mount_point)?.ok_or_else(|| {
                     PyErr::new::<PyRuntimeError, _>(format!("Mount point missing: {mount_point}"))
                 })?;
@@ -173,7 +173,7 @@ impl PyCoordinator {
             "orchestrator" | "context" | "module-source-resolver" => {
                 mp.set_item(mount_point, py.None())?;
             }
-            "providers" | "tools" | "agents" => {
+            "providers" | "tools" => {
                 if let Some(n) = name {
                     let sub_any = mp.get_item(mount_point)?.ok_or_else(|| {
                         PyErr::new::<PyRuntimeError, _>(format!(
