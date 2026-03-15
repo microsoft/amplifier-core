@@ -15,33 +15,36 @@
 
 use pyo3::prelude::*;
 
-mod helpers;
+// ---------------------------------------------------------------------------
+// Submodules
+// ---------------------------------------------------------------------------
 
 mod bridges;
-
 mod cancellation;
-pub(crate) use cancellation::*;
-
-mod errors;
-pub(crate) use errors::*;
-
-mod retry;
-pub(crate) use retry::*;
-
-mod hooks;
-pub(crate) use hooks::*;
-
-mod session;
-pub(crate) use session::*;
-
-mod module_resolver;
-pub(crate) use module_resolver::*;
-
 mod coordinator;
-pub(crate) use coordinator::*;
-
+mod errors;
+mod helpers;
+mod hooks;
+mod module_resolver;
+mod retry;
+mod session;
 mod wasm;
-pub(crate) use wasm::*;
+
+// ---------------------------------------------------------------------------
+// Explicit re-exports (no wildcard re-exports)
+// ---------------------------------------------------------------------------
+
+pub(crate) use cancellation::PyCancellationToken;
+pub(crate) use coordinator::PyCoordinator;
+pub(crate) use errors::PyProviderError;
+pub(crate) use hooks::{PyHookRegistry, PyUnregisterFn};
+pub(crate) use module_resolver::{load_wasm_from_path, resolve_module};
+pub(crate) use retry::{classify_error_message, compute_delay, PyRetryConfig};
+pub(crate) use session::PySession;
+pub(crate) use wasm::{
+    load_and_mount_wasm, PyWasmApproval, PyWasmContext, PyWasmHook, PyWasmOrchestrator,
+    PyWasmProvider, PyWasmTool,
+};
 
 // ---------------------------------------------------------------------------
 // Module registration
