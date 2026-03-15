@@ -14,6 +14,16 @@ import pytest
 pytest.importorskip("amplifier_core._engine")
 
 
+class FakeApproval:
+    """Configurable fake approval system — returns a fixed response string."""
+
+    def __init__(self, response: str) -> None:
+        self._response = response
+
+    async def request_approval(self, prompt, options, timeout, default):
+        return self._response
+
+
 def _make_coordinator(*, injection_size_limit=None, injection_budget_per_turn=None):
     """Create a RustCoordinator with optional session config.
 
@@ -103,12 +113,7 @@ async def test_ask_user_approved():
     from amplifier_core.models import HookResult
 
     coord = _make_coordinator()
-
-    class FakeApproval:
-        async def request_approval(self, prompt, options, timeout, default):
-            return "Allow once"
-
-    coord.approval_system = FakeApproval()
+    coord.approval_system = FakeApproval("Allow once")
 
     result = HookResult(action="ask_user", approval_prompt="Allow this?")
     processed = await coord.process_hook_result(
@@ -124,12 +129,7 @@ async def test_ask_user_denied():
     from amplifier_core.models import HookResult
 
     coord = _make_coordinator()
-
-    class FakeApproval:
-        async def request_approval(self, prompt, options, timeout, default):
-            return "Deny"
-
-    coord.approval_system = FakeApproval()
+    coord.approval_system = FakeApproval("Deny")
 
     result = HookResult(action="ask_user", approval_prompt="Allow this?")
     processed = await coord.process_hook_result(
@@ -165,11 +165,11 @@ async def test_ask_user_timeout_deny_default():
 
     coord = _make_coordinator()
 
-    class FakeApproval:
+    class TimeoutApproval:
         async def request_approval(self, prompt, options, timeout, default):
             raise ApprovalTimeoutError()
 
-    coord.approval_system = FakeApproval()
+    coord.approval_system = TimeoutApproval()
 
     result = HookResult(
         action="ask_user",
