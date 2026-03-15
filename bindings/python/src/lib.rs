@@ -55,7 +55,7 @@ pub(crate) use wasm::{
 #[pymodule]
 fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyo3_log::init();
-    m.add("__version__", "1.0.0")?;
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add("RUST_AVAILABLE", true)?;
     m.add_class::<PySession>()?;
     m.add_class::<PyUnregisterFn>()?;
