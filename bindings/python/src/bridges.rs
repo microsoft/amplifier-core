@@ -345,3 +345,69 @@ impl amplifier_core::traits::DisplayService for PyDisplayServiceBridge {
         })
     }
 }
+
+// ---------------------------------------------------------------------------
+// PyContextManagerBridge — wraps a Python context manager as a Rust-callable bridge
+// ---------------------------------------------------------------------------
+
+/// Bridges a Python context manager object (with `add_message`) into Rust.
+///
+/// The Python object must implement:
+///   `add_message(message_dict)` — either sync or async
+///
+/// This bridge handles both sync and async Python `add_message` implementations.
+pub(crate) struct PyContextManagerBridge {
+    pub(crate) py_obj: Py<PyAny>,
+}
+
+// Safety: Py<PyAny> is Send+Sync (PyO3 handles GIL acquisition).
+unsafe impl Send for PyContextManagerBridge {}
+unsafe impl Sync for PyContextManagerBridge {}
+
+impl PyContextManagerBridge {
+    /// Call `add_message` on the wrapped Python object.
+    ///
+    /// Handles both sync and async Python implementations transparently.
+    pub(crate) async fn add_message(&self, message: Py<PyAny>) -> Result<(), PyErr> {
+        // Step 1: Call add_message on py_obj inside the GIL.
+        // Check if the result is a coroutine (async implementation).
+        let inner: PyResult<(bool, Py<PyAny>)> =
+            Python::try_attach(|py| -> PyResult<(bool, Py<PyAny>)> {
+                let call_result =
+                    self.py_obj.call_method(py, "add_message", (message,), None)?;
+                let bound = call_result.bind(py);
+
+                // Check if the result is a coroutine (async handler)
+                let inspect = py.import("inspect")?;
+                let is_coro: bool =
+                    inspect.call_method1("iscoroutine", (bound,))?.extract()?;
+
+                Ok((is_coro, call_result))
+            })
+            .ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                    "Failed to attach to Python runtime",
+                )
+            })?;
+
+        let (is_coro, py_result_or_coro) = inner?;
+
+        // Step 2: If it's a coroutine, await it outside the GIL via into_future.
+        // This drives the coroutine on the caller's event loop.
+        if is_coro {
+            let inner_fut: PyResult<_> = Python::try_attach(|py| {
+                pyo3_async_runtimes::tokio::into_future(py_result_or_coro.into_bound(py))
+            })
+            .ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+                    "Failed to attach to Python runtime for coroutine conversion",
+                )
+            })?;
+
+            let future = inner_fut?;
+            let _ = future.await?;
+        }
+
+        Ok(())
+    }
+}
