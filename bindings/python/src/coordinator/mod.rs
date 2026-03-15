@@ -197,6 +197,15 @@ impl PyCoordinator {
         self.session_ref.bind(py).clone()
     }
 
+    /// Backward-compatibility alias for `session`.
+    ///
+    /// Older code may reference `coordinator.session_state`; this property
+    /// ensures those references continue to work.
+    #[getter]
+    fn session_state<'py>(&self, py: Python<'py>) -> Bound<'py, PyAny> {
+        self.session_ref.bind(py).clone()
+    }
+
     /// Update the session back-reference after construction.
     ///
     /// Called by `PySession::initialize()` to replace the `SimpleNamespace`

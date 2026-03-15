@@ -72,8 +72,7 @@ def test_module_coordinator_import_top_level():
     assert hasattr(coord, "mount"), "coord missing 'mount'"
     assert hasattr(coord, "get"), "coord missing 'get'"
     assert hasattr(coord, "hooks"), "coord missing 'hooks'"
-    # 'session' holds the session reference (backward-compat name for session_state)
-    assert hasattr(coord, "session"), "coord missing 'session'"
+    assert hasattr(coord, "session_state"), "coord missing 'session_state'"
     assert hasattr(coord, "process_hook_result"), "coord missing 'process_hook_result'"
 
 
