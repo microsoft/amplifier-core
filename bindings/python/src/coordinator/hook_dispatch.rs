@@ -426,7 +426,17 @@ impl PyCoordinator {
                                     approval_default
                                 );
 
-                                let timeout_result: Py<PyAny> = if approval_default == "deny" {
+                                // Fail-closed: only explicit allow-family defaults grant access on timeout.
+                                // "deny", "Deny", unexpected strings, empty → all denied.
+                                let timeout_allows = is_approval_granted(&approval_default);
+                                let timeout_result: Py<PyAny> = if timeout_allows {
+                                    Self::make_hook_result(
+                                        &hook_result_cls,
+                                        "continue",
+                                        None,
+                                        "timeout continue",
+                                    )?
+                                } else {
                                     Self::make_hook_result(
                                         &hook_result_cls,
                                         "deny",
@@ -435,13 +445,6 @@ impl PyCoordinator {
                                             prompt
                                         )),
                                         "timeout deny",
-                                    )?
-                                } else {
-                                    Self::make_hook_result(
-                                        &hook_result_cls,
-                                        "continue",
-                                        None,
-                                        "timeout continue",
                                     )?
                                 };
                                 return Ok(timeout_result);
