@@ -8,6 +8,7 @@ use the Python session via submodule import.
 
 from unittest.mock import AsyncMock
 from unittest.mock import Mock
+from unittest.mock import patch
 
 import pytest
 from amplifier_core import AmplifierSession
@@ -230,9 +231,9 @@ async def test_cleanup_emits_session_end(minimal_config):
     session.coordinator.hooks.on(SESSION_END, capture_handler, name="test-capture")
 
     # Mock coordinator.cleanup to avoid actual module cleanup
-    session.coordinator.cleanup = AsyncMock()
-
-    await session.cleanup()
+    # RustCoordinator.cleanup is read-only on instances; patch at class level instead
+    with patch.object(type(session.coordinator), "cleanup", AsyncMock()):
+        await session.cleanup()
 
     # Filter for SESSION_END events
     session_end_events = [(e, d) for e, d in emitted_events if e == SESSION_END]
@@ -265,9 +266,9 @@ async def test_cleanup_does_not_emit_session_end_when_not_initialized(minimal_co
     session.coordinator.hooks.on(SESSION_END, capture_handler, name="test-capture")
 
     # Mock coordinator.cleanup to avoid actual module cleanup
-    session.coordinator.cleanup = AsyncMock()
-
-    await session.cleanup()
+    # RustCoordinator.cleanup is read-only on instances; patch at class level instead
+    with patch.object(type(session.coordinator), "cleanup", AsyncMock()):
+        await session.cleanup()
 
     # Filter for SESSION_END events
     session_end_events = [(e, d) for e, d in emitted_events if e == SESSION_END]
@@ -296,12 +297,13 @@ async def test_cleanup_emits_session_end_before_coordinator_cleanup(minimal_conf
     session.coordinator.hooks.on(SESSION_END, capture_handler, name="test-capture")
 
     # Mock coordinator.cleanup to record when it runs
-    async def tracking_cleanup():
+    # RustCoordinator.cleanup is read-only on instances; patch at class level instead
+    # Class-level patch receives self as first argument
+    async def tracking_cleanup(self):
         call_order.append("coordinator_cleanup")
 
-    session.coordinator.cleanup = tracking_cleanup
-
-    await session.cleanup()
+    with patch.object(type(session.coordinator), "cleanup", tracking_cleanup):
+        await session.cleanup()
 
     assert call_order == ["session_end_emitted", "coordinator_cleanup"], (
         f"Expected SESSION_END before coordinator.cleanup(), got: {call_order}"

@@ -479,3 +479,73 @@ async def test_coordinator_cleanup_skips_non_callable_items():
     assert "Error during cleanup" not in log_output, (
         f"Non-callable items should be silently skipped, but got: {log_output}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 5: cleanup() fatal-exception re-raise logic in Rust coordinator
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rust_coordinator_cleanup_reraises_fatal_exceptions():
+    """RustCoordinator.cleanup() must re-raise fatal exceptions (BaseException but not Exception)
+    after ALL cleanup functions have run.
+
+    Tests the Rust coordinator directly (not through ModuleCoordinator Python override)
+    to verify the Rust implementation handles fatal exceptions correctly.
+
+    Fatal exceptions: KeyboardInterrupt, SystemExit -- inherit from BaseException but NOT Exception.
+    """
+    from amplifier_core._engine import RustCoordinator
+
+    coordinator = RustCoordinator()
+    called = []
+
+    def good_cleanup():
+        called.append("good")
+
+    def fatal_cleanup():
+        called.append("fatal_raised")
+        raise KeyboardInterrupt("test interrupt")
+
+    # Register good first, fatal second (cleanup runs in REVERSE order)
+    # So: fatal_cleanup runs first, good_cleanup runs second
+    coordinator.register_cleanup(good_cleanup)
+    coordinator.register_cleanup(fatal_cleanup)
+
+    # The KeyboardInterrupt (a fatal BaseException) must be re-raised
+    with pytest.raises(KeyboardInterrupt, match="test interrupt"):
+        await coordinator.cleanup()
+
+    # Both cleanup functions must have run despite the fatal exception
+    assert "fatal_raised" in called, "fatal_cleanup should have been called"
+    assert "good" in called, "good_cleanup should have run even after fatal exception"
+
+
+@pytest.mark.asyncio
+async def test_rust_coordinator_cleanup_does_not_reraise_regular_exceptions():
+    """RustCoordinator.cleanup() must NOT re-raise regular Exception subclasses.
+
+    Regular exceptions (RuntimeError, ValueError, etc.) inherit from Exception,
+    not directly from BaseException. These should be logged but NOT re-raised.
+    """
+    from amplifier_core._engine import RustCoordinator
+
+    coordinator = RustCoordinator()
+    called = []
+
+    def bad_cleanup():
+        called.append("bad")
+        raise RuntimeError("regular error, should not re-raise")
+
+    def good_cleanup():
+        called.append("good")
+
+    coordinator.register_cleanup(good_cleanup)
+    coordinator.register_cleanup(bad_cleanup)
+
+    # RuntimeError is a regular Exception -- cleanup() should NOT raise
+    await coordinator.cleanup()  # Must not raise
+
+    assert "bad" in called
+    assert "good" in called

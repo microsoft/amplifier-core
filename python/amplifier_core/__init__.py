@@ -14,7 +14,9 @@ __version__ = "1.0.7"
 from ._engine import RustCancellationToken as CancellationToken
 from ._engine import RustHookRegistry as HookRegistry
 from ._engine import RustSession as AmplifierSession
-from ._rust_wrappers import ModuleCoordinator  # RustCoordinator + process_hook_result
+from ._engine import (
+    RustCoordinator as ModuleCoordinator,
+)  # process_hook_result now in Rust
 
 # --- Rust-backed submodule re-exports ---
 from . import capabilities  # noqa: F401  (re-export stub)

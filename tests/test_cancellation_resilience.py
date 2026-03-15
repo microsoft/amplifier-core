@@ -5,7 +5,7 @@ misses it. These tests verify each fixed site handles CancelledError correctly.
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -179,15 +179,21 @@ async def test_session_cleanup_runs_loader_even_if_coordinator_fails():
     }
     session = AmplifierSession(config=minimal_config)
 
-    # Mock coordinator.cleanup to raise CancelledError
-    session.coordinator.cleanup = AsyncMock(side_effect=asyncio.CancelledError())
     # Mock loader.cleanup to track that it was called
-    session.loader.cleanup = MagicMock()
+    loader_cleanup_mock = MagicMock()
+    session.loader.cleanup = loader_cleanup_mock
 
-    with pytest.raises(asyncio.CancelledError):
-        await session.cleanup()
+    # Mock coordinator.cleanup to raise CancelledError
+    # RustCoordinator.cleanup is read-only on instances; patch at class level instead
+    with patch.object(
+        type(session.coordinator),
+        "cleanup",
+        AsyncMock(side_effect=asyncio.CancelledError()),
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await session.cleanup()
 
-    session.loader.cleanup.assert_called_once()
+    loader_cleanup_mock.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -292,13 +298,30 @@ async def test_trigger_callbacks_continues_after_cancelled_error():
 async def test_trigger_callbacks_reraises_keyboard_interrupt_after_completing():
     """KeyboardInterrupt is re-raised after all cancellation callbacks run.
 
-    Note: Skipped when the Rust engine is active because the Rust async bridge
-    (future_into_py) handles BaseException propagation differently during event
-    loop teardown, causing the KeyboardInterrupt to leak beyond pytest.raises.
-    The Rust CancellationToken catches and logs BaseExceptions instead of re-raising.
+    Note: Skipped when the Rust engine is active.
+
+    The Python CancellationToken.trigger_callbacks() re-raises the first
+    BaseException (KeyboardInterrupt, SystemExit) after running all callbacks,
+    making it catchable with pytest.raises().
+
+    The Rust CancellationToken uses pyo3_async_runtimes::tokio::future_into_py,
+    which wraps the entire future in a Tokio task.  BaseExceptions raised inside
+    that task are caught by the async bridge before they can propagate to the
+    Python event loop, so they never surface as a catchable Python exception
+    from the caller's perspective.  This is intentional: the Rust bridge must
+    not allow arbitrary Python exceptions to tear down the Tokio runtime.
+
+    The Rust coordinator's coordinator.cleanup() layer handles BaseException
+    propagation separately via its first_fatal tracking (mod.rs) — KeyboardInterrupt
+    and SystemExit raised in cleanup callbacks ARE re-raised there, but the
+    mechanism is coordinator-level, not CancellationToken-level.
+
+    TODO: Consider adding a dedicated test for Rust coordinator.cleanup()
+    BaseException re-raise behavior once that path has direct test coverage.
     """
     try:
         from amplifier_core import RUST_AVAILABLE
+
         if RUST_AVAILABLE:
             pytest.skip("Rust CancellationToken handles KeyboardInterrupt differently")
     except ImportError:

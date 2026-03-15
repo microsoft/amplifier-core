@@ -242,6 +242,11 @@ class RustCoordinator:
     async def request_cancel(self, immediate: bool = False) -> None: ...
     def reset_turn(self) -> None: ...
 
+    # --- Hook result processing ---
+    async def process_hook_result(
+        self, result: Any, event: str, hook_name: str = "unknown"
+    ) -> Any: ...
+
 # ---------------------------------------------------------------------------
 # ProviderError — structured error from a provider (PyO3 bridge)
 # ---------------------------------------------------------------------------
