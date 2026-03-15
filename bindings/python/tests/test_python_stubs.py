@@ -48,12 +48,16 @@ def test_capabilities_importable_from_init():
 
 
 def test_coordinator_reexport():
-    """coordinator.py re-exports the Rust-backed wrapper ModuleCoordinator."""
+    """coordinator.py re-exports RustCoordinator (aliased as ModuleCoordinator) from _engine.
+
+    Phase 3 deleted _rust_wrappers.py; ModuleCoordinator is now a direct alias
+    for _engine.RustCoordinator.
+    """
     from amplifier_core.coordinator import ModuleCoordinator
 
-    from amplifier_core._rust_wrappers import ModuleCoordinator as WrapperCoord
+    from amplifier_core._engine import RustCoordinator
 
-    assert ModuleCoordinator is WrapperCoord
+    assert ModuleCoordinator is RustCoordinator
 
 
 def test_cancellation_reexport():

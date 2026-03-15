@@ -128,97 +128,96 @@ impl PyCoordinator {
         // `message_to_inject` is the pre-built message dict to pass into the
         // async block.  It is Some(_) when we should call add_message, None
         // when the injection is ephemeral or has no context to inject.
-        let message_to_inject: Option<Py<PyAny>> =
-            if action == "inject_context" {
-                match context_injection.as_deref() {
-                    Some(content) if !content.is_empty() => {
-                        // 1a. Validate size limit (HARD ERROR — raises ValueError)
-                        if let Some(limit) = size_limit {
-                            if content.len() > limit {
-                                log::error!(
-                                    "Hook injection too large: {} (size={}, limit={})",
-                                    hook_name_owned,
-                                    content.len(),
-                                    limit
-                                );
-                                return Err(PyErr::new::<PyValueError, _>(format!(
-                                    "Context injection exceeds {} bytes",
-                                    limit
-                                )));
-                            }
+        let message_to_inject: Option<Py<PyAny>> = if action == "inject_context" {
+            match context_injection.as_deref() {
+                Some(content) if !content.is_empty() => {
+                    // 1a. Validate size limit (HARD ERROR — raises ValueError)
+                    if let Some(limit) = size_limit {
+                        if content.len() > limit {
+                            log::error!(
+                                "Hook injection too large: {} (size={}, limit={})",
+                                hook_name_owned,
+                                content.len(),
+                                limit
+                            );
+                            return Err(PyErr::new::<PyValueError, _>(format!(
+                                "Context injection exceeds {} bytes",
+                                limit
+                            )));
                         }
+                    }
 
-                        // 1b. Check budget (SOFT WARNING — log but continue)
-                        let tokens = content.len() / 4; // rough 4-chars-per-token
-                        if let Some(budget_val) = budget {
-                            if self.current_turn_injections + tokens > budget_val {
-                                log::warn!(
-                                    "Warning: Hook injection budget exceeded \
+                    // 1b. Check budget (SOFT WARNING — log but continue)
+                    let tokens = content.len() / 4; // rough 4-chars-per-token
+                    if let Some(budget_val) = budget {
+                        if self.current_turn_injections + tokens > budget_val {
+                            log::warn!(
+                                "Warning: Hook injection budget exceeded \
                                      (hook={}, current={}, attempted={}, budget={})",
-                                    hook_name_owned,
-                                    self.current_turn_injections,
-                                    tokens,
-                                    budget_val
-                                );
-                            }
+                                hook_name_owned,
+                                self.current_turn_injections,
+                                tokens,
+                                budget_val
+                            );
                         }
+                    }
 
-                        // 1c. Update turn injection counter (synchronous, no async needed)
-                        self.current_turn_injections += tokens;
+                    // 1c. Update turn injection counter (synchronous, no async needed)
+                    self.current_turn_injections += tokens;
 
-                        // 1d. Build message dict for async injection (ONLY if not ephemeral)
-                        let msg_opt = if !ephemeral {
-                            let ctx_bound = self.mount_points.bind(py);
-                            let ctx_item = ctx_bound.get_item("context")?;
-                            let has_context = ctx_item.as_ref().is_some_and(|c| {
-                                !c.is_none() && c.hasattr("add_message").unwrap_or(false)
-                            });
+                    // 1d. Build message dict for async injection (ONLY if not ephemeral)
+                    let msg_opt = if !ephemeral {
+                        let ctx_bound = self.mount_points.bind(py);
+                        let ctx_item = ctx_bound.get_item("context")?;
+                        let has_context = ctx_item.as_ref().is_some_and(|c| {
+                            !c.is_none() && c.hasattr("add_message").unwrap_or(false)
+                        });
 
-                            if has_context {
-                                let datetime = py.import("datetime")?;
-                                let now = datetime
-                                    .getattr("datetime")?
-                                    .call_method0("now")?
-                                    .call_method0("isoformat")?;
+                        if has_context {
+                            let datetime = py.import("datetime")?;
+                            let now = datetime
+                                .getattr("datetime")?
+                                .call_method0("now")?
+                                .call_method0("isoformat")?;
 
-                                let metadata = PyDict::new(py);
-                                metadata.set_item("source", "hook")?;
-                                metadata.set_item("hook_name", &hook_name_owned)?;
-                                metadata.set_item("event", &event)?;
-                                metadata.set_item("timestamp", &now)?;
+                            let metadata = PyDict::new(py);
+                            metadata.set_item("source", "hook")?;
+                            metadata.set_item("hook_name", &hook_name_owned)?;
+                            metadata.set_item("event", &event)?;
+                            metadata.set_item("timestamp", &now)?;
 
-                                let msg = PyDict::new(py);
-                                msg.set_item("role", &context_injection_role)?;
-                                msg.set_item("content", content)?;
-                                msg.set_item("metadata", metadata)?;
+                            let msg = PyDict::new(py);
+                            msg.set_item("role", &context_injection_role)?;
+                            msg.set_item("content", content)?;
+                            msg.set_item("metadata", metadata)?;
 
-                                Some(msg.into_any().unbind())
-                            } else {
-                                None
-                            }
+                            Some(msg.into_any().unbind())
                         } else {
                             None
-                        };
+                        }
+                    } else {
+                        None
+                    };
 
-                        // 1e. Audit log (always, even if ephemeral)
-                        log::info!(
-                            "Hook context injection \
+                    // 1e. Audit log (always, even if ephemeral)
+                    log::info!(
+                        "Hook context injection \
                              (hook={}, event={}, size={}, role={}, tokens={}, ephemeral={})",
-                            hook_name_owned,
-                            event,
-                            content.len(),
-                            context_injection_role,
-                            tokens,
-                            ephemeral
-                        );
+                        hook_name_owned,
+                        event,
+                        content.len(),
+                        context_injection_role,
+                        tokens,
+                        ephemeral
+                    );
 
-                        msg_opt
-                    }
-                    _ => None,
+                    msg_opt
                 }
-            } else {
-                None
-            };
+                _ => None,
+            }
+        } else {
+            None
+        };
 
         // -----------------------------------------------------------------------
         // SYNCHRONOUS: Section 3 — user_message (synchronous show_message call)
@@ -296,7 +295,9 @@ impl PyCoordinator {
                 // 1d (async). Call add_message on context manager
                 // -------------------------------------------------------
                 if let Some(message_py) = message_to_inject {
-                    let bridge = PyContextManagerBridge { py_obj: context_obj };
+                    let bridge = PyContextManagerBridge {
+                        py_obj: context_obj,
+                    };
                     bridge.add_message(message_py).await?;
                 }
 
@@ -304,8 +305,8 @@ impl PyCoordinator {
                 // 2. Handle approval request (RETURNS EARLY)
                 // -------------------------------------------------------
                 if action == "ask_user" {
-                    let prompt = approval_prompt
-                        .unwrap_or_else(|| "Allow this operation?".to_string());
+                    let prompt =
+                        approval_prompt.unwrap_or_else(|| "Allow this operation?".to_string());
                     let options = approval_options
                         .unwrap_or_else(|| vec!["Allow".to_string(), "Deny".to_string()]);
 
@@ -318,10 +319,9 @@ impl PyCoordinator {
                     );
 
                     // Check if approval system is available
-                    let has_approval = Python::try_attach(|py| -> bool {
-                        !approval_obj.bind(py).is_none()
-                    })
-                    .unwrap_or(false);
+                    let has_approval =
+                        Python::try_attach(|py| -> bool { !approval_obj.bind(py).is_none() })
+                            .unwrap_or(false);
 
                     if !has_approval {
                         log::error!(
@@ -386,25 +386,24 @@ impl PyCoordinator {
                                     approval_default
                                 );
 
-                                let timeout_result: Py<PyAny> =
-                                    if approval_default == "deny" {
-                                        Self::make_hook_result(
-                                            &hook_result_cls,
-                                            "deny",
-                                            Some(&format!(
-                                                "Approval timeout - denied by default: {}",
-                                                prompt
-                                            )),
-                                            "timeout deny",
-                                        )?
-                                    } else {
-                                        Self::make_hook_result(
-                                            &hook_result_cls,
-                                            "continue",
-                                            None,
-                                            "timeout continue",
-                                        )?
-                                    };
+                                let timeout_result: Py<PyAny> = if approval_default == "deny" {
+                                    Self::make_hook_result(
+                                        &hook_result_cls,
+                                        "deny",
+                                        Some(&format!(
+                                            "Approval timeout - denied by default: {}",
+                                            prompt
+                                        )),
+                                        "timeout deny",
+                                    )?
+                                } else {
+                                    Self::make_hook_result(
+                                        &hook_result_cls,
+                                        "continue",
+                                        None,
+                                        "timeout continue",
+                                    )?
+                                };
                                 return Ok(timeout_result);
                             }
 
@@ -466,27 +465,22 @@ impl PyCoordinator {
         let options: Vec<String> = options.to_vec();
         let default = default.to_string();
         // Call request_approval (may return coroutine)
-        let (is_coro, call_result) =
-            Python::try_attach(|py| -> PyResult<(bool, Py<PyAny>)> {
-                let opts_list =
-                    pyo3::types::PyList::new(py, options.iter().map(|s| s.as_str()))?;
-                let result = approval_obj.call_method(
-                    py,
-                    "request_approval",
-                    (&prompt, opts_list, timeout, &default),
-                    None,
-                )?;
-                let bound = result.bind(py);
-                let inspect = py.import("inspect")?;
-                let is_coro: bool =
-                    inspect.call_method1("iscoroutine", (bound,))?.extract()?;
-                Ok((is_coro, result))
-            })
-            .ok_or_else(|| {
-                PyErr::new::<PyRuntimeError, _>(
-                    "Failed to attach to Python runtime for approval call",
-                )
-            })??;
+        let (is_coro, call_result) = Python::try_attach(|py| -> PyResult<(bool, Py<PyAny>)> {
+            let opts_list = pyo3::types::PyList::new(py, options.iter().map(|s| s.as_str()))?;
+            let result = approval_obj.call_method(
+                py,
+                "request_approval",
+                (&prompt, opts_list, timeout, &default),
+                None,
+            )?;
+            let bound = result.bind(py);
+            let inspect = py.import("inspect")?;
+            let is_coro: bool = inspect.call_method1("iscoroutine", (bound,))?.extract()?;
+            Ok((is_coro, result))
+        })
+        .ok_or_else(|| {
+            PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime for approval call")
+        })??;
 
         // Await if coroutine
         let py_result = if is_coro {
@@ -502,8 +496,8 @@ impl PyCoordinator {
         };
 
         // Extract string result
-        let decision: String = Python::try_attach(|py| py_result.extract(py))
-            .ok_or_else(|| {
+        let decision: String =
+            Python::try_attach(|py| py_result.extract(py)).ok_or_else(|| {
                 PyErr::new::<PyRuntimeError, _>("Failed to extract approval decision")
             })??;
 

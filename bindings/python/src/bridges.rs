@@ -373,14 +373,14 @@ impl PyContextManagerBridge {
         // Check if the result is a coroutine (async implementation).
         let inner: PyResult<(bool, Py<PyAny>)> =
             Python::try_attach(|py| -> PyResult<(bool, Py<PyAny>)> {
-                let call_result =
-                    self.py_obj.call_method(py, "add_message", (message,), None)?;
+                let call_result = self
+                    .py_obj
+                    .call_method(py, "add_message", (message,), None)?;
                 let bound = call_result.bind(py);
 
                 // Check if the result is a coroutine (async handler)
                 let inspect = py.import("inspect")?;
-                let is_coro: bool =
-                    inspect.call_method1("iscoroutine", (bound,))?.extract()?;
+                let is_coro: bool = inspect.call_method1("iscoroutine", (bound,))?.extract()?;
 
                 Ok((is_coro, call_result))
             })
