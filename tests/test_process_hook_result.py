@@ -63,7 +63,7 @@ async def test_inject_context_size_limit_exceeded():
         context_injection="x" * 20,
     )
 
-    with pytest.raises(ValueError, match="exceeds 10 bytes"):
+    with pytest.raises(ValueError, match="exceeds 10 characters"):
         await coord.process_hook_result(
             result, event="tool:post_exec", hook_name="test"
         )
@@ -256,3 +256,131 @@ async def test_continue_returns_result_unchanged():
     )
 
     assert processed.action == "continue"
+
+
+# ---------------------------------------------------------------------------
+# New coverage: ephemeral injection, timeout+allow, bare-dict, ask_user skips
+# user_message
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_inject_context_ephemeral_skips_add_message_but_counts_tokens():
+    """Ephemeral injection: add_message is NOT called, but turn tokens ARE counted.
+
+    The token counter should increase even though the message is not persisted
+    in the context — ephemeral injections still consume budget.
+    """
+    from amplifier_core.models import HookResult
+
+    # Budget of 100 tokens to ensure we don't hit the budget warning path
+    coord = _make_coordinator(injection_budget_per_turn=100)
+
+    class FakeContext:
+        def __init__(self):
+            self.messages = []
+
+        async def add_message(self, message):
+            self.messages.append(message)
+
+    ctx = FakeContext()
+    await coord.mount("context", ctx)
+
+    # 40 chars = 10 tokens (40 // 4)
+    content = "x" * 40
+    result = HookResult(
+        action="inject_context",
+        context_injection=content,
+        ephemeral=True,
+    )
+
+    await coord.process_hook_result(result, event="tool:post_exec", hook_name="test")
+
+    # add_message should NOT have been called (ephemeral means no persistence)
+    assert len(ctx.messages) == 0
+
+    # Token counter SHOULD have been incremented (budget is consumed)
+    assert coord._current_turn_injections == 10
+
+
+@pytest.mark.asyncio
+async def test_ask_user_timeout_allow_default():
+    """Approval timeout with allow default: action is 'continue' (timeout → allow)."""
+    from amplifier_core.approval import ApprovalTimeoutError
+    from amplifier_core.models import HookResult
+
+    coord = _make_coordinator()
+
+    class TimeoutApproval:
+        async def request_approval(self, prompt, options, timeout, default):
+            raise ApprovalTimeoutError()
+
+    coord.approval_system = TimeoutApproval()
+
+    result = HookResult(
+        action="ask_user",
+        approval_prompt="Allow this?",
+        approval_default="allow",  # ← allow on timeout
+    )
+    processed = await coord.process_hook_result(
+        result, event="tool:pre_exec", hook_name="test"
+    )
+
+    assert processed.action == "continue"
+
+
+@pytest.mark.asyncio
+async def test_bare_dict_hook_result_raises_attribute_error():
+    """Passing a plain dict instead of a HookResult raises AttributeError.
+
+    The Rust code calls result.getattr("action") which fails for a dict since
+    Python dicts don't expose keys as attributes.  This verifies the error is
+    raised promptly rather than causing a silent bug.
+    """
+    coord = _make_coordinator()
+
+    # Plain dict — NOT a HookResult Pydantic model
+    bare_dict = {"action": "continue"}
+
+    with pytest.raises(AttributeError):
+        await coord.process_hook_result(
+            bare_dict, event="tool:post_exec", hook_name="test"
+        )
+
+
+@pytest.mark.asyncio
+async def test_ask_user_does_not_process_user_message():
+    """ask_user returns early before the user_message field is processed.
+
+    When action == 'ask_user', the user_message field should NOT trigger a
+    display_system.show_message() call.  The approval flow returns early.
+    """
+    from amplifier_core.models import HookResult
+
+    coord = _make_coordinator()
+
+    class FakeDisplay:
+        def __init__(self):
+            self.messages = []
+
+        def show_message(self, message, level, source):
+            self.messages.append(message)
+
+    display = FakeDisplay()
+    coord.display_system = display
+    coord.approval_system = FakeApproval("Allow once")
+
+    result = HookResult(
+        action="ask_user",
+        approval_prompt="Allow this?",
+        user_message="This message should NOT be shown",
+    )
+    processed = await coord.process_hook_result(
+        result, event="tool:pre_exec", hook_name="test"
+    )
+
+    # Approval returned "continue" (Allow once)
+    assert processed.action == "continue"
+
+    # Display should NOT have been called — ask_user returns before user_message
+    assert len(display.messages) == 0
