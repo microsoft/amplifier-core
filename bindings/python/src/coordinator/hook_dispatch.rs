@@ -202,10 +202,11 @@ impl PyCoordinator {
                         });
 
                         if has_context {
-                            let datetime = py.import("datetime")?;
-                            let now = datetime
+                            let datetime_mod = py.import("datetime")?;
+                            let utc = datetime_mod.getattr("timezone")?.getattr("utc")?;
+                            let now = datetime_mod
                                 .getattr("datetime")?
-                                .call_method0("now")?
+                                .call_method1("now", (utc,))?
                                 .call_method0("isoformat")?;
 
                             let metadata = PyDict::new(py);
