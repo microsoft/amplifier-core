@@ -1,6 +1,9 @@
-// ---------------------------------------------------------------------------
-// PyCoordinator — wraps amplifier_core::Coordinator
-// ---------------------------------------------------------------------------
+//! PyCoordinator — Python-visible coordinator wrapper.
+//!
+//! This module contains the struct definition, lifecycle methods (`new`,
+//! `cleanup`, `to_dict`, session/config getters), and sub-module declarations
+//! for the coordinator bridge.  Implementation of mount-point, capability,
+//! and hook-dispatch methods lives in the sub-modules declared below.
 
 use std::collections::HashMap;
 use std::sync::Arc;
