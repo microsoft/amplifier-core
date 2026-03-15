@@ -128,13 +128,11 @@ impl PySession {
         let fake_session = ns_cls.call((), Some(&kwargs))?;
 
         // ---- Create the coordinator ----
-        // Use the Python ModuleCoordinator wrapper (from _rust_wrappers.py)
-        // which adds process_hook_result on top of the Rust PyCoordinator.
-        // This is critical: orchestrators call coordinator.process_hook_result()
-        // which only exists on the Python wrapper, not on raw RustCoordinator.
+        // RustCoordinator now has process_hook_result() and cleanup()
+        // with fatal-exception logic built in — no Python wrapper needed.
         let coord_any: Py<PyAny> = {
-            let wrappers = py.import("amplifier_core._rust_wrappers")?;
-            let coord_cls = wrappers.getattr("ModuleCoordinator")?;
+            let engine = py.import("amplifier_core._engine")?;
+            let coord_cls = engine.getattr("RustCoordinator")?;
             let kwargs = PyDict::new(py);
             kwargs.set_item("session", fake_session.clone())?;
             if let Some(ref approval) = approval_system {
