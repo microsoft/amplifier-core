@@ -18,7 +18,8 @@ async def run_orchestrator(coordinator: Any, prompt: str) -> str:
     """Call the mounted orchestrator's execute() method.
 
     This is the Python boundary call. Rust handles everything else
-    (initialization check, event emission, cancellation, errors).
+    (initialization check, event emission, cancellation, errors,
+    and mount-point validation).
 
     Args:
         coordinator: The coordinator with mounted modules.
@@ -26,29 +27,18 @@ async def run_orchestrator(coordinator: Any, prompt: str) -> str:
 
     Returns:
         Final response string from the orchestrator.
-
-    Raises:
-        RuntimeError: If required mount points are missing.
     """
+    # Mount-point presence is validated by Rust PySession::execute()
+    # before this function is called. We just retrieve and call.
     orchestrator = coordinator.get("orchestrator")
-    if not orchestrator:
-        raise RuntimeError("No orchestrator module mounted")
-
     context = coordinator.get("context")
-    if not context:
-        raise RuntimeError("No context manager mounted")
+    providers = coordinator.get("providers") or {}
+    tools = coordinator.get("tools") or {}
+    hooks = coordinator.hooks
 
-    providers = coordinator.get("providers")
-    if not providers:
-        raise RuntimeError("No providers mounted")
-
-    # Debug: Log what we're passing to orchestrator
     logger.debug(f"Passing providers to orchestrator: {list(providers.keys())}")
     for name, provider in providers.items():
         logger.debug(f"  Provider '{name}': type={type(provider).__name__}")
-
-    tools = coordinator.get("tools") or {}
-    hooks = coordinator.hooks
 
     result = await orchestrator.execute(
         prompt=prompt,
