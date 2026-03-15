@@ -5,8 +5,6 @@
 
 use pyo3::prelude::*;
 
-// Paste lines 2654–2855 from lib.rs below this line.
-
 // ---------------------------------------------------------------------------
 // PyRetryConfig — wraps amplifier_core::retry::RetryConfig
 // ---------------------------------------------------------------------------
