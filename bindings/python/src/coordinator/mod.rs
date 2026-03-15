@@ -346,6 +346,7 @@ impl PyCoordinator {
         let tools_dict = mp
             .get_item("tools")?
             .ok_or_else(|| PyErr::new::<PyRuntimeError, _>("mount_points missing 'tools'"))?;
+        // keys are always str in these dicts — unwrap_or_default() is safe
         let tools_keys: Vec<String> = tools_dict
             .cast::<PyDict>()?
             .keys()
@@ -358,6 +359,7 @@ impl PyCoordinator {
         let providers_dict = mp
             .get_item("providers")?
             .ok_or_else(|| PyErr::new::<PyRuntimeError, _>("mount_points missing 'providers'"))?;
+        // keys are always str in these dicts — unwrap_or_default() is safe
         let provider_keys: Vec<String> = providers_dict
             .cast::<PyDict>()?
             .keys()
@@ -380,6 +382,7 @@ impl PyCoordinator {
 
         // capabilities: list of registered capability names
         let caps = self.capabilities.bind(py);
+        // keys are always str in these dicts — unwrap_or_default() is safe
         let cap_keys: Vec<String> = caps
             .keys()
             .iter()
