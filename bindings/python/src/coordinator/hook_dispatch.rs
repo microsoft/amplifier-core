@@ -182,13 +182,14 @@ impl PyCoordinator {
                         .and_then(|r| r.extract::<String>())
                     {
                         Ok(s) => s,
-                        Err(_) => {
-                            log::warn!(
-                                "Failed to sanitize hook injection content for hook '{}', \
-                                 using raw content",
+                        Err(e) => {
+                            log::error!(
+                                "SECURITY: Sanitization unavailable for hook '{}' — rejecting injection: {e}",
                                 hook_name_owned
                             );
-                            content.to_string()
+                            return Err(pyo3::exceptions::PyValueError::new_err(
+                                "Context injection rejected: content sanitization function unavailable"
+                            ));
                         }
                     };
 
