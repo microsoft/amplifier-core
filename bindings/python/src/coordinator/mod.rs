@@ -399,3 +399,41 @@ impl PyCoordinator {
         Ok(dict)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Internal (crate-private) helper methods used by hook_dispatch.rs
+// ---------------------------------------------------------------------------
+
+impl PyCoordinator {
+    /// Internal: get raw injection_size_limit as Py<PyAny> (None or int).
+    /// Used by hook_dispatch to read the value without going through the Python getter.
+    pub(crate) fn injection_size_limit_raw(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let config = self.config_dict.bind(py);
+        let session = config.call_method1("get", ("session",))?;
+        if session.is_none() {
+            return Ok(py.None());
+        }
+        let val = session.call_method1("get", ("injection_size_limit",))?;
+        if val.is_none() {
+            Ok(py.None())
+        } else {
+            Ok(val.unbind())
+        }
+    }
+
+    /// Internal: get raw injection_budget_per_turn as Py<PyAny> (None or int).
+    /// Used by hook_dispatch to read the value without going through the Python getter.
+    pub(crate) fn injection_budget_raw(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let config = self.config_dict.bind(py);
+        let session = config.call_method1("get", ("session",))?;
+        if session.is_none() {
+            return Ok(py.None());
+        }
+        let val = session.call_method1("get", ("injection_budget_per_turn",))?;
+        if val.is_none() {
+            Ok(py.None())
+        } else {
+            Ok(val.unbind())
+        }
+    }
+}
