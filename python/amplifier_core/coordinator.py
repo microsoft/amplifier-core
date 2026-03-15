@@ -5,6 +5,6 @@ re-exports for backward compatibility with:
     from amplifier_core.coordinator import ModuleCoordinator
 """
 
-from amplifier_core._rust_wrappers import ModuleCoordinator
+from amplifier_core._engine import RustCoordinator as ModuleCoordinator
 
 __all__ = ["ModuleCoordinator"]
