@@ -565,6 +565,13 @@ impl PySession {
                 //   if callable(fn):
                 //     if iscoroutinefunction(fn): await fn()
                 //     else: result = fn(); if iscoroutine(result): await result
+                //
+                // NOTE: Unlike coordinator.cleanup() which re-raises BaseException
+                // (KeyboardInterrupt, SystemExit) after all cleanup fns have run,
+                // PySession::cleanup() intentionally swallows ALL exceptions —
+                // the session lifecycle must always complete regardless of signals.
+                // The coordinator cleanup is responsible for fatal exception propagation;
+                // the session cleanup is a best-effort resource cleanup layer.
                 // ----------------------------------------------------------
                 for (callable, is_async) in cleanup_callables.iter().rev() {
                     if *is_async {
