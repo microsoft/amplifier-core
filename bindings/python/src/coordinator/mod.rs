@@ -15,6 +15,7 @@ use crate::helpers::{try_model_dump, wrap_future_as_coroutine};
 use crate::hooks::PyHookRegistry;
 
 mod capabilities;
+mod hook_dispatch;
 mod mount_points;
 
 /// Python-visible coordinator wrapper.
