@@ -16,10 +16,8 @@
 use pyo3::prelude::*;
 
 mod helpers;
-pub(crate) use helpers::*;
 
 mod bridges;
-pub(crate) use bridges::*;
 
 mod cancellation;
 pub(crate) use cancellation::*;
@@ -44,7 +42,6 @@ pub(crate) use coordinator::*;
 
 mod wasm;
 pub(crate) use wasm::*;
-
 
 // ---------------------------------------------------------------------------
 // Module registration
@@ -233,6 +230,7 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pyo3::types::PyDict;
 
     /// Verify PySession type exists and is constructable.
     #[test]
