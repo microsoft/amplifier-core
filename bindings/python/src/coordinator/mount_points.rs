@@ -204,12 +204,9 @@ impl PyCoordinator {
     /// Module loader (Python object or None).
     #[getter]
     fn loader<'py>(&self, py: Python<'py>) -> Py<PyAny> {
-        let obj = self.loader_obj.bind(py);
-        if obj.is_none() {
-            py.None()
-        } else {
-            self.loader_obj.clone_ref(py)
-        }
+        // clone_ref on a Py<PyAny> holding Python None returns None —
+        // the is_none() guard is redundant.
+        self.loader_obj.clone_ref(py)
     }
 
     /// Set the module loader.
@@ -221,12 +218,9 @@ impl PyCoordinator {
     /// Approval system (Python object or None).
     #[getter]
     fn approval_system<'py>(&self, py: Python<'py>) -> Py<PyAny> {
-        let obj = self.approval_system_obj.bind(py);
-        if obj.is_none() {
-            py.None()
-        } else {
-            self.approval_system_obj.clone_ref(py)
-        }
+        // clone_ref on a Py<PyAny> holding Python None returns None —
+        // the is_none() guard is redundant.
+        self.approval_system_obj.clone_ref(py)
     }
 
     /// Set the approval system.
@@ -258,12 +252,9 @@ impl PyCoordinator {
     /// Display system (Python object or None).
     #[getter]
     fn display_system<'py>(&self, py: Python<'py>) -> Py<PyAny> {
-        let obj = self.display_system_obj.bind(py);
-        if obj.is_none() {
-            py.None()
-        } else {
-            self.display_system_obj.clone_ref(py)
-        }
+        // clone_ref on a Py<PyAny> holding Python None returns None —
+        // the is_none() guard is redundant.
+        self.display_system_obj.clone_ref(py)
     }
 
     /// Set the display system.
