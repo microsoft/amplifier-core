@@ -79,7 +79,12 @@ impl PyCoordinator {
         if !channels.contains(channel)? {
             channels.set_item(channel, PyList::empty(py))?;
         }
-        let list_any = channels.get_item(channel)?.unwrap();
+        let list_any = channels.get_item(channel)?.ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "Channel list missing after insert: {}",
+                channel
+            ))
+        })?;
         let list = list_any.cast::<PyList>()?;
         let entry = PyDict::new(py);
         entry.set_item("name", name)?;
@@ -111,7 +116,16 @@ impl PyCoordinator {
             // Return the coroutine directly - it will be awaited by the caller
             Ok(coro)
         } else {
-            // Fallback: sync-only collection via Rust
+            // Fallback: sync-only collection via Rust.
+            // This path is taken when the package is installed without the Python
+            // helper module (e.g. partial install, missing __init__ re-export).
+            // Async contributor callbacks will NOT be awaited in this path.
+            log::warn!(
+                "amplifier_core._collect_helper not available — \
+                 collect_contributions using sync-only fallback for channel '{}'. \
+                 Async contributor callbacks will be skipped.",
+                channel
+            );
             let channels_ref = channels;
             wrap_future_as_coroutine(
                 py,
