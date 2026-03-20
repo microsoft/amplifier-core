@@ -2,7 +2,8 @@
 Hook module validator.
 
 Validates that a module correctly implements the HookHandler protocol.
-Uses dynamic import to check protocol compliance via isinstance().
+Uses structural hasattr() checks for cross-version compatibility
+(Python 3.11, 3.12, 3.13 — no @runtime_checkable isinstance() needed).
 """
 
 import asyncio
@@ -12,9 +13,21 @@ import inspect
 from pathlib import Path
 from typing import Any
 
-from ..interfaces import HookHandler
 from .base import ValidationCheck
 from .base import ValidationResult
+
+
+def _implements_hook_handler_interface(obj: Any) -> bool:
+    """Return True if *obj* structurally satisfies the HookHandler interface.
+
+    Replaces ``isinstance(obj, HookHandler)`` so validation works on Python
+    3.11, 3.12 and 3.13 without depending on ``@runtime_checkable``.
+
+    The HookHandler protocol requires only ``__call__`` (i.e. the object must
+    be callable).  Callers that need to exclude plain functions should apply
+    ``inspect.isfunction`` / ``inspect.ismethod`` guards separately.
+    """
+    return callable(obj)
 
 
 class HookValidator:
@@ -236,21 +249,26 @@ class HookValidator:
             #   - RustHookRegistry (has list_handlers() -> dict[str, list[str]])
             has_registered_hooks = hook_registry is not None and (
                 # Python HookRegistry: check _handlers dict directly
-                (hasattr(hook_registry, "_handlers") and any(hook_registry._handlers.values()))
+                (
+                    hasattr(hook_registry, "_handlers")
+                    and any(hook_registry._handlers.values())
+                )
                 # RustHookRegistry (and any registry with list_handlers()): use that method
-                or (hasattr(hook_registry, "list_handlers") and bool(hook_registry.list_handlers()))
+                or (
+                    hasattr(hook_registry, "list_handlers")
+                    and bool(hook_registry.list_handlers())
+                )
             )
 
             if not has_registered_hooks:
                 # Module might return the instance directly — but only if it's a proper
                 # class instance, not a plain function or bound method.
-                # IMPORTANT: @runtime_checkable Protocol isinstance() only checks for
-                # __call__ presence, which means ANY callable (including a sync cleanup
-                # function returned from mount()) incorrectly satisfies HookHandler.
-                # We must explicitly exclude plain functions and methods.
+                # HookHandler only requires __call__, so any callable passes
+                # _implements_hook_handler_interface. We must explicitly exclude plain
+                # functions and methods that are cleanup callables, not hook instances.
                 is_proper_hook_instance = (
                     mount_result is not None
-                    and isinstance(mount_result, HookHandler)
+                    and _implements_hook_handler_interface(mount_result)
                     and not inspect.isfunction(mount_result)
                     and not inspect.ismethod(mount_result)
                 )
@@ -328,7 +346,7 @@ class HookValidator:
             if hasattr(hook_registry, "_handlers"):
                 for _event_name, handlers in hook_registry._handlers.items():
                     for hook in handlers:
-                        if isinstance(hook, HookHandler):
+                        if callable(hook):
                             self._check_hook_methods(result, hook)
                         # Note: Hooks registered via lambdas/callables are also valid
 
@@ -367,7 +385,7 @@ class HookValidator:
                     except Exception:
                         pass  # Ignore cleanup errors during validation
 
-    def _check_hook_methods(self, result: ValidationResult, hook: HookHandler) -> None:
+    def _check_hook_methods(self, result: ValidationResult, hook: Any) -> None:
         """Check that hook has all required methods with correct signatures."""
         # Check __call__ method (the core hook interface)
         if not callable(hook):
@@ -383,7 +401,10 @@ class HookValidator:
 
         # Check the handler itself first (handles bound async methods),
         # then fall back to checking __call__ (handles objects with async __call__)
-        if not (asyncio.iscoroutinefunction(hook) or asyncio.iscoroutinefunction(getattr(hook, '__call__', None))):
+        if not (
+            asyncio.iscoroutinefunction(hook)
+            or asyncio.iscoroutinefunction(getattr(hook, "__call__", None))
+        ):
             result.add(
                 ValidationCheck(
                     name="hook_call",

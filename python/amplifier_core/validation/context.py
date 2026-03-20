@@ -2,7 +2,8 @@
 Context module validator.
 
 Validates that a module correctly implements the ContextManager protocol.
-Uses dynamic import to check protocol compliance via isinstance().
+Uses structural hasattr() checks for cross-version compatibility
+(Python 3.11, 3.12, 3.13 — no @runtime_checkable isinstance() needed).
 """
 
 import asyncio
@@ -12,9 +13,30 @@ import inspect
 from pathlib import Path
 from typing import Any
 
-from ..interfaces import ContextManager
 from .base import ValidationCheck
 from .base import ValidationResult
+
+
+def _implements_context_manager_interface(obj: Any) -> bool:
+    """Return True if *obj* structurally satisfies the ContextManager interface.
+
+    Replaces ``isinstance(obj, ContextManager)`` so validation works on Python
+    3.11, 3.12 and 3.13 without depending on ``@runtime_checkable``.
+
+    Required members: ``add_message``, ``get_messages_for_request``,
+    ``get_messages``, ``set_messages``, ``clear`` (all callable).
+    """
+    required_methods = [
+        "add_message",
+        "get_messages_for_request",
+        "get_messages",
+        "set_messages",
+        "clear",
+    ]
+    return all(
+        hasattr(obj, method) and callable(getattr(obj, method, None))
+        for method in required_methods
+    )
 
 
 class ContextValidator:
@@ -232,8 +254,8 @@ class ContextValidator:
             context = coordinator.mount_points.get("context")
             if context is None:
                 # Module might return the instance directly
-                if mount_result is not None and isinstance(
-                    mount_result, ContextManager
+                if mount_result is not None and _implements_context_manager_interface(
+                    mount_result
                 ):
                     result.add(
                         ValidationCheck(
@@ -266,12 +288,12 @@ class ContextValidator:
                 return
 
             # Check the mounted context (singular mount point)
-            if isinstance(context, ContextManager):
+            if _implements_context_manager_interface(context):
                 result.add(
                     ValidationCheck(
                         name="protocol_compliance",
                         passed=True,
-                        message="Context implements ContextManager protocol",
+                        message="Context implements ContextManager interface",
                         severity="info",
                     )
                 )
@@ -281,7 +303,7 @@ class ContextValidator:
                     ValidationCheck(
                         name="protocol_compliance",
                         passed=False,
-                        message="Mounted context does not implement ContextManager protocol",
+                        message="Mounted context does not implement ContextManager interface (missing add_message, get_messages_for_request, get_messages, set_messages, or clear)",
                         severity="error",
                     )
                 )
@@ -320,9 +342,7 @@ class ContextValidator:
                     except Exception:
                         pass  # Ignore cleanup errors during validation
 
-    def _check_context_methods(
-        self, result: ValidationResult, context: ContextManager
-    ) -> None:
+    def _check_context_methods(self, result: ValidationResult, context: Any) -> None:
         """Check that context has all required methods with correct signatures."""
         # Required methods per the ContextManager protocol (interfaces.py)
         # Note: should_compact() and compact() are now internal (_should_compact, _compact_internal)

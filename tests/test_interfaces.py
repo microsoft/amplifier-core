@@ -41,16 +41,28 @@ class TestToolProtocol:
             "(PR #22 — add input_schema with empty-dict default)"
         )
 
-    def test_tool_without_input_schema_satisfies_isinstance(self):
-        """A Tool that does NOT define input_schema must still pass isinstance check.
+    def test_tool_without_input_schema_satisfies_structural_check(self):
+        """A Tool that does NOT define input_schema must pass structural conformance.
+
+        Structural conformance is checked with hasattr(), not isinstance().
+        The Protocol classes are NOT @runtime_checkable — isinstance() against
+        them would raise TypeError on Python 3.11+. The validation framework
+        (and the kernel runtime) uses hasattr()-based duck typing instead,
+        which works identically on Python 3.11, 3.12 and 3.13.
 
         Backward-compat: existing tools predate input_schema and must not break.
+        The core required members are name, description, and execute;
+        input_schema is intentionally optional with a {} default.
         """
         tool = _MinimalTool()
-        assert isinstance(tool, Tool), (
-            "A tool without input_schema must still satisfy the Tool protocol "
-            "(input_schema must be optional / have a default)"
-        )
+        # Core required members must be present
+        assert hasattr(tool, "name"), "Tool must have 'name'"
+        assert hasattr(tool, "description"), "Tool must have 'description'"
+        assert hasattr(tool, "execute"), "Tool must have 'execute'"
+        assert callable(getattr(tool, "execute")), "Tool.execute must be callable"
+        # input_schema is optional — getattr with fallback must work
+        schema = getattr(tool, "input_schema", {})
+        assert isinstance(schema, dict), "Tool.input_schema fallback must return a dict"
 
     def test_tool_without_input_schema_getattr_returns_empty_dict(self):
         """getattr fallback on a legacy Tool must return {} (not raise AttributeError).
@@ -63,6 +75,28 @@ class TestToolProtocol:
         assert schema == {}, (
             "getattr(tool, 'input_schema', {}) must return {} for a tool "
             "that does not define input_schema"
+        )
+
+    def test_tool_is_not_runtime_checkable(self):
+        """Tool protocol must NOT be @runtime_checkable.
+
+        The @runtime_checkable decorator plus @property members causes silent
+        breakage on Python 3.11: the Tool.__protocol_attrs__ override (added to
+        work around the input_schema backward-compat issue) leaks as a spurious
+        required member in Python 3.11's _get_protocol_attrs(), making
+        isinstance(tool, Tool) return False for every tool — even fully
+        conformant ones.
+
+        The correct approach is structural duck typing with hasattr(), which the
+        kernel runtime and validation framework already use. Keeping the Protocol
+        class without @runtime_checkable gives us importable contract
+        documentation, IDE hover support, and pyright type checking without
+        any runtime isinstance() hazards.
+        """
+        # Tool must not be flagged as a runtime-checkable protocol
+        assert not getattr(Tool, "_is_runtime_protocol", False), (
+            "Tool must not be @runtime_checkable — use hasattr() structural "
+            "checks instead of isinstance() to avoid Python 3.11 breakage"
         )
 
 
@@ -85,4 +119,14 @@ class TestOrchestratorProtocol:
         assert len(var_keyword_params) == 1, (
             "Orchestrator.execute must have a **kwargs parameter "
             "to accept kernel-injected arguments (e.g. coordinator=)"
+        )
+
+    def test_orchestrator_is_not_runtime_checkable(self):
+        """Orchestrator protocol must NOT be @runtime_checkable.
+
+        Same reasoning as Tool: use hasattr()-based structural checks.
+        """
+        assert not getattr(Orchestrator, "_is_runtime_protocol", False), (
+            "Orchestrator must not be @runtime_checkable — use hasattr() "
+            "structural checks instead of isinstance()"
         )

@@ -13,7 +13,6 @@ Related contracts (for module developers):
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Protocol
-from typing import runtime_checkable
 
 from pydantic import BaseModel
 from pydantic import Field
@@ -30,7 +29,6 @@ if TYPE_CHECKING:
     from .hooks import HookRegistry
 
 
-@runtime_checkable
 class Orchestrator(Protocol):
     """Interface for agent loop orchestrator modules."""
 
@@ -64,7 +62,6 @@ class Orchestrator(Protocol):
         ...
 
 
-@runtime_checkable
 class Provider(Protocol):
     """
     Interface for LLM provider modules.
@@ -131,7 +128,6 @@ class Provider(Protocol):
         ...
 
 
-@runtime_checkable
 class Tool(Protocol):
     """Interface for tool modules."""
 
@@ -167,14 +163,6 @@ class Tool(Protocol):
         ...
 
 
-# Override __protocol_attrs__ so that isinstance(obj, Tool) only checks the
-# core required members (name, description, execute).  input_schema has a
-# concrete default and is intentionally excluded from structural subtyping to
-# preserve backward compatibility with tools that predate this field.
-Tool.__protocol_attrs__ = frozenset({"name", "description", "execute"})  # type: ignore[attr-defined]
-
-
-@runtime_checkable
 class ContextManager(Protocol):
     """
     Interface for context management modules.
@@ -224,7 +212,6 @@ class ContextManager(Protocol):
         ...
 
 
-@runtime_checkable
 class HookHandler(Protocol):
     """Interface for hook handlers."""
 
@@ -275,7 +262,6 @@ class ApprovalResponse(BaseModel):
     )
 
 
-@runtime_checkable
 class ApprovalProvider(Protocol):
     """Protocol for UI components that provide approval dialogs."""
 

@@ -2,7 +2,8 @@
 Provider module validator.
 
 Validates that a module correctly implements the Provider protocol.
-Uses dynamic import to check protocol compliance via isinstance().
+Uses structural hasattr() checks for cross-version compatibility
+(Python 3.11, 3.12, 3.13 — no @runtime_checkable isinstance() needed).
 """
 
 import asyncio
@@ -12,10 +13,31 @@ import inspect
 from pathlib import Path
 from typing import Any
 
-from ..interfaces import Provider
 from ..models import ProviderInfo
 from .base import ValidationCheck
 from .base import ValidationResult
+
+
+def _implements_provider_interface(obj: Any) -> bool:
+    """Return True if *obj* structurally satisfies the Provider interface.
+
+    Replaces ``isinstance(obj, Provider)`` so validation works on Python 3.11,
+    3.12 and 3.13 without depending on ``@runtime_checkable``.
+
+    Required members: ``name``, ``get_info``, ``list_models``, ``complete``,
+    ``parse_tool_calls`` (all callable except ``name`` which is a str attr).
+    """
+    return (
+        hasattr(obj, "name")
+        and hasattr(obj, "get_info")
+        and callable(getattr(obj, "get_info", None))
+        and hasattr(obj, "list_models")
+        and callable(getattr(obj, "list_models", None))
+        and hasattr(obj, "complete")
+        and callable(getattr(obj, "complete", None))
+        and hasattr(obj, "parse_tool_calls")
+        and callable(getattr(obj, "parse_tool_calls", None))
+    )
 
 
 class ProviderValidator:
@@ -233,7 +255,9 @@ class ProviderValidator:
             providers = coordinator.mount_points.get("providers", {})
             if not providers:
                 # Module might return the instance directly
-                if mount_result is not None and isinstance(mount_result, Provider):
+                if mount_result is not None and _implements_provider_interface(
+                    mount_result
+                ):
                     result.add(
                         ValidationCheck(
                             name="protocol_compliance",
@@ -266,12 +290,12 @@ class ProviderValidator:
 
             # Check each mounted provider
             for name, provider in providers.items():
-                if isinstance(provider, Provider):
+                if _implements_provider_interface(provider):
                     result.add(
                         ValidationCheck(
                             name="protocol_compliance",
                             passed=True,
-                            message=f"Provider '{name}' implements Provider protocol",
+                            message=f"Provider '{name}' implements Provider interface",
                             severity="info",
                         )
                     )
@@ -281,7 +305,7 @@ class ProviderValidator:
                         ValidationCheck(
                             name="protocol_compliance",
                             passed=False,
-                            message=f"Provider '{name}' does not implement Provider protocol",
+                            message=f"Provider '{name}' does not implement Provider interface (missing name, get_info, list_models, complete, or parse_tool_calls)",
                             severity="error",
                         )
                     )
@@ -321,9 +345,7 @@ class ProviderValidator:
                     except Exception:
                         pass  # Ignore cleanup errors during validation
 
-    def _check_provider_methods(
-        self, result: ValidationResult, provider: Provider
-    ) -> None:
+    def _check_provider_methods(self, result: ValidationResult, provider: Any) -> None:
         """Check that provider has all required methods with correct signatures."""
         # Check name property
         try:

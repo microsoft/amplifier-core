@@ -2,12 +2,13 @@
 Module validation framework.
 
 Provides validators for checking module compliance with Amplifier protocols.
-Uses dynamic import to validate at runtime via isinstance() with runtime_checkable protocols.
+Uses structural hasattr() checks (not isinstance()) for cross-version compatibility
+across Python 3.11, 3.12 and 3.13.
 
 Validators check:
 1. Module is importable
 2. mount() function exists with correct signature
-3. Mounted instance implements required protocol
+3. Mounted instance structurally implements required interface
 4. Required methods exist with correct signatures
 
 Example usage:

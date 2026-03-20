@@ -2,7 +2,8 @@
 Orchestrator module validator.
 
 Validates that a module correctly implements the Orchestrator protocol.
-Uses dynamic import to check protocol compliance via isinstance().
+Uses structural hasattr() checks for cross-version compatibility
+(Python 3.11, 3.12, 3.13 — no @runtime_checkable isinstance() needed).
 """
 
 import asyncio
@@ -12,9 +13,19 @@ import inspect
 from pathlib import Path
 from typing import Any
 
-from ..interfaces import Orchestrator
 from .base import ValidationCheck
 from .base import ValidationResult
+
+
+def _implements_orchestrator_interface(obj: Any) -> bool:
+    """Return True if *obj* structurally satisfies the Orchestrator interface.
+
+    Replaces ``isinstance(obj, Orchestrator)`` so validation works on Python
+    3.11, 3.12 and 3.13 without depending on ``@runtime_checkable``.
+
+    Required members: ``execute`` (callable).
+    """
+    return hasattr(obj, "execute") and callable(getattr(obj, "execute", None))
 
 
 class OrchestratorValidator:
@@ -234,7 +245,9 @@ class OrchestratorValidator:
             orchestrator = coordinator.mount_points.get("orchestrator")
             if orchestrator is None:
                 # Module might return the instance directly
-                if mount_result is not None and isinstance(mount_result, Orchestrator):
+                if mount_result is not None and _implements_orchestrator_interface(
+                    mount_result
+                ):
                     result.add(
                         ValidationCheck(
                             name="protocol_compliance",
@@ -266,12 +279,12 @@ class OrchestratorValidator:
                 return
 
             # Check the mounted orchestrator (singular mount point)
-            if isinstance(orchestrator, Orchestrator):
+            if _implements_orchestrator_interface(orchestrator):
                 result.add(
                     ValidationCheck(
                         name="protocol_compliance",
                         passed=True,
-                        message="Orchestrator implements Orchestrator protocol",
+                        message="Orchestrator implements Orchestrator interface",
                         severity="info",
                     )
                 )
@@ -281,7 +294,7 @@ class OrchestratorValidator:
                     ValidationCheck(
                         name="protocol_compliance",
                         passed=False,
-                        message="Mounted orchestrator does not implement Orchestrator protocol",
+                        message="Mounted orchestrator does not implement Orchestrator interface (missing execute)",
                         severity="error",
                     )
                 )
@@ -321,7 +334,7 @@ class OrchestratorValidator:
                         pass  # Ignore cleanup errors during validation
 
     def _check_orchestrator_methods(
-        self, result: ValidationResult, orchestrator: Orchestrator
+        self, result: ValidationResult, orchestrator: Any
     ) -> None:
         """Check that orchestrator has all required methods with correct signatures."""
         # Check execute method

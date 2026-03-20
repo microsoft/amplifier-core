@@ -2,7 +2,8 @@
 Tool module validator.
 
 Validates that a module correctly implements the Tool protocol.
-Uses dynamic import to check protocol compliance via isinstance().
+Uses structural hasattr() checks for cross-version compatibility
+(Python 3.11, 3.12, 3.13 — no @runtime_checkable isinstance() needed).
 """
 
 import asyncio
@@ -12,9 +13,26 @@ import inspect
 from pathlib import Path
 from typing import Any
 
-from ..interfaces import Tool
 from .base import ValidationCheck
 from .base import ValidationResult
+
+
+def _implements_tool_interface(obj: Any) -> bool:
+    """Return True if *obj* structurally satisfies the Tool interface.
+
+    Replaces ``isinstance(obj, Tool)`` so validation works on Python 3.11,
+    3.12 and 3.13 without depending on ``@runtime_checkable``.
+
+    Required members: ``name``, ``description``, ``execute`` (callable).
+    ``input_schema`` is intentionally excluded — it has a default and is
+    optional for backward compatibility with tools that predate that field.
+    """
+    return (
+        hasattr(obj, "name")
+        and hasattr(obj, "description")
+        and hasattr(obj, "execute")
+        and callable(getattr(obj, "execute", None))
+    )
 
 
 class ToolValidator:
@@ -232,7 +250,9 @@ class ToolValidator:
             tools = coordinator.mount_points.get("tools", {})
             if not tools:
                 # Module might return the instance directly
-                if mount_result is not None and isinstance(mount_result, Tool):
+                if mount_result is not None and _implements_tool_interface(
+                    mount_result
+                ):
                     result.add(
                         ValidationCheck(
                             name="protocol_compliance",
@@ -265,12 +285,12 @@ class ToolValidator:
 
             # Check each mounted tool
             for name, tool in tools.items():
-                if isinstance(tool, Tool):
+                if _implements_tool_interface(tool):
                     result.add(
                         ValidationCheck(
                             name="protocol_compliance",
                             passed=True,
-                            message=f"Tool '{name}' implements Tool protocol",
+                            message=f"Tool '{name}' implements Tool interface",
                             severity="info",
                         )
                     )
@@ -280,7 +300,7 @@ class ToolValidator:
                         ValidationCheck(
                             name="protocol_compliance",
                             passed=False,
-                            message=f"Tool '{name}' does not implement Tool protocol",
+                            message=f"Tool '{name}' does not implement Tool interface (missing name, description, or execute)",
                             severity="error",
                         )
                     )
@@ -320,7 +340,7 @@ class ToolValidator:
                     except Exception:
                         pass  # Ignore cleanup errors during validation
 
-    def _check_tool_methods(self, result: ValidationResult, tool: Tool) -> None:
+    def _check_tool_methods(self, result: ValidationResult, tool: Any) -> None:
         """Check that tool has all required methods with correct signatures."""
         # Check name property
         try:
