@@ -13,8 +13,8 @@
 //! | `RustCancellationToken` | [`PyCancellationToken`] | `amplifier_core::CancellationToken` |
 //! | `RustCoordinator`       | [`PyCoordinator`]    | `amplifier_core::Coordinator` |
 
-use pyo3::prelude::*;
 use prost::Message as ProstMessage;
+use pyo3::prelude::*;
 
 // ---------------------------------------------------------------------------
 // Submodules
@@ -40,9 +40,9 @@ pub(crate) use cancellation::PyCancellationToken;
 pub(crate) use coordinator::PyCoordinator;
 pub(crate) use errors::PyProviderError;
 pub(crate) use hooks::{PyHookRegistry, PyUnregisterFn};
-pub(crate) use module_resolver::resolve_module;
 #[cfg(feature = "wasm")]
 pub(crate) use module_resolver::load_wasm_from_path;
+pub(crate) use module_resolver::resolve_module;
 pub(crate) use retry::{classify_error_message, compute_delay, PyRetryConfig};
 pub(crate) use session::PySession;
 #[cfg(feature = "wasm")]
@@ -67,9 +67,7 @@ fn proto_chat_request_to_json(proto_bytes: &[u8]) -> PyResult<String> {
     use amplifier_core::generated::conversions::proto_chat_request_to_native;
 
     let proto_request = ChatRequest::decode(proto_bytes).map_err(|e| {
-        pyo3::exceptions::PyValueError::new_err(format!(
-            "Failed to decode proto ChatRequest: {e}"
-        ))
+        pyo3::exceptions::PyValueError::new_err(format!("Failed to decode proto ChatRequest: {e}"))
     })?;
 
     let native_request = proto_chat_request_to_native(proto_request);
