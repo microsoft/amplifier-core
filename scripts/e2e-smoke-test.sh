@@ -14,6 +14,11 @@ set -euo pipefail
 #   ./scripts/e2e-smoke-test.sh              # Build wheel + run test
 #   ./scripts/e2e-smoke-test.sh --skip-build # Use existing wheel in dist/
 #
+#   # Test with local repo overrides (for cross-repo changes):
+#   ./scripts/e2e-smoke-test.sh \
+#       --local-source /path/to/amplifier-app-cli \
+#       --local-source /path/to/amplifier-foundation
+#
 # Environment variables:
 #   SMOKE_PROMPT     Override the default test prompt
 #   SMOKE_TIMEOUT    Override the timeout in seconds (default: 180)
@@ -25,27 +30,9 @@ CONTAINER_NAME="amplifier-e2e-smoke-$$"
 SKIP_BUILD=false
 SMOKE_PROMPT="${SMOKE_PROMPT:-Ask recipe author to run one of its example recipes}"
 TIMEOUT_SECONDS="${SMOKE_TIMEOUT:-180}"
+LOCAL_SOURCES=()
 
-# Parse args
-for arg in "$@"; do
-    case $arg in
-        --skip-build) SKIP_BUILD=true ;;
-        --help)
-            echo "Usage: $0 [--skip-build]"
-            echo ""
-            echo "Options:"
-            echo "  --skip-build   Use existing wheel in dist/ instead of rebuilding"
-            echo ""
-            echo "Environment variables:"
-            echo "  ANTHROPIC_API_KEY  Required (or set in ~/.amplifier/keys.env)"
-            echo "  SMOKE_PROMPT       Test prompt (default: 'Ask recipe author to run one of its example recipes')"
-            echo "  SMOKE_TIMEOUT      Timeout in seconds (default: 180)"
-            exit 0
-            ;;
-    esac
-done
-
-# Colors
+# Colors (defined early so fail() works during arg parsing)
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -56,6 +43,44 @@ log()  { echo -e "${YELLOW}[smoke-test]${NC} $*"; }
 info() { echo -e "${CYAN}[smoke-test]${NC} $*"; }
 pass() { echo -e "${GREEN}[PASS]${NC} $*"; }
 fail() { echo -e "${RED}[FAIL]${NC} $*"; exit 1; }
+
+# Parse args
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --skip-build) SKIP_BUILD=true; shift ;;
+        --local-source)
+            [[ -z "${2:-}" ]] && fail "--local-source requires a path argument"
+            LOCAL_SOURCES+=("$2"); shift 2 ;;
+        --help)
+            echo "Usage: $0 [--skip-build] [--local-source /path/to/repo ...]"
+            echo ""
+            echo "Options:"
+            echo "  --skip-build               Use existing wheel in dist/ instead of rebuilding"
+            echo "  --local-source /path/to/repo  Override a dependency with a local checkout."
+            echo "                              The repo is copied into the container and installed"
+            echo "                              with 'pip install --force-reinstall --no-deps'."
+            echo "                              Can be specified multiple times."
+            echo "                              For bundles with modules in subdirectories, point at"
+            echo "                              the module path (e.g., ../my-bundle/modules/my-module)."
+            echo ""
+            echo "Examples:"
+            echo "  # Core-only smoke test (default):"
+            echo "  $0"
+            echo ""
+            echo "  # Cross-repo smoke test with local overrides:"
+            echo "  $0 --local-source ../amplifier-app-cli \\"
+            echo "     --local-source ../amplifier-foundation \\"
+            echo "     --local-source ../amplifier-bundle-modes/modules/hooks-mode"
+            echo ""
+            echo "Environment variables:"
+            echo "  ANTHROPIC_API_KEY  Required (or set in ~/.amplifier/keys.env)"
+            echo "  SMOKE_PROMPT       Test prompt (default: 'Ask recipe author to run one of its example recipes')"
+            echo "  SMOKE_TIMEOUT      Timeout in seconds (default: 180)"
+            exit 0
+            ;;
+        *) fail "Unknown argument: $1" ;;
+    esac
+done
 
 cleanup() {
     log "Cleaning up container $CONTAINER_NAME..."
@@ -162,6 +187,37 @@ if ! echo "$OVERRIDE_OUTPUT" | grep -qiE "installed|already satisfied"; then
     fail "Wheel override failed — uv did not report a successful install. See output above."
 fi
 log "Override output: $(echo "$OVERRIDE_OUTPUT" | tail -3)"
+
+# ---------------------------------------------------------------------------
+# Step 5b: Override additional packages with local sources (if any)
+# ---------------------------------------------------------------------------
+
+if [[ ${#LOCAL_SOURCES[@]} -gt 0 ]]; then
+    log "Injecting ${#LOCAL_SOURCES[@]} local source override(s)..."
+    docker exec "$CONTAINER_NAME" mkdir -p /tmp/local-sources
+    for LOCAL_SRC in "${LOCAL_SOURCES[@]}"; do
+        # Resolve to absolute path
+        LOCAL_SRC=$(cd "$LOCAL_SRC" && pwd)
+        SRC_NAME=$(basename "$LOCAL_SRC")
+        CONTAINER_PATH="/tmp/local-sources/$SRC_NAME"
+
+        [[ -d "$LOCAL_SRC" ]] || fail "Local source not found: $LOCAL_SRC"
+
+        info "  Copying $SRC_NAME -> $CONTAINER_PATH"
+        docker cp "$LOCAL_SRC" "$CONTAINER_NAME:$CONTAINER_PATH" \
+            || fail "Failed to copy $SRC_NAME into container"
+
+        info "  Installing $SRC_NAME (--force-reinstall --no-deps)..."
+        LOCAL_INSTALL_OUT=$(docker exec "$CONTAINER_NAME" bash -c "
+            uv pip install \
+                --python /root/.local/share/uv/tools/amplifier/bin/python3 \
+                --force-reinstall --no-deps \
+                '$CONTAINER_PATH' 2>&1
+        ") || fail "Failed to install local source: $SRC_NAME"
+        log "  $SRC_NAME: $(echo "$LOCAL_INSTALL_OUT" | tail -1)"
+    done
+    log "All local source overrides installed."
+fi
 
 # ---------------------------------------------------------------------------
 # Step 6: Verify installed version
