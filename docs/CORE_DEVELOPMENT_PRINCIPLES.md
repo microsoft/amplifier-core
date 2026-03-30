@@ -199,7 +199,7 @@ This rule applies **specifically to amplifier-core** because of its PyPI distrib
    ```
    Validates the built wheel in an isolated Docker container with a real LLM session.
    Requires Docker and `ANTHROPIC_API_KEY`. Do not tag until it passes.
-   See `context/release-mandate.md` for full details and incident playbook.
+   See `load_skill(skill_name='release-mandate')` for full details and incident playbook.
 
 4. **Commit, tag, and push:**
    ```bash

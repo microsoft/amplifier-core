@@ -1,3 +1,8 @@
+---
+name: release-mandate
+description: 'amplifier-core release protocol: version bump checklist, E2E smoke test, incident playbook. Required reading before tagging a release.'
+version: 1.0.0
+---
 # Release Mandate: amplifier-core
 
 ## The Rule
