@@ -62,8 +62,8 @@ Provide:
   tests passed.
 - The tag push: `git tag vX.Y.Z && git push origin main --tags`
 - Why: `v*` tag triggers `rust-core-wheels.yml` → PyPI publish; this is the only path to production
-- **Incident recovery**: If a broken version reaches PyPI, see the Incident Playbook in
-  `context/release-mandate.md` — yank on PyPI, fix forward, never reuse a version number.
+- **Incident recovery**: If a broken version reaches PyPI, see the Incident Playbook via
+  `load_skill(skill_name='release-mandate')` — yank on PyPI, fix forward, never reuse a version number.
 
 ---
 

@@ -70,7 +70,7 @@ This rule exists **specifically** because `amplifier-core` publishes to PyPI and
    git tag vX.Y.Z
    git push origin main --tags
    ```
-5. The `v*` tag triggers `rust-core-wheels.yml` → builds wheels for all platforms → publishes to PyPI.
+6. The `v*` tag triggers `rust-core-wheels.yml` → builds wheels for all platforms → publishes to PyPI.
 
 Full process details: `docs/CORE_DEVELOPMENT_PRINCIPLES.md` §10 — The Release Gate.
 
