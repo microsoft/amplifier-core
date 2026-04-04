@@ -85,7 +85,7 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
-      id-token: write  # required for --provenance (OIDC signing of attestations only — does NOT replace NPM_TOKEN auth)
+      id-token: write  # required for npm trusted publishing (OIDC auth) — no NPM_TOKEN needed
 
     steps:
       - uses: actions/checkout@v4
@@ -94,6 +94,9 @@ jobs:
         with:
           node-version: 20
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Upgrade npm (trusted publishing requires v11.5.1+)
+        run: npm install -g npm@latest
 
       - name: Install Node.js dependencies
         working-directory: bindings/node
@@ -152,8 +155,6 @@ jobs:
 
       - name: Publish platform packages
         working-directory: bindings/node
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           shopt -s nullglob
           for pkg_dir in npm/*/; do
@@ -163,6 +164,4 @@ jobs:
 
       - name: Publish main package
         working-directory: bindings/node
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance
+        run: npm publish --access public
