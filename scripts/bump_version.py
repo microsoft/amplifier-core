@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Atomic version bump script for amplifier-core.
 
-Updates all three version files in sync and prints the git commands to
+Updates all version files in sync and prints the git commands to
 complete the release. Run this immediately after merging a PR to main.
 
-This script exists because amplifier-core is published to PyPI and the
-three version files MUST stay in sync. Manual edits to individual files
+This script exists because amplifier-core is published to PyPI and npm, and
+all version files MUST stay in sync. Manual edits to individual files
 caused drift in the past. Use this script exclusively.
 
 See: docs/CORE_DEVELOPMENT_PRINCIPLES.md §10 — The Release Gate
@@ -23,16 +23,24 @@ from typing import NoReturn
 # Repo root is one level up from scripts/
 REPO_ROOT = Path(__file__).parent.parent
 
-# All three version files that must be bumped in lockstep
+# All version files that must be bumped in lockstep.
+# Each entry is (relative path, file format).
 VERSION_FILES = [
-    # (relative path, regex to find version line, expected line number — sanity only)
-    ("pyproject.toml", 3),
-    ("crates/amplifier-core/Cargo.toml", 3),
-    ("bindings/python/Cargo.toml", 3),
+    # (relative path, format)  format: "toml" or "json"
+    ("pyproject.toml", "toml"),
+    ("crates/amplifier-core/Cargo.toml", "toml"),
+    ("bindings/python/Cargo.toml", "toml"),
+    ("bindings/node/Cargo.toml", "toml"),
+    ("bindings/node/package.json", "json"),
 ]
 
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
-VERSION_LINE_RE = re.compile(r'^(version\s*=\s*")([^"]+)(")', re.MULTILINE)
+
+# Matches TOML version lines:  version = "1.2.3"
+TOML_VERSION_LINE_RE = re.compile(r'^(version\s*=\s*")([^"]+)(")', re.MULTILINE)
+
+# Matches JSON version lines:  "version": "1.2.3"
+JSON_VERSION_LINE_RE = re.compile(r'^(\s*"version"\s*:\s*")([^"]+)(")', re.MULTILINE)
 
 
 def die(msg: str) -> NoReturn:
@@ -49,17 +57,24 @@ def validate_version(version: str) -> str:
     return version
 
 
-def find_version_in_file(content: str, filepath: str) -> str:
+def _version_re(fmt: str) -> re.Pattern[str]:
+    """Return the appropriate version regex for the given file format."""
+    if fmt == "json":
+        return JSON_VERSION_LINE_RE
+    return TOML_VERSION_LINE_RE
+
+
+def find_version_in_file(content: str, filepath: str, fmt: str) -> str:
     """Extract the current version string from a file."""
-    match = VERSION_LINE_RE.search(content)
+    match = _version_re(fmt).search(content)
     if not match:
         die(f"Could not find version line in {filepath}")
     return match.group(2)
 
 
-def replace_version_in_file(content: str, new_version: str) -> str:
+def replace_version_in_file(content: str, new_version: str, fmt: str) -> str:
     """Replace the version string in file content."""
-    return VERSION_LINE_RE.sub(rf"\g<1>{new_version}\g<3>", content, count=1)
+    return _version_re(fmt).sub(rf"\g<1>{new_version}\g<3>", content, count=1)
 
 
 def main() -> None:
@@ -73,10 +88,12 @@ def main() -> None:
     print()
 
     # Read all files first, detect existing versions and out-of-sync state
-    file_data: list[tuple[Path, str, str]] = []  # (path, content, old_version)
+    file_data: list[
+        tuple[Path, str, str, str]
+    ] = []  # (path, content, old_version, fmt)
     old_versions: set[str] = set()
 
-    for rel_path, _ in VERSION_FILES:
+    for rel_path, fmt in VERSION_FILES:
         abs_path = REPO_ROOT / rel_path
         if not abs_path.exists():
             die(
@@ -85,15 +102,17 @@ def main() -> None:
                 f"  Are you running from the repo root?"
             )
         content = abs_path.read_text()
-        old_version = find_version_in_file(content, rel_path)
+        old_version = find_version_in_file(content, rel_path, fmt)
         old_versions.add(old_version)
-        file_data.append((abs_path, content, old_version))
+        file_data.append((abs_path, content, old_version, fmt))
 
     # Warn if files are already out of sync (canary for prior manual edits)
     if len(old_versions) > 1:
         print("WARNING: Version files were already out of sync before this bump!")
         print("         This may indicate prior manual edits. Versions found:")
-        for (abs_path, _, old_ver), (rel_path, _) in zip(file_data, VERSION_FILES):
+        for (abs_path, _, old_ver, _fmt), (rel_path, _fmt2) in zip(
+            file_data, VERSION_FILES
+        ):
             print(f"           {rel_path}: {old_ver}")
         print()
 
@@ -106,8 +125,8 @@ def main() -> None:
 
     # Apply updates atomically (read all first, then write all or none)
     new_contents: list[tuple[Path, str]] = []
-    for abs_path, content, _ in file_data:
-        new_content = replace_version_in_file(content, new_version)
+    for abs_path, content, _, fmt in file_data:
+        new_content = replace_version_in_file(content, new_version, fmt)
         if new_content == content:
             die(
                 f"Version replacement had no effect in {abs_path.relative_to(REPO_ROOT)}"
@@ -130,8 +149,8 @@ def main() -> None:
     print(f"  git tag v{new_version}")
     print("  git push origin main --tags")
     print()
-    print(f"The v{new_version} tag triggers rust-core-wheels.yml → PyPI publish.")
-    print("CI will build wheels for all platforms and publish automatically.")
+    print(f"The v{new_version} tag triggers rust-core-wheels.yml → PyPI publish")
+    print("  and node-npm-publish.yml → npm publish (@kenotron-ms/amplifier-core).")
     print()
     print(f"Done. amplifier-core v{new_version} is ready to release.")
 

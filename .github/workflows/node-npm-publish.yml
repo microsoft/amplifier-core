@@ -1,0 +1,114 @@
+name: Publish Node.js Package
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build — ${{ matrix.settings.target }}
+    runs-on: ${{ matrix.settings.host }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+          - host: macos-latest
+            target: aarch64-apple-darwin
+          - host: macos-latest
+            target: x86_64-apple-darwin
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          cache-on-failure: true
+          key: node-${{ matrix.settings.target }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install cross-compilation dependencies (aarch64-unknown-linux-gnu)
+        if: matrix.settings.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Install Node.js dependencies
+        working-directory: bindings/node
+        run: npm install
+
+      - name: Build
+        working-directory: bindings/node
+        run: npx napi build --release --platform --target ${{ matrix.settings.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: bindings/node/*.node
+          if-no-files-found: error
+
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      id-token: write  # used by npm trusted publishing for both auth and provenance — no NPM_TOKEN needed
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install Node.js dependencies
+        working-directory: bindings/node
+        run: npm install
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bindings-*
+          merge-multiple: true
+          path: bindings/node/
+
+      - name: List downloaded .node files
+        run: ls -lh bindings/node/*.node
+
+      - name: Prepare npm platform packages
+        working-directory: bindings/node
+        run: npx napi prepublish -t npm
+
+      - name: Publish platform packages
+        working-directory: bindings/node
+        run: |
+          for pkg_dir in npm/*/; do
+            echo "Publishing ${pkg_dir} ..."
+            npm publish "${pkg_dir}" --access public --provenance
+          done
+
+      - name: Publish main package
+        working-directory: bindings/node
+        run: npm publish --access public --provenance

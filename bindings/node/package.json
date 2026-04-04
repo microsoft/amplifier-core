@@ -1,8 +1,12 @@
 {
-  "name": "amplifier-core",
-  "version": "1.0.10",
+  "name": "@kenotron-ms/amplifier-core",
+  "version": "1.3.3",
   "main": "index.js",
   "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
   "scripts": {
     "build": "napi build --release --platform",
     "build:debug": "napi build --platform",
@@ -10,7 +14,20 @@
   },
   "napi": {
     "name": "amplifier-core",
-    "triples": {}
+    "triples": {
+      "defaults": false,
+      "additional": [
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+        "x86_64-pc-windows-msvc"
+      ]
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "devDependencies": {
     "@napi-rs/cli": "^2",
