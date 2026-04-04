@@ -85,7 +85,7 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
-      id-token: write  # used by npm trusted publishing for both auth and provenance — no NPM_TOKEN needed
+      id-token: write  # required for --provenance (OIDC signing of attestations only — does NOT replace NPM_TOKEN auth)
 
     steps:
       - uses: actions/checkout@v4
@@ -130,6 +130,25 @@ jobs:
       - name: List platform packages
         working-directory: bindings/node
         run: find npm -type f | sort
+
+      - name: Inject optionalDependencies into main package.json
+        working-directory: bindings/node
+        run: |
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const v = pkg.version;
+          const n = pkg.name;
+          pkg.optionalDependencies = {
+            [n + '-darwin-arm64']:    v,
+            [n + '-darwin-x64']:      v,
+            [n + '-linux-arm64-gnu']: v,
+            [n + '-linux-x64-gnu']:   v,
+            [n + '-win32-x64-msvc']:  v,
+          };
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          console.log('optionalDependencies injected:', JSON.stringify(pkg.optionalDependencies, null, 2));
+          "
 
       - name: Publish platform packages
         working-directory: bindings/node
