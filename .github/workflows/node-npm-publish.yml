@@ -99,11 +99,16 @@ jobs:
 
       - name: Prepare npm platform packages
         working-directory: bindings/node
-        run: npx napi prepublish -t npm
+        run: npx napi prepublish --skip-gh-release
+
+      - name: List created platform packages
+        working-directory: bindings/node
+        run: ls -la npm/
 
       - name: Publish platform packages
         working-directory: bindings/node
         run: |
+          shopt -s nullglob
           for pkg_dir in npm/*/; do
             echo "Publishing ${pkg_dir} ..."
             npm publish "${pkg_dir}" --access public --provenance
