@@ -40,5 +40,9 @@
     "@napi-rs/cli": "^2",
     "vitest": "^3",
     "typescript": "^5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kenotron-ms/amplifier-core"
   }
 }
