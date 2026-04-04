@@ -92,14 +92,14 @@ jobs:
         with:
           pattern: bindings-*
           merge-multiple: true
-          path: bindings/node/
+          path: bindings/node/artifacts/
 
       - name: List downloaded .node files
-        run: ls -lh bindings/node/*.node
+        run: ls -lh bindings/node/artifacts/
 
-      - name: Prepare npm platform packages
+      - name: Move artifacts into npm platform packages
         working-directory: bindings/node
-        run: npx napi prepublish --skip-gh-release
+        run: npx napi artifacts --artifacts-dir artifacts --dist npm
 
       - name: List created platform packages
         working-directory: bindings/node
