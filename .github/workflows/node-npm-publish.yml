@@ -133,13 +133,17 @@ jobs:
 
       - name: Publish platform packages
         working-directory: bindings/node
+        # No --provenance here: platform packages have no trusted publishing
+        # config on npm. Auth uses NODE_AUTH_TOKEN (granular token).
         run: |
           shopt -s nullglob
           for pkg_dir in npm/*/; do
             echo "Publishing ${pkg_dir} ..."
-            npm publish "${pkg_dir}" --access public --provenance
+            npm publish "${pkg_dir}" --access public
           done
 
       - name: Publish main package
         working-directory: bindings/node
+        # --provenance uses OIDC via npm trusted publishing configured for
+        # @kenotron-ms/amplifier-core. NODE_AUTH_TOKEN used as fallback auth.
         run: npm publish --access public --provenance
