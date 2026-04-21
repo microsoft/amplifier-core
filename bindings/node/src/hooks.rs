@@ -43,7 +43,10 @@ impl HookHandler for JsHookHandlerBridge {
             "{}".to_string()
         });
         Box::pin(async move {
-            let result_str: String =
+            // The JS handler may return either a bare string (synchronous) or a
+            // Promise<String> (async). `call_async` returns whatever the JS
+            // function returned — accept both via `Either`.
+            let ret: Either<String, napi::bindgen_prelude::Promise<String>> =
                 self.callback
                     .call_async((event, data_str))
                     .await
@@ -51,6 +54,13 @@ impl HookHandler for JsHookHandlerBridge {
                         message: e.to_string(),
                         handler_name: None,
                     })?;
+            let result_str: String = match ret {
+                Either::A(s) => s,
+                Either::B(promise) => promise.await.map_err(|e| HookError::HandlerFailed {
+                    message: e.to_string(),
+                    handler_name: None,
+                })?,
+            };
             let hook_result: HookResult = serde_json::from_str(&result_str).unwrap_or_else(|e| {
                 log::error!(
                     "SECURITY: Hook handler returned unparseable result — failing closed (Deny): {e} — json: {result_str}"
