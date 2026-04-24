@@ -248,6 +248,12 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("CANCEL_REQUESTED", amplifier_core::events::CANCEL_REQUESTED)?;
     m.add("CANCEL_COMPLETED", amplifier_core::events::CANCEL_COMPLETED)?;
 
+    // Module lifecycle events
+    m.add(
+        "MODULE_ON_SESSION_READY_FAILED",
+        amplifier_core::events::MODULE_ON_SESSION_READY_FAILED,
+    )?;
+
     // Aggregate list of all events
     m.add("ALL_EVENTS", amplifier_core::events::ALL_EVENTS.to_vec())?;
 

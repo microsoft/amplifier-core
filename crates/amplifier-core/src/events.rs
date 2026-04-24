@@ -150,6 +150,12 @@ pub const CANCEL_REQUESTED: &str = "cancel:requested";
 /// Cancellation has been finalized, session stopping.
 pub const CANCEL_COMPLETED: &str = "cancel:completed";
 
+// --- Module lifecycle events ---
+
+/// Emitted when a module's on_session_ready() callback raises an exception.
+/// Payload: {module_id: str, error: str}
+pub const MODULE_ON_SESSION_READY_FAILED: &str = "module:on_session_ready_failed";
+
 // --- Aggregate ---
 
 /// All canonical event names, for iteration and validation.
@@ -198,6 +204,7 @@ pub const ALL_EVENTS: &[&str] = &[
     APPROVAL_DENIED,
     CANCEL_REQUESTED,
     CANCEL_COMPLETED,
+    MODULE_ON_SESSION_READY_FAILED,
 ];
 
 #[cfg(test)]
@@ -340,7 +347,7 @@ mod tests {
 
     #[test]
     fn all_events_count() {
-        assert_eq!(ALL_EVENTS.len(), 41, "expected 41 canonical events");
+        assert_eq!(ALL_EVENTS.len(), 42, "expected 42 canonical events");
     }
 
     #[test]

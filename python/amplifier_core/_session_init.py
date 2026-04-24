@@ -66,6 +66,9 @@ async def initialize_session(
         cleanup = await orchestrator_mount(coordinator)
         if cleanup:
             coordinator.register_cleanup(cleanup)
+        # B1 fix: enqueue on_session_ready ONLY after successful mount
+        if on_sr := getattr(orchestrator_mount, "__on_session_ready__", None):
+            loader.enqueue_on_session_ready(on_sr[0], on_sr[1])
     except Exception as e:
         raise RuntimeError(
             f"Cannot initialize without orchestrator: {_safe_exception_str(e)}"
@@ -93,6 +96,9 @@ async def initialize_session(
         cleanup = await context_mount(coordinator)
         if cleanup:
             coordinator.register_cleanup(cleanup)
+        # B1 fix: enqueue on_session_ready ONLY after successful mount
+        if on_sr := getattr(context_mount, "__on_session_ready__", None):
+            loader.enqueue_on_session_ready(on_sr[0], on_sr[1])
     except Exception as e:
         raise RuntimeError(
             f"Cannot initialize without context manager: {_safe_exception_str(e)}"
@@ -151,6 +157,9 @@ async def initialize_session(
             cleanup = await provider_mount(coordinator)
             if cleanup:
                 coordinator.register_cleanup(cleanup)
+            # B1 fix: enqueue on_session_ready ONLY after successful mount
+            if on_sr := getattr(provider_mount, "__on_session_ready__", None):
+                loader.enqueue_on_session_ready(on_sr[0], on_sr[1])
 
             # Multi-instance remapping: if instance_id specified, remap mount name
             if instance_id:
@@ -198,6 +207,9 @@ async def initialize_session(
             cleanup = await tool_mount(coordinator)
             if cleanup:
                 coordinator.register_cleanup(cleanup)
+            # B1 fix: enqueue on_session_ready ONLY after successful mount
+            if on_sr := getattr(tool_mount, "__on_session_ready__", None):
+                loader.enqueue_on_session_ready(on_sr[0], on_sr[1])
         except Exception as e:
             logger.warning(
                 f"Failed to load tool '{module_id}': {_safe_exception_str(e)}",
@@ -220,11 +232,44 @@ async def initialize_session(
             cleanup = await hook_mount(coordinator)
             if cleanup:
                 coordinator.register_cleanup(cleanup)
+            # B1 fix: enqueue on_session_ready ONLY after successful mount
+            if on_sr := getattr(hook_mount, "__on_session_ready__", None):
+                loader.enqueue_on_session_ready(on_sr[0], on_sr[1])
         except Exception as e:
             logger.warning(
                 f"Failed to load hook '{module_id}': {_safe_exception_str(e)}",
                 exc_info=True,
             )
+
+    # Phase 6 — on_session_ready callbacks
+    # Called after ALL modules have been mounted. Each callback receives the
+    # fully-composed coordinator. Failures are non-fatal: caught, logged as
+    # WARNING with exc_info=True, and do not block remaining callbacks.
+    # B4 fix: get_on_session_ready_queue() is a sync method — call it directly.
+    on_session_ready_queue = loader.get_on_session_ready_queue()
+    if on_session_ready_queue:
+        logger.info(
+            f"Dispatching {len(on_session_ready_queue)} on_session_ready callbacks"
+        )
+    for module_id, on_session_ready_fn in on_session_ready_queue:
+        try:
+            await on_session_ready_fn(coordinator)
+        except Exception as e:
+            logger.warning(
+                f"on_session_ready for '{module_id}' raised: {_safe_exception_str(e)}",
+                exc_info=True,
+            )
+            from .events import MODULE_ON_SESSION_READY_FAILED
+            try:
+                await coordinator.hooks.emit(
+                    MODULE_ON_SESSION_READY_FAILED,
+                    {"module_id": module_id, "error": _safe_exception_str(e)},
+                )
+            except Exception:
+                pass  # Event emission failure must not suppress the original warning
+
+    # B7 fix: drain queue after dispatch to prevent double-dispatch on re-use
+    loader.clear_on_session_ready_queue()
 
     # Emit session:fork event if this is a child session
     if parent_id:

@@ -8,7 +8,9 @@ Covers both session init paths:
 
 import pytest
 from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
 
+from amplifier_core.loader import ModuleLoader
 from amplifier_core.session import AmplifierSession as PyAmplifierSession
 from amplifier_core._session_init import initialize_session
 from amplifier_core.testing import MockCoordinator
@@ -32,13 +34,20 @@ def _make_provider_mount_fn(default_name: str, provider_instance=None):
 
 
 def _make_loader(module_to_mount_fn: dict):
-    """Return a mock loader whose load() returns the configured mount function."""
-    loader = AsyncMock()
+    """Return a mock loader whose load() returns the configured mount function.
+
+    B4 fix: use MagicMock (not AsyncMock) so get_on_session_ready_queue() returns
+    a plain list rather than a coroutine, which is required after removing the
+    coroutine guard from _session_init.py.
+    """
 
     async def _load(module_id, config=None, source_hint=None, coordinator=None):
         return module_to_mount_fn[module_id]
 
-    loader.load.side_effect = _load
+    loader = MagicMock(spec=ModuleLoader)
+    loader.load = AsyncMock(side_effect=_load)
+    loader.get_on_session_ready_queue = MagicMock(return_value=[])
+    loader._on_session_ready_queue = []
     return loader
 
 
@@ -155,7 +164,9 @@ async def test_multi_instance_providers_both_mounted():
 
     call_count = {"n": 0}
 
-    async def load_side_effect(module_id, config=None, source_hint=None, coordinator=None):
+    async def load_side_effect(
+        module_id, config=None, source_hint=None, coordinator=None
+    ):
         if module_id == "loop-basic":
             return AsyncMock(return_value=None)
         if module_id == "context-simple":
@@ -165,8 +176,10 @@ async def test_multi_instance_providers_both_mounted():
             return mount_fn_a if call_count["n"] == 1 else mount_fn_b
         raise ValueError(f"Unexpected module: {module_id}")
 
-    loader = AsyncMock()
-    loader.load.side_effect = load_side_effect
+    loader = MagicMock(spec=ModuleLoader)
+    loader.load = AsyncMock(side_effect=load_side_effect)
+    loader.get_on_session_ready_queue = MagicMock(return_value=[])
+    loader._on_session_ready_queue = []
 
     config = {
         "session": {"orchestrator": "loop-basic", "context": "context-simple"},
@@ -289,7 +302,9 @@ async def test_duplicate_module_with_instance_id_passes():
         await coord.mount("providers", provider_b, name="mock")
         return None
 
-    async def load_side_effect(module_id, config=None, source_hint=None, coordinator=None):
+    async def load_side_effect(
+        module_id, config=None, source_hint=None, coordinator=None
+    ):
         if module_id == "loop-basic":
             return AsyncMock(return_value=None)
         if module_id == "context-simple":
@@ -299,8 +314,10 @@ async def test_duplicate_module_with_instance_id_passes():
             return mount_fn_a if call_count["n"] == 1 else mount_fn_b
         raise ValueError(f"Unexpected module: {module_id}")
 
-    loader = AsyncMock()
-    loader.load.side_effect = load_side_effect
+    loader = MagicMock(spec=ModuleLoader)
+    loader.load = AsyncMock(side_effect=load_side_effect)
+    loader.get_on_session_ready_queue = MagicMock(return_value=[])
+    loader._on_session_ready_queue = []
 
     config = {
         "session": {"orchestrator": "loop-basic", "context": "context-simple"},
@@ -367,7 +384,9 @@ async def test_duplicate_module_one_missing_instance_id_allowed():
         await coord.mount("providers", named_instance, name="mock")
         return None
 
-    async def load_side_effect(module_id, config=None, source_hint=None, coordinator=None):
+    async def load_side_effect(
+        module_id, config=None, source_hint=None, coordinator=None
+    ):
         if module_id == "loop-basic":
             return AsyncMock(return_value=None)
         if module_id == "context-simple":
@@ -377,8 +396,10 @@ async def test_duplicate_module_one_missing_instance_id_allowed():
             return mount_fn_default if call_count["n"] == 1 else mount_fn_named
         raise ValueError(f"Unexpected module: {module_id}")
 
-    loader = AsyncMock()
-    loader.load.side_effect = load_side_effect
+    loader = MagicMock(spec=ModuleLoader)
+    loader.load = AsyncMock(side_effect=load_side_effect)
+    loader.get_on_session_ready_queue = MagicMock(return_value=[])
+    loader._on_session_ready_queue = []
 
     config = {
         "session": {"orchestrator": "loop-basic", "context": "context-simple"},
@@ -429,7 +450,9 @@ async def test_mixed_instance_id_preserves_default_entry():
 
     call_count = {"n": 0}
 
-    async def load_side_effect(module_id, config=None, source_hint=None, coordinator=None):
+    async def load_side_effect(
+        module_id, config=None, source_hint=None, coordinator=None
+    ):
         if module_id == "loop-basic":
             return AsyncMock(return_value=None)
         if module_id == "context-simple":
@@ -439,8 +462,10 @@ async def test_mixed_instance_id_preserves_default_entry():
             return mount_fn_first if call_count["n"] == 1 else mount_fn_second
         raise ValueError(f"Unexpected module: {module_id}")
 
-    loader = AsyncMock()
-    loader.load.side_effect = load_side_effect
+    loader = MagicMock(spec=ModuleLoader)
+    loader.load = AsyncMock(side_effect=load_side_effect)
+    loader.get_on_session_ready_queue = MagicMock(return_value=[])
+    loader._on_session_ready_queue = []
 
     config = {
         "session": {"orchestrator": "loop-basic", "context": "context-simple"},

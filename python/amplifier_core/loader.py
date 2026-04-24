@@ -11,6 +11,7 @@ With module source resolution:
 import contextlib
 import importlib
 import importlib.metadata
+import inspect
 import logging
 import os
 import sys
@@ -76,6 +77,7 @@ class ModuleLoader:
         self._search_paths = search_paths
         self._coordinator = coordinator
         self._added_paths: list[str] = []  # Track sys.path additions for cleanup
+        self._on_session_ready_queue: list[tuple[str, Callable]] = []
 
     async def discover(self) -> list[ModuleInfo]:
         """
@@ -208,6 +210,10 @@ class ModuleLoader:
             ):
                 return await fn(coordinator, config or {})
 
+            # B1: propagate __on_session_ready__ to fresh closure
+            if on_sr := getattr(raw_fn, "__on_session_ready__", None):
+                setattr(mount_with_config_cached, "__on_session_ready__", on_sr)
+
             return mount_with_config_cached
 
         try:
@@ -324,6 +330,10 @@ class ModuleLoader:
                 ):
                     return await fn(coordinator, config or {})
 
+                # B1: propagate __on_session_ready__ to closure
+                if on_sr := getattr(raw_fn, "__on_session_ready__", None):
+                    setattr(mount_with_config_ep, "__on_session_ready__", on_sr)
+
                 return mount_with_config_ep
 
             # Try filesystem loading
@@ -335,6 +345,10 @@ class ModuleLoader:
                     coordinator: ModuleCoordinator, fn=raw_fn
                 ):
                     return await fn(coordinator, config or {})
+
+                # B1: propagate __on_session_ready__ to closure
+                if on_sr := getattr(raw_fn, "__on_session_ready__", None):
+                    setattr(mount_with_config_fs, "__on_session_ready__", on_sr)
 
                 return mount_with_config_fs
 
@@ -371,6 +385,10 @@ class ModuleLoader:
             ):
                 return await fn(coordinator, config or {})
 
+            # B1: propagate __on_session_ready__ to closure
+            if on_sr := getattr(raw_fn, "__on_session_ready__", None):
+                setattr(mount_with_config_direct_ep, "__on_session_ready__", on_sr)
+
             return mount_with_config_direct_ep
 
         # Try filesystem — returns raw mount function (no config bound)
@@ -382,6 +400,10 @@ class ModuleLoader:
                 coordinator: ModuleCoordinator, fn=raw_fn
             ):
                 return await fn(coordinator, config or {})
+
+            # B1: propagate __on_session_ready__ to closure
+            if on_sr := getattr(raw_fn, "__on_session_ready__", None):
+                setattr(mount_with_config_direct_fs, "__on_session_ready__", on_sr)
 
             return mount_with_config_direct_fs
 
@@ -401,6 +423,31 @@ class ModuleLoader:
                     # Load the raw mount function (no config binding here)
                     mount_fn = ep.load()
                     logger.info(f"Loaded module '{module_id}' via entry point")
+
+                    # B2 fix: detect on_session_ready from entry-point modules.
+                    # ep.load() returns the mount function directly — no module object.
+                    # Recover the module via mount_fn.__module__ and check for on_session_ready.
+                    # Note: if the mount function lives in a submodule (e.g. amplifier_module_foo.handlers
+                    # rather than amplifier_module_foo), sys.modules.get(__module__) will find the submodule,
+                    # not the top-level package. on_session_ready defined at the top-level package (as is
+                    # conventional) will be missed. Constraint: on_session_ready must be defined in the
+                    # same module as the mount() function, or at the top-level package __init__.py.
+                    module_name = getattr(mount_fn, "__module__", None)
+                    if module_name:
+                        mod = sys.modules.get(module_name)
+                        if mod is None:
+                            with contextlib.suppress(ImportError):
+                                mod = importlib.import_module(module_name)
+                        if mod and hasattr(mod, "on_session_ready"):
+                            fn = mod.on_session_ready
+                            if inspect.iscoroutinefunction(fn):
+                                setattr(mount_fn, "__on_session_ready__", (module_id, fn))
+                            else:
+                                logger.warning(
+                                    f"Module '{module_id}' defines on_session_ready() as sync "
+                                    "— must be async. Skipping."
+                                )
+
                     return mount_fn
 
         except Exception as e:
@@ -421,10 +468,33 @@ class ModuleLoader:
             module_name = f"amplifier_module_{module_id.replace('-', '_')}"
             module = importlib.import_module(module_name)
 
+            # Detect on_session_ready lifecycle hook if present.
+            # B1 fix: do NOT enqueue here — _session_init enqueues after successful mount().
+            # Attach to the raw mount function so load() can propagate it to the closure.
+            if hasattr(module, "on_session_ready"):
+                fn = module.on_session_ready
+                if inspect.iscoroutinefunction(fn):
+                    # Attachment happens below when returning the raw mount fn
+                    pass
+                else:
+                    logger.warning(
+                        f"Module '{module_id}' defines on_session_ready() as sync "
+                        "— must be async. Skipping."
+                    )
+
             # Get the raw mount function (no config binding here)
             if hasattr(module, "mount"):
                 logger.info(f"Loaded module '{module_id}' from filesystem")
-                return module.mount
+                raw_mount = module.mount
+                # B1: attach on_session_ready to the raw function for propagation
+                if hasattr(module, "on_session_ready") and inspect.iscoroutinefunction(
+                    module.on_session_ready
+                ):
+                    raw_mount.__on_session_ready__ = (
+                        module_id,
+                        module.on_session_ready,
+                    )
+                return raw_mount
 
         except Exception as e:
             logger.debug(f"Could not load '{module_id}' from filesystem: {e}")
@@ -908,3 +978,27 @@ class ModuleLoader:
                 # Path already removed or never existed
                 logger.debug(f"Path '{path}' already removed from sys.path")
         self._added_paths.clear()
+
+    def get_on_session_ready_queue(self) -> list[tuple[str, Callable]]:
+        """Return a defensive copy of the on_session_ready lifecycle hook queue.
+
+        Each entry is a ``(module_id, on_session_ready_fn)`` tuple where
+        ``on_session_ready_fn`` is guaranteed to be an async callable.
+        """
+        return list(self._on_session_ready_queue)
+
+    def enqueue_on_session_ready(self, module_id: str, fn: Callable) -> None:
+        """Enqueue an on_session_ready callback. Called by _session_init after successful mount().
+
+        Only async functions should be enqueued; the caller is responsible for the
+        inspect.iscoroutinefunction() check (done at load time in load()).
+        """
+        self._on_session_ready_queue.append((module_id, fn))
+
+    def clear_on_session_ready_queue(self) -> None:
+        """Clear the on_session_ready queue after dispatch.
+
+        Called by _session_init after Phase 6 to drain the queue and prevent
+        double-dispatch on any subsequent re-use of the loader instance.
+        """
+        self._on_session_ready_queue.clear()

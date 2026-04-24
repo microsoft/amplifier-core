@@ -15,6 +15,7 @@ from typing import Any
 
 from .base import ValidationCheck
 from .base import ValidationResult
+from .structural import check_on_session_ready
 
 
 def _implements_hook_handler_interface(obj: Any) -> bool:
@@ -64,6 +65,11 @@ class HookValidator:
 
         # Check 3: mount() signature is correct
         self._check_mount_signature(result, mount_fn)
+
+        # Check 3.5: on_session_ready() must be async and accept coordinator
+        on_session_ready_check = check_on_session_ready(module)
+        if on_session_ready_check is not None:
+            result.add(on_session_ready_check)
 
         # Check 4: Protocol compliance (requires calling mount)
         await self._check_protocol_compliance(result, mount_fn, config=config)
