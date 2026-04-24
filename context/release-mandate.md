@@ -76,6 +76,59 @@ Full process details: `docs/CORE_DEVELOPMENT_PRINCIPLES.md` §10 — The Release
 
 ---
 
+## Pre-Merge Gate: Proof of Release Readiness
+
+*Added after the v1.2.3/v1.2.4 incidents and the PR #63 round-3 review (April 2026).*
+
+### The Rule
+
+**For `amplifier-core` only, version bump and release verification land in the PR, not after it.** Merge is release. The PR must prove it is ready to publish to PyPI before the merge button is pushed.
+
+### Why This Rule Exists
+
+The existing "every merge triggers a release" mandate created a dangerous window between merge and tag-push where:
+
+- Version files could be out of sync (the v1.2.4 incident)
+- The Rust↔Python FFI boundary could be broken in ways unit tests didn't catch (the v1.2.3 incident)
+- Intermediate-state debt accumulated in Python fallback shims "until next wheel build" (observed in PR #63)
+- Post-merge CI failures required yanking from PyPI instead of preventing the bad publish
+
+Elevating the bar to pre-merge means the PR itself proves end-to-end readiness. No follow-up, no window, no yanks.
+
+### Scope
+
+This rule applies **only to `amplifier-core`** — the sole ecosystem repo published to PyPI. Downstream repos (modules, bundles, foundation, apps) install from git and don't face this constraint.
+
+### What the PR Must Include
+
+Every PR to `amplifier-core` that changes code shipped in the wheel must include:
+
+1. **Version bump via atomic script** — `python scripts/bump_version.py X.Y.Z` applied to all three version files (`pyproject.toml`, `crates/amplifier-core/Cargo.toml`, `bindings/python/Cargo.toml`)
+
+2. **Rust/Python symmetry for kernel primitives** — any new event constant, capability name, or protocol identifier must be defined in both Rust (`events.rs`, etc.) AND Python (`events.py`, etc.), with matching membership in both `ALL_EVENTS` lists. No "Python fallback shim until next wheel build" — the wheel build is part of the PR.
+
+3. **Freshly built wheel** — the PR must include any regenerated binding artifacts (via `maturin develop` locally; CI verifies via `maturin build`). The Python side imports from the Rust binding via `amplifier_core._engine`, not via Python literals.
+
+4. **E2E smoke test result** — `./scripts/e2e-smoke-test.sh` run locally on the branch, with the output posted in the PR. CI should run it automatically where environment permits.
+
+5. **No `[tool.uv.sources]` git overrides for `amplifier-core`** in downstream repos (the existing step 4 from the post-merge checklist, elevated here).
+
+### Who Merges
+
+**The core owner merges.** Not the PR author, not a delegate, not a reviewer. The core owner verifies the PR is green on all pre-merge gates and pushes the merge button, which triggers the existing `rust-core-wheels.yml` workflow to build wheels and publish to PyPI.
+
+This creates a single accountable decision point: the core owner's merge click is the release commit. There is no intermediate state.
+
+### Relationship to the Existing Post-Merge Checklist
+
+The existing checklist (§"The Checklist (Every Merge)") still applies — the version bump, E2E smoke test, and tag push remain required. The change is their **timing**: these gates move from "immediately post-merge" to "proven in the PR, automatic on merge."
+
+### Relationship to the Incident Playbook
+
+Yanking from PyPI remains the recovery path if something does reach the registry broken. The pre-merge gate is the prevention layer; the yank playbook is the recovery layer. Both stay.
+
+---
+
 ## Incident Playbook: When a Broken Version Reaches PyPI
 
 *Added after the v1.2.3/v1.2.4 incidents (March 2026).*
