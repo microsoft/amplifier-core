@@ -93,7 +93,7 @@ class TestAllEventsList:
     def test_all_events_count(self):
         from amplifier_core.events import ALL_EVENTS
 
-        assert len(ALL_EVENTS) == 41, f"Expected 41 events, got {len(ALL_EVENTS)}"
+        assert len(ALL_EVENTS) == 42, f"Expected 42 events, got {len(ALL_EVENTS)}"
 
     def test_all_events_contains_all_constants(self):
         import amplifier_core.events as events

@@ -184,6 +184,177 @@ These types stay as Python by design — they are app-layer concerns, not kernel
 
 ---
 
+## Module Lifecycle Methods
+
+Modules may expose lifecycle methods that the kernel calls at specific points during
+initialisation.
+
+### `mount(coordinator, config)` — Required
+
+```python
+from collections.abc import Awaitable, Callable
+from typing import Any
+
+async def mount(coordinator, config: dict[str, Any] | None = None) -> Callable[[], None | Awaitable[None]] | None:
+    ...
+```
+
+Module-level free function — no `self`. Called once per module, in **phase order**,
+when the kernel loads and wires the module into the coordinator. At call time the
+coordinator is **partially composed** — modules from earlier phases are accessible,
+but later-phase modules may not yet be present.
+
+**Return value — optional cleanup callable:**
+
+`mount()` may return a zero-argument cleanup callable, or `None` (no cleanup needed).
+
+| Returned value | Kernel behaviour |
+|----------------|-----------------|
+| `None` | Silently ignored — no cleanup registered |
+| Non-callable (e.g. `dict`) | **Silently ignored** — `register_cleanup` only stores callables |
+| Sync callable | Stored; called with no args at teardown. If the call returns a coroutine it is awaited |
+| Async callable | Stored; at teardown the coroutine is obtained and **awaited** via `pyo3_async_runtimes::tokio::into_future` |
+
+The canonical form is an `async def cleanup()` nested closure:
+
+```python
+async def mount(coordinator, config: dict[str, Any] | None = None):
+    client = await MyClient.connect((config or {}).get("url"))
+    coordinator.register_capability("my.client", client)
+
+    async def cleanup() -> None:
+        await client.aclose()
+
+    return cleanup  # kernel awaits this at session teardown
+```
+
+Cleanup callables are called with **no arguments**, in **reverse registration order**
+(last-mounted module is cleaned up first). Errors in one cleanup callable are logged
+but do not prevent the remaining callables from running.
+
+Source reference: `bindings/python/src/coordinator/mod.rs::cleanup()` and
+`bindings/python/src/coordinator/capabilities.rs::register_cleanup()`.
+
+### `on_session_ready(coordinator)` — Optional
+
+```python
+async def on_session_ready(coordinator) -> None:
+    ...
+```
+
+Called **after ALL modules across all phases have completed `mount()`**. By the time
+`on_session_ready()` runs, the coordinator is fully composed and every contributed tool, hook,
+and provider is registered.
+
+#### `on_session_ready()` Contract
+
+| Property | Value |
+|----------|-------|
+| Presence | Optional |
+| Signature | `async def on_session_ready(coordinator) -> None` — no `config` param, no `self` |
+| Sync check | **Must** be `async`; a sync `on_session_ready` logs a warning and is skipped |
+| Return value | Ignored |
+| Exceptions | Non-fatal — caught and logged as warnings with `exc_info=True` |
+| Call order | Same as `mount()` order (phase order, then registration order within a phase) |
+| Timing | After all phases complete `mount()`, before `session:fork` is emitted |
+| Scope | Python-only — see polyglot note below |
+
+**Fork behaviour:** `on_session_ready` fires once per session. When a parent session forks a
+child session (the `session:fork` event), the child runs its own independent mount wave and
+its own `on_session_ready` pass — in the same order as its own module registration. A parent's
+`on_session_ready` callbacks do not run again for the child.
+
+**Dispatch ordering:** Callbacks fire **sequentially** in module registration order (orchestrator
+first, then context, then providers, tools, and hooks within each phase in load order). This
+ordering is stable and guaranteed. Cross-module assumptions built on this ordering are safe.
+
+**Failure isolation:** A raised exception in one module's `on_session_ready` is caught, logged as
+a WARNING with `exc_info=True`, and does not prevent remaining modules' callbacks from running.
+
+**No timeout:** The kernel enforces no timeout on `on_session_ready` callbacks. A hanging callback
+hangs the session. This is a deliberate absence — documenting it now prevents surprise if a timeout
+is added later (adding one is a breaking change).
+
+**Observability event:** On `on_session_ready` failure, the kernel emits a
+`module:on_session_ready_failed` event with payload `{"module_id": str, "error": str}`, in
+addition to the WARNING log. Log-only failures are invisible to observability hooks.
+
+#### When to use `on_session_ready()`
+
+- **Discovering contributions from other modules** — read the fully-composed coordinator
+  to inspect tools, hooks, or providers registered by peers.
+- **Wiring cross-module dependencies** — subscribe to hooks or capabilities that are only
+  present after another module mounts.
+- **Eliminating dual-path patterns** — avoid the anti-pattern of checking for a capability
+  in both `mount()` (not yet available) and in a request handler (too late to configure).
+
+**Before `on_session_ready` (dual-path anti-pattern) — process-scoped global, unsafe for multi-session deployments:**
+
+```python
+# Before (anti-pattern) — process-scoped global, unsafe for multi-session deployments
+_coordinator = None  # ← shared across ALL sessions in the process
+
+async def mount(coordinator, config: dict | None = None) -> None:
+    global _coordinator
+    _coordinator = coordinator
+
+async def handle_request(request):
+    if _coordinator and _coordinator.get("tools", {}).get("search"):
+        result = await _coordinator.get("tools")["search"].execute(**request.params)
+```
+
+**After `on_session_ready` (correct) — session-scoped via closure, safe for multi-session deployments:**
+
+```python
+# After (correct) — session-scoped via closure, safe for multi-session deployments
+async def mount(coordinator, config: dict | None = None) -> None:
+    pass  # nothing cross-module to wire here
+
+async def on_session_ready(coordinator) -> None:
+    # Session-scoped: register_capability stores reference per-session on the coordinator
+    tools = coordinator.get("tools") or {}
+    search_tool = tools.get("search")
+    if search_tool:
+        coordinator.register_capability("my_module.search_tool", search_tool)
+
+async def handle_request(coordinator, request):
+    search_tool = coordinator.get_capability("my_module.search_tool")
+    if search_tool:
+        result = await search_tool.execute(**request.params)
+```
+
+> **Cleanup from `on_session_ready()`:** `on_session_ready()`'s return value is ignored. If a
+> resource allocated in `on_session_ready()` needs teardown, register the cleanup directly:
+> `coordinator.register_cleanup(my_async_cleanup_fn)`.
+
+#### Canonical use case: event subscription after full composition
+
+```python
+# Canonical on_session_ready pattern: event discovery + subscription
+# (from hooks-logging, the primary motivating adopter)
+
+async def mount(coordinator, config: dict | None = None):
+    pass  # store config-derived state if needed
+
+async def on_session_ready(coordinator) -> None:
+    # All modules mounted — event contributions are complete
+    all_events = set(ALL_EVENTS)  # core canonical events
+    contributions = await coordinator.collect_contributions("observability.events")
+    for event_list in contributions:
+        all_events.update(event_list)
+    # delegate:agent_spawned, delegate:agent_completed are now guaranteed present
+    for event in all_events:
+        coordinator.hooks.register(event, my_handler, name="my-module")
+```
+
+#### Polyglot note
+
+`on_session_ready()` is **Python-only**. WASM, gRPC, and native Rust modules do not participate
+in the `on_session_ready()` wave. If a polyglot module needs post-composition behaviour, defer
+it to a request-time check or emit a custom event that Python modules can subscribe to.
+
+---
+
 ## Event Constants
 
 Canonical event names are defined in `crates/amplifier-core/src/events.rs` (Rust)
