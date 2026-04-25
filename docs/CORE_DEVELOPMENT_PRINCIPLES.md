@@ -160,59 +160,71 @@ This guarantee does NOT mean we can't evolve. It means evolution is additive —
 
 ---
 
-## 10. The Release Gate: Every Merge Gets a Release
+## 10. The Release Gate: Merge Is Release
 
-**Every PR merged to `amplifier-core` main MUST be immediately followed by a version bump, release commit, `v{version}` tag, and tag push. No exceptions.**
+**For `amplifier-core` only, every change that ships in the wheel proves end-to-end release readiness *in the PR*. The merge button is the publish button. There is no post-merge release window.**
 
-This rule exists because `amplifier-core` occupies a unique position in the ecosystem: it is the **only repo published to PyPI**. The failure mode is concrete and was observed in production:
+This rule supersedes the older "every merge is followed by a version bump and tag push" model. The gates are unchanged in substance; they have been moved earlier — from "immediately after merge" to "proven in the PR before merge." This eliminates the version-skew window between git HEAD and PyPI, removes the class of post-merge mistakes that produced the v1.2.3 and v1.2.4 incidents, and removes the temptation to land "Python fallback shim until next wheel build" intermediate states (the anti-pattern that surfaced in PR #63's round-3 review).
 
-- Users install `amplifier-core` from PyPI and get a pinned version (e.g., v1.0.7).
-- Downstream modules (`amplifier-module-*`, provider repos) install from git and track `main` directly.
-- A PR merges to `main` that changes the API. No release is cut. PyPI still serves v1.0.7.
-- Any user who installs or updates a module that tracks the new API now has a version skew. It breaks silently or with a confusing error.
-
-**This happened.** Commit `580ecc0` ("eliminate Python RetryConfig") merged on March 3, 2026 without a release. `provider-anthropic` was updated to use `initial_delay` instead of `min_delay`. All v1.0.7 PyPI users broke immediately. An emergency v1.0.8 hotfix was required.
+> **Authoritative reference:** `context/release-mandate.md` § "Pre-Merge Gate: Proof of Release Readiness". That document is canonical; this section is its in-tree summary. The Incident Playbook (recovery via PyPI yank, fix-forward, never reuse a version number) lives there as well.
 
 ### Scope: amplifier-core Only
 
-This rule applies **specifically to amplifier-core** because of its PyPI distribution. Other ecosystem repos — `amplifier-module-*`, `amplifier-bundle-*`, `amplifier-app-*`, provider repos — currently use `git+https` references for Python. Individual repo authors choose their own release process for those repos. Do not apply this mandate to them.
+This rule applies **specifically to `amplifier-core`** because of its PyPI distribution. Other ecosystem repos — `amplifier-module-*`, `amplifier-bundle-*`, `amplifier-app-*`, `amplifier-foundation`, provider repos — install from git and pick up `main` directly. They use ordinary git-based workflows; individual repo authors choose their own release cadence. Do not apply this mandate to them.
 
-### The Release Checklist (Every Merge)
+### What the PR Must Include
 
-1. **Determine the version increment** (semver rules):
-   - PATCH (`X.Y.Z+1`) — bug fixes, no API changes
-   - MINOR (`X.Y+1.0`) — additive API additions (new fields, new methods, backward compatible)
-   - MAJOR (`X+1.0.0`) — breaking API changes (removed fields, changed signatures)
+Every PR to `amplifier-core` that changes code shipped in the wheel must include all of the following before the core owner clicks merge:
 
-2. **Bump all three version files atomically** using the script:
+1. **Atomic version bump.** Run:
    ```bash
    python scripts/bump_version.py X.Y.Z
    ```
-   This updates in sync:
-   - `pyproject.toml` (line 3)
-   - `crates/amplifier-core/Cargo.toml` (line 3)
-   - `bindings/python/Cargo.toml` (line 3)
+   The script updates all three version files in sync — `pyproject.toml`, `crates/amplifier-core/Cargo.toml`, `bindings/python/Cargo.toml` — and warns if any were already out of sync (a canary for prior manual edits). Manual edits to individual files are forbidden; they are how v1.2.4's "version files not bumped before tagging" incident happened. Semver applies: PATCH for bug fixes, MINOR for additive API, MAJOR for breaking changes.
 
-3. **Run the E2E smoke test** before tagging:
+2. **Rust/Python symmetry for kernel primitives.** Any new event constant, capability name, or protocol identifier must be defined in **both** sides — Rust (`crates/amplifier-core/src/events.rs`, etc.) and Python (`python/amplifier_core/events.py`, etc.) — with matching membership in both `ALL_EVENTS` lists. Enforced by `bindings/python/tests/test_event_constants.py`. The Python side imports from the Rust binding via `amplifier_core._engine`; there is no "Python fallback shim until next wheel build" path, because the wheel build is part of the PR.
+
+3. **Freshly built wheel.** The PR must include any regenerated binding artifacts. Run `maturin develop` locally; CI verifies via `maturin build`. A stale wheel means a stale Python surface, which means switchover tests pass but real users break.
+
+4. **E2E smoke test result.** Run:
    ```bash
    ./scripts/e2e-smoke-test.sh
    ```
-   Validates the built wheel in an isolated Docker container with a real LLM session.
-   Requires Docker and `ANTHROPIC_API_KEY`. Do not tag until it passes.
-   See `context/release-mandate.md` for full details and incident playbook.
+   Builds a wheel from local source, installs it in an isolated Docker container alongside the real `amplifier` CLI, and runs a real LLM-powered session exercising tool dispatch, agent delegation, and recipe execution. Includes the pristine-import preflight (Step 1b, added in v1.4.1) which imports the wheel into a bare `python:3.12-slim` before any other deps pollute the env, catching undeclared runtime dependencies. Requires Docker and `ANTHROPIC_API_KEY` (or `~/.amplifier/keys.env`). Takes ~5 minutes. Post the output in the PR. CI runs it where environment permits.
 
-4. **Commit, tag, and push:**
+5. **No `[tool.uv.sources]` git overrides for `amplifier-core`** in downstream repos. A git-source override on `main` makes the PyPI publish invisible to that repo's users. Verify with:
    ```bash
-   git commit -am "chore: bump version to X.Y.Z"
-   git tag vX.Y.Z
-   git push origin main --tags
+   for repo in amplifier amplifier-app-cli amplifier-foundation; do
+     gh api repos/microsoft/$repo/contents/pyproject.toml --jq '.content' \
+       | base64 -d | grep -A2 'amplifier-core.*git' \
+       && echo "WARNING: git override in $repo" || echo "$repo: OK"
+   done
    ```
 
-5. **Verify CI triggers.** The `v*` tag triggers `rust-core-wheels.yml`, which builds wheels for all platforms (Linux x86/aarch64, macOS, Windows) and publishes to PyPI. The next PR does not start until PyPI publish is confirmed.
+### Who Merges
 
-### Why the Script Exists
+**The core owner merges.** Not the PR author, not a delegate, not a reviewer. The core owner verifies all five gates are green, then clicks merge. The merge commit is the release commit. CI tags the commit `vX.Y.Z` and pushes; the `v*` tag triggers `rust-core-wheels.yml` to build wheels for all platforms (Linux x86/aarch64, macOS, Windows) and publish to PyPI.
 
-The three version files must stay in sync. Manual edits to individual files are error-prone and caused divergence in the past. `scripts/bump_version.py` reads all three, warns if they are already out of sync (canary for prior manual edits), and writes all three atomically.
+This produces a single accountable decision point per release. The intermediate state — "merged but not tagged," "tagged but not published" — is gone.
+
+### Why This Replaced the Post-Merge Model
+
+The previous model required a version bump, tag, and push *immediately after merge*. That worked for the original failure mode (`v1.0.7→v1.0.8`, March 2026) but introduced its own:
+
+- **v1.2.3 (March 2026):** `session_state` crash; a Rust↔Python FFI mismatch all unit tests passed but the wheel was broken. Yanked.
+- **v1.2.4 (March 2026):** `_tool_dispatch_context` crash; same class of failure. Yanked.
+- **v1.2.4 retag (March 2026):** version files not bumped before tagging; PyPI publish rejected. Re-tagged.
+- **PR #63 round-3 review (April 2026):** surfaced the "Python fallback shim until next wheel build" intermediate-state pattern as a structural risk, even when no incident had yet occurred.
+
+Moving the gates pre-merge means the PR itself is the proof of release readiness. Post-merge mistakes are no longer possible because there is no post-merge work to mishandle.
+
+### Recovery: When Something Reaches PyPI Broken
+
+The pre-merge gate is the prevention layer. The Incident Playbook is the recovery layer. Both remain in force. If a broken version reaches PyPI:
+
+1. **Yank** the broken version on PyPI immediately (~30 seconds): https://pypi.org/manage/project/amplifier-core/release/X.Y.Z/ → Options → Yank release.
+2. **Fix forward** — never reuse a yanked version number. Bump to the next PATCH, run the gates, merge.
+3. **Post-mortem** — add the incident to the history table in `context/release-mandate.md`.
 
 ---
 

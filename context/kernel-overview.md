@@ -63,6 +63,13 @@ Infrastructure context carrying:
 - Hook protocol: `__call__(event, data) → HookResult`
 - ContextManager protocol: `add_message/get_messages_for_request/get_messages/set_messages/clear`
 
+### Module Lifecycle
+The kernel calls two lifecycle entry points on every module, in deterministic order:
+- `mount(coordinator, config)` — **required.** Per-module setup while the coordinator is partially composed. May return a cleanup callable.
+- `on_session_ready(coordinator)` — **optional, Python-only.** Per-session callback after every module across every phase has finished `mount()`. Use for cross-module wiring against the fully-composed coordinator.
+
+See `@core:CONTRACTS.md` § Module Lifecycle Methods for the authoritative contract — including dispatch ordering, failure isolation, the `module:on_session_ready_failed` event, fork semantics, and the explicit no-timeout rule.
+
 ## What the Kernel Does NOT Provide
 
 - ❌ Which modules to use (app layer decides)
@@ -149,6 +156,26 @@ async def set_messages(self, messages: list[dict[str, Any]]) -> None
 
 async def clear(self) -> None
 ```
+
+### Module Lifecycle
+Both are module-level free functions — no `self`, no class.
+
+```python
+async def mount(
+    coordinator,
+    config: dict[str, Any] | None = None,
+) -> Callable[[], None | Awaitable[None]] | None
+```
+
+```python
+async def on_session_ready(coordinator) -> None
+```
+
+`mount()` runs in phase order; the coordinator is partially composed. The optional return value is a zero-argument cleanup callable (sync or async) invoked at teardown in reverse registration order.
+
+`on_session_ready()` runs after **all** modules in **all** phases have completed `mount()`, before `session:fork` is emitted. Python-only; sequential dispatch in mount registration order; exceptions are isolated and emit `module:on_session_ready_failed`. **No timeout — a hanging callback hangs the session.**
+
+Authoritative source: `@core:CONTRACTS.md` § Module Lifecycle Methods.
 
 ## For Module Developers
 
