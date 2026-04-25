@@ -127,6 +127,49 @@ WHEEL=$(ls "$WHEEL_DIR"/amplifier_core-*.whl 2>/dev/null | head -1)
 log "Using wheel: $(basename "$WHEEL")"
 
 # ---------------------------------------------------------------------------
+# Step 1b: Pristine-import preflight
+# ---------------------------------------------------------------------------
+# Catch the v1.4.0 class of bug: wheel requires a runtime dep not declared in
+# pyproject.toml, but masked by transitive deps in the polluted CLI install
+# environment from Steps 4–5. We install ONLY the wheel into a fresh
+# python:3.12-slim image and verify the production import paths succeed.
+#
+# Required because Step 4's `uv tool install git+microsoft/amplifier@main`
+# pulls a full dep closure (including pytest as a transitive) which can hide
+# missing runtime deps. A clean end-user `pip install amplifier-core` doesn't
+# get that pollution and would fail.
+#
+# See context/release-mandate.md Incident History #5 (v1.4.0 yank).
+
+log "Pristine-import preflight: wheel must import on bare python:3.12-slim..."
+WHEEL_BASENAME="$(basename "$WHEEL")"
+docker run --rm \
+    -v "$WHEEL":"/tmp/${WHEEL_BASENAME}":ro \
+    -e WHEEL_BASENAME="$WHEEL_BASENAME" \
+    python:3.12-slim \
+    bash -c '
+        set -e
+        pip install -q "/tmp/${WHEEL_BASENAME}"
+        python -c "
+import sys
+# Defensive: poison pytest so any leak is detected even on images that happen to ship it
+sys.modules[\"pytest\"] = None
+from amplifier_core.validation import (
+    HookValidator, ToolValidator, OrchestratorValidator,
+    ProviderValidator, ContextValidator,
+)
+from amplifier_core.validation.base import check_on_session_ready
+import amplifier_core._session_init   # noqa: F401
+import amplifier_core.loader          # noqa: F401
+import amplifier_core.coordinator     # noqa: F401
+import amplifier_core.hooks           # noqa: F401
+print(\"pristine import OK\")
+"
+    ' || fail "Pristine-import preflight failed — wheel has runtime dep not declared in pyproject.toml"
+
+log "Pristine-import preflight passed."
+
+# ---------------------------------------------------------------------------
 # Step 2: Create container
 # ---------------------------------------------------------------------------
 

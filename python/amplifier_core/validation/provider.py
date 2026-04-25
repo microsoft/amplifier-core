@@ -16,7 +16,7 @@ from typing import Any
 from ..models import ProviderInfo
 from .base import ValidationCheck
 from .base import ValidationResult
-from .structural import check_on_session_ready
+from .base import check_on_session_ready
 
 
 def _implements_provider_interface(obj: Any) -> bool:
