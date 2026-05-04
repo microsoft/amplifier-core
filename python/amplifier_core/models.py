@@ -6,11 +6,13 @@ Uses Pydantic for validation and serialization.
 import json
 import re
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import field_validator
 
 
 def _sanitize_for_llm(text: str) -> str:
@@ -417,8 +419,30 @@ class SessionStatus(BaseModel):
     total_input_tokens: int = 0
     total_output_tokens: int = 0
 
-    # Cost tracking (if available)
-    estimated_cost: float | None = None
+    # Cost tracking
+    cost_usd: Decimal | None = Field(
+        default=None,
+        description=(
+            "Accumulated session cost in USD. "
+            "None = rate data unavailable (not zero). "
+            "Populated by provider session contributors."
+        ),
+    )
+    estimated_cost: float | None = Field(
+        default=None,
+        deprecated=True,
+        description="Deprecated: use cost_usd (Decimal). Will be removed in a future release.",
+    )
+
+    @field_validator("cost_usd", mode="before")
+    @classmethod
+    def reject_float_cost_usd(cls, v):
+        if isinstance(v, float):
+            raise ValueError(
+                "cost_usd must be Decimal, not float. "
+                "Use Decimal('1.23') — floats lose monetary precision."
+            )
+        return v
 
     # Last activity
     last_activity: datetime | None = None

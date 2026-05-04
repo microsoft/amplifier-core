@@ -14,6 +14,7 @@ import pytest
 from pydantic import ValidationError
 
 from amplifier_core.message_models import Usage
+from amplifier_core.models import SessionStatus
 
 
 class TestUsageCostUsd:
@@ -54,7 +55,9 @@ class TestUsageCostUsd:
     def test_cost_usd_accepts_decimal_from_string(self):
         """Decimal coercion from string is acceptable (event dict transport pattern)."""
         usage = Usage(
-            input_tokens=100, output_tokens=50, total_tokens=150,
+            input_tokens=100,
+            output_tokens=50,
+            total_tokens=150,
             cost_usd="0.0478",  # raw string, as it would arrive from a JSON dict
         )
         assert usage.cost_usd == Decimal("0.0478")
@@ -99,3 +102,31 @@ class TestUsageCostUsd:
         usage = Usage(input_tokens=100, output_tokens=50, total_tokens=150)
         dumped = usage.model_dump(exclude_none=True)
         assert "cost_usd" not in dumped
+
+
+class TestSessionStatusCostUsd:
+    def test_cost_usd_defaults_to_none(self):
+        status = SessionStatus(session_id="test-123")
+        assert status.cost_usd is None
+
+    def test_cost_usd_accepts_decimal(self):
+        status = SessionStatus(session_id="test-123", cost_usd=Decimal("1.234567"))
+        assert status.cost_usd == Decimal("1.234567")
+        assert isinstance(status.cost_usd, Decimal)
+
+    def test_cost_usd_rejects_float(self):
+        with pytest.raises(ValidationError):
+            SessionStatus(session_id="test-123", cost_usd=1.23)
+
+    def test_estimated_cost_deprecated_but_still_works(self):
+        """estimated_cost still accepts float for backward compat (deprecated, not removed)."""
+        status = SessionStatus(session_id="test-123", estimated_cost=0.5)
+        assert status.estimated_cost == 0.5
+
+    def test_to_dict_includes_cost_usd_as_string(self):
+        """to_dict() uses mode='json' — cost_usd should serialize as string."""
+        status = SessionStatus(session_id="test-123", cost_usd=Decimal("2.50"))
+        d = status.to_dict()
+        assert "cost_usd" in d
+        assert isinstance(d["cost_usd"], str)
+        assert d["cost_usd"] == "2.50"
