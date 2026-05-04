@@ -451,7 +451,12 @@ pub struct SessionStatus {
     pub total_output_tokens: i64,
 
     // Cost tracking
-    /// Estimated cost (if available).
+    /// Accumulated session cost in USD as a decimal string (e.g., "0.047832").
+    /// None means rate data was unavailable — not zero cost.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<String>,
+
+    /// Deprecated: use cost_usd. Retained for backward compatibility.
     #[serde(default)]
     pub estimated_cost: Option<f64>,
 
@@ -866,6 +871,7 @@ mod tests {
             tool_failures: 1,
             total_input_tokens: 1000,
             total_output_tokens: 500,
+            cost_usd: None,
             estimated_cost: Some(0.05),
             last_activity: Some("2025-01-01T00:01:00Z".into()),
             last_error: None,
@@ -886,5 +892,18 @@ mod tests {
         assert_eq!(status.total_messages, 0);
         assert_eq!(status.tool_invocations, 0);
         assert!(status.ended_at.is_none());
+    }
+    #[test]
+    fn session_status_cost_usd_roundtrip() {
+        // Verifies cost_usd: Option<String> is present and roundtrips correctly.
+        // String type matches Decimal JSON serialization on the Python side.
+        let json = r#"{"session_id": "s1", "started_at": "2025-01-01T00:00:00Z", "cost_usd": "0.047832"}"#;
+        let status: SessionStatus = serde_json::from_str(json).unwrap();
+        assert_eq!(status.cost_usd, Some("0.047832".to_string()));
+
+        // None when absent (unknown cost, not zero)
+        let json_no_cost = r#"{"session_id": "s2", "started_at": "2025-01-01T00:00:00Z"}"#;
+        let status_no_cost: SessionStatus = serde_json::from_str(json_no_cost).unwrap();
+        assert!(status_no_cost.cost_usd.is_none());
     }
 }

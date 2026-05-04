@@ -130,3 +130,19 @@ class TestSessionStatusCostUsd:
         assert "cost_usd" in d
         assert isinstance(d["cost_usd"], str)
         assert d["cost_usd"] == "2.50"
+
+class TestSchemaSync:
+    def test_session_status_schema_has_cost_usd(self):
+        """JSON schema for SessionStatus must include cost_usd."""
+        schema = SessionStatus.model_json_schema()
+        props = schema.get("properties", {})
+        assert "cost_usd" in props, f"cost_usd missing. Keys: {list(props.keys())}"
+
+    def test_session_status_schema_cost_usd_is_string_type(self):
+        """In JSON schema, cost_usd should be string (Decimal serializes as string)."""
+        schema = SessionStatus.model_json_schema()
+        cost_prop = schema["properties"]["cost_usd"]
+        types = [t.get("type") for t in cost_prop.get("anyOf", [cost_prop])]
+        assert "string" in types or cost_prop.get("type") == "string", (
+            f"cost_usd schema type should include 'string', got: {cost_prop}"
+        )
