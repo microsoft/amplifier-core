@@ -168,6 +168,7 @@ impl From<crate::messages::Usage> for super::amplifier_module::Usage {
                     i32::MAX
                 })
             }),
+            cost_usd: None,
         }
     }
 }
