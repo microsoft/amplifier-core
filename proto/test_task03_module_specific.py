@@ -222,6 +222,27 @@ def test_approval_response_message():
         assert field_present(body, field), f"ApprovalResponse missing field: {field}"
 
 
+
+
+def test_usage_message_has_cost_usd():
+    """Usage message must have cost_usd as optional string field 7.
+    
+    String type matches Decimal JSON serialization on the Python/SessionStatus side.
+    None means unknown cost (not zero).
+    """
+    content = read_proto()
+    assert "message Usage" in content, "Missing message Usage"
+    m = re.search(r'message Usage\s*\{([^}]+)\}', content)
+    assert m, "Cannot parse Usage body"
+    body = m.group(1)
+    assert "cost_usd" in body, (
+        "Usage message missing field cost_usd. "
+        "Add: optional string cost_usd = 7;  // Decimal as string; None = unknown cost"
+    )
+    assert field_present(body, "string cost_usd"), (
+        f"cost_usd should be type 'string' (Decimal serializes as string), got: {body}"
+    )
+
 if __name__ == "__main__":
     # Run all test functions
     failed = []

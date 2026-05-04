@@ -305,6 +305,7 @@ message Usage {
   optional int32 reasoning_tokens        = 4;
   optional int32 cache_read_tokens       = 5;
   optional int32 cache_creation_tokens   = 6;
+  optional string cost_usd              = 7;  // Decimal as string; None = unknown cost
 }
 
 message Degradation {
