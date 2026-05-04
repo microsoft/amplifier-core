@@ -8,13 +8,12 @@ Verifies:
 - SessionStatus.estimated_cost is removed (was never populated)
 """
 
-from decimal import Decimal, InvalidOperation  # noqa: F401 — used in Task 2 (TestSessionStatusCostUsd)
+from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError
 
 from amplifier_core.message_models import Usage
-from amplifier_core.models import SessionStatus  # noqa: F401 — used in Task 2 (TestSessionStatusCostUsd)
 
 
 class TestUsageCostUsd:
@@ -44,7 +43,7 @@ class TestUsageCostUsd:
 
     def test_cost_usd_rejects_float(self):
         """Float must be rejected — Pydantic should raise ValidationError for float input."""
-        with pytest.raises((ValidationError, TypeError)):
+        with pytest.raises(ValidationError):
             Usage(
                 input_tokens=100,
                 output_tokens=50,
@@ -55,12 +54,11 @@ class TestUsageCostUsd:
     def test_cost_usd_accepts_decimal_from_string(self):
         """Decimal coercion from string is acceptable (event dict transport pattern)."""
         usage = Usage(
-            input_tokens=100,
-            output_tokens=50,
-            total_tokens=150,
-            cost_usd=Decimal("0.0478"),
+            input_tokens=100, output_tokens=50, total_tokens=150,
+            cost_usd="0.0478",  # raw string, as it would arrive from a JSON dict
         )
         assert usage.cost_usd == Decimal("0.0478")
+        assert isinstance(usage.cost_usd, Decimal)
 
     def test_none_is_not_zero(self):
         """Explicit contract: None (unknown) != Decimal('0') (free)."""
