@@ -14,6 +14,8 @@ See:
 - docs/schemas/request_envelope_v1.json for JSON schema
 """
 
+from decimal import Decimal
+
 from typing import Annotated
 from typing import Any
 from typing import Literal
@@ -22,6 +24,7 @@ from typing import Union
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import field_validator
 
 
 class TextBlock(BaseModel):
@@ -242,6 +245,17 @@ class Usage(BaseModel):
     reasoning_tokens: int | None = None
     cache_read_tokens: int | None = None
     cache_write_tokens: int | None = None
+    cost_usd: Decimal | None = None
+
+    @field_validator("cost_usd", mode="before")
+    @classmethod
+    def reject_float_cost(cls, v):
+        if isinstance(v, float):
+            raise ValueError(
+                "cost_usd must be Decimal, not float. "
+                "Use Decimal('0.047') — floats lose monetary precision."
+            )
+        return v
 
 
 class Degradation(BaseModel):
