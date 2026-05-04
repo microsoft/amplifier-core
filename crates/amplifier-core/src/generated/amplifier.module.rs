@@ -318,7 +318,7 @@ pub mod response_format {
         JsonSchema(super::JsonSchemaFormat),
     }
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Usage {
     #[prost(int32, tag = "1")]
     pub prompt_tokens: i32,
@@ -332,6 +332,9 @@ pub struct Usage {
     pub cache_read_tokens: ::core::option::Option<i32>,
     #[prost(int32, optional, tag = "6")]
     pub cache_creation_tokens: ::core::option::Option<i32>,
+    /// Decimal as string; None = unknown cost
+    #[prost(string, optional, tag = "7")]
+    pub cost_usd: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Degradation {
