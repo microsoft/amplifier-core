@@ -179,6 +179,7 @@ Providers **MUST** emit `llm:response` with the following `usage` payload. Key n
 |-----|------|----------|-------------|
 | `input_tokens` | `int` | **MUST** | Total input tokens — gross total (fresh + cache_read combined) |
 | `output_tokens` | `int` | **MUST** | Total output tokens generated |
+| `total_tokens` | `int` | SHOULD | Sum of `input_tokens` + `output_tokens`; derivable but present in kernel `Usage` model — omitting it from the event payload breaks consumers that read it from there |
 | `cache_read_tokens` | `int` | SHOULD (when non-zero) | Tokens served from prompt cache |
 | `cache_write_tokens` | `int` | SHOULD (when non-zero) | Tokens written to prompt cache (billed on top of gross) |
 
