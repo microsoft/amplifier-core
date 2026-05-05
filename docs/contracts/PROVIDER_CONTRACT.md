@@ -171,6 +171,44 @@ coordinator.register_contributor(
 
 See [CONTRIBUTION_CHANNELS.md](../specs/CONTRIBUTION_CHANNELS.md) for the pattern.
 
+### `llm:response` Event — `usage` Payload Schema
+
+Providers **MUST** emit `llm:response` with the following `usage` payload. Key names are normative — derived from the kernel `Usage` struct (`crates/amplifier-core/src/messages.rs`):
+
+| Key | Type | Required | Description |
+|-----|------|----------|-------------|
+| `input_tokens` | `int` | **MUST** | Total input tokens — gross total (fresh + cache_read combined) |
+| `output_tokens` | `int` | **MUST** | Total output tokens generated |
+| `cache_read_tokens` | `int` | SHOULD (when non-zero) | Tokens served from prompt cache |
+| `cache_write_tokens` | `int` | SHOULD (when non-zero) | Tokens written to prompt cache (billed on top of gross) |
+
+**DO NOT use:** `"input"`, `"output"`, `"input_tokens_used"`, `"completion_tokens"`, or any other variant. These break consumers silently.
+
+**Reference emit pattern** (build `ChatResponse` before emitting):
+
+```python
+chat_response = self._convert_to_chat_response(response)  # build first
+
+event_usage: dict[str, Any] = {
+    "input_tokens": chat_response.usage.input_tokens,
+    "output_tokens": chat_response.usage.output_tokens,
+}
+if chat_response.usage.cache_read_tokens is not None:
+    event_usage["cache_read_tokens"] = chat_response.usage.cache_read_tokens
+if chat_response.usage.cache_write_tokens is not None:
+    event_usage["cache_write_tokens"] = chat_response.usage.cache_write_tokens
+
+await coordinator.hooks.emit("llm:response", {
+    "provider": self.name,
+    "model": model,
+    "status": "ok",
+    "duration_ms": elapsed_ms,
+    "usage": event_usage,
+})
+
+return chat_response  # return the already-built response
+```
+
 ---
 
 ## Canonical Example
