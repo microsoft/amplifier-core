@@ -900,7 +900,8 @@ mod tests {
     fn session_status_cost_usd_roundtrip() {
         // Verifies cost_usd: Option<String> is present and roundtrips correctly.
         // String type matches Decimal JSON serialization on the Python side.
-        let json = r#"{"session_id": "s1", "started_at": "2025-01-01T00:00:00Z", "cost_usd": "0.047832"}"#;
+        let json =
+            r#"{"session_id": "s1", "started_at": "2025-01-01T00:00:00Z", "cost_usd": "0.047832"}"#;
         let status: SessionStatus = serde_json::from_str(json).unwrap();
         assert_eq!(status.cost_usd, Some("0.047832".to_string()));
 
