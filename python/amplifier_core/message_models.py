@@ -245,7 +245,14 @@ class Usage(BaseModel):
     reasoning_tokens: int | None = None
     cache_read_tokens: int | None = None
     cache_write_tokens: int | None = None
-    cost_usd: Decimal | None = None
+    cost_usd: Decimal | None = Field(
+        default=None,
+        description=(
+            "Message cost in USD. "
+            "None = rate data unavailable (not zero). "
+            "Populated by provider."
+        ),
+    )
 
     @field_validator("cost_usd", mode="before")
     @classmethod

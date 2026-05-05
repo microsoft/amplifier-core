@@ -176,7 +176,6 @@ mod tests {
             reasoning_tokens: Some(20),
             cache_read_tokens: Some(30),
             cache_creation_tokens: Some(10),
-            cost_usd: Some("0.001234".into()),
         };
         assert_eq!(usage.prompt_tokens, 100);
         assert_eq!(usage.completion_tokens, 50);
@@ -184,7 +183,6 @@ mod tests {
         assert_eq!(usage.reasoning_tokens, Some(20));
         assert_eq!(usage.cache_read_tokens, Some(30));
         assert_eq!(usage.cache_creation_tokens, Some(10));
-        assert_eq!(usage.cost_usd, Some("0.001234".to_string()));
     }
 
     #[test]

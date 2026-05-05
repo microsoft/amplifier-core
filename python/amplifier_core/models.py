@@ -428,12 +428,6 @@ class SessionStatus(BaseModel):
             "Populated by provider session contributors."
         ),
     )
-    estimated_cost: float | None = Field(
-        default=None,
-        deprecated=True,
-        description="Deprecated: use cost_usd (Decimal). Will be removed in a future release.",
-    )
-
     @field_validator("cost_usd", mode="before")
     @classmethod
     def reject_float_cost_usd(cls, v):

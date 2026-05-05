@@ -118,11 +118,6 @@ class TestSessionStatusCostUsd:
         with pytest.raises(ValidationError):
             SessionStatus(session_id="test-123", cost_usd=1.23)
 
-    def test_estimated_cost_deprecated_but_still_works(self):
-        """estimated_cost still accepts float for backward compat (deprecated, not removed)."""
-        status = SessionStatus(session_id="test-123", estimated_cost=0.5)
-        assert status.estimated_cost == 0.5
-
     def test_to_dict_includes_cost_usd_as_string(self):
         """to_dict() uses mode='json' — cost_usd should serialize as string."""
         status = SessionStatus(session_id="test-123", cost_usd=Decimal("2.50"))

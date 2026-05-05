@@ -456,10 +456,6 @@ pub struct SessionStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost_usd: Option<String>,
 
-    /// Deprecated: use cost_usd. Retained for backward compatibility.
-    #[serde(default)]
-    pub estimated_cost: Option<f64>,
-
     // Last activity
     /// Last activity timestamp (ISO 8601 string).
     #[serde(default)]
@@ -872,7 +868,6 @@ mod tests {
             total_input_tokens: 1000,
             total_output_tokens: 500,
             cost_usd: None,
-            estimated_cost: Some(0.05),
             last_activity: Some("2025-01-01T00:01:00Z".into()),
             last_error: None,
         };
@@ -881,7 +876,6 @@ mod tests {
         assert_eq!(deserialized.session_id, "sess-123");
         assert_eq!(deserialized.status, SessionState::Running);
         assert_eq!(deserialized.total_messages, 5);
-        assert_eq!(deserialized.estimated_cost, Some(0.05));
     }
 
     #[test]
