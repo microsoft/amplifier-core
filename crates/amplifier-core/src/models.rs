@@ -451,8 +451,17 @@ pub struct SessionStatus {
     pub total_output_tokens: i64,
 
     // Cost tracking
-    /// Accumulated session cost in USD as a decimal string (e.g., "0.047832").
-    /// None means rate data was unavailable — not zero cost.
+    /// Accumulated session cost in USD stored as a high-precision decimal string
+    /// (e.g., "0.047832"). None means rate data was unavailable — not zero cost.
+    ///
+    /// Stored as String (not rust_decimal::Decimal) deliberately:
+    ///   - The kernel does not perform arithmetic on cost — it only stores and passes it.
+    ///   - Type enforcement (Decimal, float rejection) is the responsibility of the
+    ///     Python layer where cost enters and exits the system.
+    ///   - Avoids a rust_decimal dependency in the kernel for a transport-only field.
+    ///
+    /// If cost arithmetic is ever needed inside the kernel, change this type to
+    /// rust_decimal::Decimal and add the rust_decimal crate to Cargo.toml.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost_usd: Option<String>,
 
