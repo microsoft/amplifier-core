@@ -179,11 +179,12 @@ Providers **MUST** emit `llm:response` with the following `usage` payload. Key n
 |-----|------|----------|-------------|
 | `input_tokens` | `int` | **MUST** | Total input tokens — gross total (fresh + cache_read combined) |
 | `output_tokens` | `int` | **MUST** | Total output tokens generated |
-| `total_tokens` | `int` | SHOULD | Sum of `input_tokens` + `output_tokens`; derivable but present in kernel `Usage` model — omitting it from the event payload breaks consumers that read it from there |
 | `cache_read_tokens` | `int` | SHOULD (when non-zero) | Tokens served from prompt cache |
 | `cache_write_tokens` | `int` | SHOULD (when non-zero) | Tokens written to prompt cache (billed on top of gross) |
 
 **DO NOT use:** `"input"`, `"output"`, `"input_tokens_used"`, `"completion_tokens"`, or any other variant. These break consumers silently.
+
+`total_tokens` is not included in the event payload. Consumers that need it should read `usage.total_tokens` from the kernel `Usage` model (`chat_response.usage.total_tokens`), where it is always present.
 
 **Reference emit pattern** (build `ChatResponse` before emitting):
 
