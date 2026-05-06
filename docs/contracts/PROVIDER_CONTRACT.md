@@ -184,7 +184,7 @@ Providers **MUST** emit `llm:response` with the following `usage` payload. Key n
 
 **DO NOT use:** `"input"`, `"output"`, `"input_tokens_used"`, `"completion_tokens"`, or any other variant. These break consumers silently.
 
-`total_tokens` is not included in the event payload. Consumers that need it should read `usage.total_tokens` from the kernel `Usage` model (`chat_response.usage.total_tokens`), where it is always present.
+`total_tokens` is not included in the event payload. Consumers that need it can derive it as `input_tokens + output_tokens` from the event `usage` dict.
 
 **Reference emit pattern** (build `ChatResponse` before emitting):
 
