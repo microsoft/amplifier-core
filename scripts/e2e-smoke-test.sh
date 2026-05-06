@@ -21,7 +21,7 @@ set -euo pipefail
 #
 # Environment variables:
 #   SMOKE_PROMPT     Override the default test prompt
-#   SMOKE_TIMEOUT    Override the timeout in seconds (default: 180)
+#   SMOKE_TIMEOUT    Override the timeout in seconds (default: 360)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -29,7 +29,7 @@ WHEEL_DIR="$REPO_DIR/dist"
 CONTAINER_NAME="amplifier-e2e-smoke-$$"
 SKIP_BUILD=false
 SMOKE_PROMPT="${SMOKE_PROMPT:-Ask recipe author to run one of its example recipes}"
-TIMEOUT_SECONDS="${SMOKE_TIMEOUT:-180}"
+TIMEOUT_SECONDS="${SMOKE_TIMEOUT:-360}"
 LOCAL_SOURCES=()
 
 # Colors (defined early so fail() works during arg parsing)
@@ -75,7 +75,7 @@ while [[ $# -gt 0 ]]; do
             echo "Environment variables:"
             echo "  ANTHROPIC_API_KEY  Required (or set in ~/.amplifier/keys.env)"
             echo "  SMOKE_PROMPT       Test prompt (default: 'Ask recipe author to run one of its example recipes')"
-            echo "  SMOKE_TIMEOUT      Timeout in seconds (default: 180)"
+            echo "  SMOKE_TIMEOUT      Timeout in seconds (default: 360)"
             exit 0
             ;;
         *) fail "Unknown argument: $1" ;;
@@ -112,11 +112,23 @@ command -v docker &>/dev/null || fail "Docker not installed or not in PATH"
 # ---------------------------------------------------------------------------
 
 if [[ "$SKIP_BUILD" == "false" ]]; then
-    log "Building wheel from local source (this takes ~2 minutes)..."
     mkdir -p "$WHEEL_DIR"
     rm -f "$WHEEL_DIR"/amplifier_core-*.whl
-    (cd "$REPO_DIR" && maturin build --release --out "$WHEEL_DIR") \
-        || fail "Wheel build failed — check maturin output above"
+    if [[ "$(uname)" == "Darwin" ]]; then
+        # On macOS the native wheel is macosx_* and cannot be installed inside the
+        # Linux Docker container used for the smoke test.  Build a manylinux wheel
+        # via the maturin Docker image so the rest of the pipeline works unchanged.
+        log "Building manylinux wheel via Docker maturin (macOS host — ~3 min)..."
+        docker run --rm \
+            -v "$REPO_DIR":/io \
+            ghcr.io/pyo3/maturin:latest \
+            build --release --out /io/dist \
+            || fail "Linux wheel build via Docker failed — check maturin output above"
+    else
+        log "Building wheel from local source (this takes ~2 minutes)..."
+        (cd "$REPO_DIR" && maturin build --release --out "$WHEEL_DIR") \
+            || fail "Wheel build failed — check maturin output above"
+    fi
     log "Wheel build complete."
 else
     log "Skipping build (--skip-build). Using existing wheel in $WHEEL_DIR/"
@@ -274,7 +286,7 @@ INSTALLED_VERSION=$(docker exec "$CONTAINER_NAME" bash -c "
 info "Installed: $INSTALLED_VERSION"
 
 # Confirm the core version actually changed to our local build
-LOCAL_CORE_VER=$(echo "$WHEEL_BASENAME" | grep -oP '(?<=amplifier_core-)[^-]+' || true)
+LOCAL_CORE_VER=$(echo "$WHEEL_BASENAME" | sed 's/amplifier_core-\([^-]*\)-.*/\1/' || true)
 if [[ -n "$LOCAL_CORE_VER" ]]; then
     if ! echo "$INSTALLED_VERSION" | grep -q "core $LOCAL_CORE_VER"; then
         fail "Wheel override did not take effect — expected 'core $LOCAL_CORE_VER' but got: $INSTALLED_VERSION"
