@@ -4,7 +4,7 @@ requires-python = ">=3.11"
 
 [[package]]
 name = "amplifier-core"
-version = "1.4.1"
+version = "1.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

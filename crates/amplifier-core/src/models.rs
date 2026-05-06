@@ -451,9 +451,19 @@ pub struct SessionStatus {
     pub total_output_tokens: i64,
 
     // Cost tracking
-    /// Estimated cost (if available).
-    #[serde(default)]
-    pub estimated_cost: Option<f64>,
+    /// Accumulated session cost in USD stored as a high-precision decimal string
+    /// (e.g., "0.047832"). None means rate data was unavailable — not zero cost.
+    ///
+    /// Stored as String (not rust_decimal::Decimal) deliberately:
+    ///   - The kernel does not perform arithmetic on cost — it only stores and passes it.
+    ///   - Type enforcement (Decimal, float rejection) is the responsibility of the
+    ///     Python layer where cost enters and exits the system.
+    ///   - Avoids a rust_decimal dependency in the kernel for a transport-only field.
+    ///
+    /// If cost arithmetic is ever needed inside the kernel, change this type to
+    /// rust_decimal::Decimal and add the rust_decimal crate to Cargo.toml.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<String>,
 
     // Last activity
     /// Last activity timestamp (ISO 8601 string).
@@ -866,7 +876,7 @@ mod tests {
             tool_failures: 1,
             total_input_tokens: 1000,
             total_output_tokens: 500,
-            estimated_cost: Some(0.05),
+            cost_usd: None,
             last_activity: Some("2025-01-01T00:01:00Z".into()),
             last_error: None,
         };
@@ -875,7 +885,6 @@ mod tests {
         assert_eq!(deserialized.session_id, "sess-123");
         assert_eq!(deserialized.status, SessionState::Running);
         assert_eq!(deserialized.total_messages, 5);
-        assert_eq!(deserialized.estimated_cost, Some(0.05));
     }
 
     #[test]
@@ -886,5 +895,19 @@ mod tests {
         assert_eq!(status.total_messages, 0);
         assert_eq!(status.tool_invocations, 0);
         assert!(status.ended_at.is_none());
+    }
+    #[test]
+    fn session_status_cost_usd_roundtrip() {
+        // Verifies cost_usd: Option<String> is present and roundtrips correctly.
+        // String type matches Decimal JSON serialization on the Python side.
+        let json =
+            r#"{"session_id": "s1", "started_at": "2025-01-01T00:00:00Z", "cost_usd": "0.047832"}"#;
+        let status: SessionStatus = serde_json::from_str(json).unwrap();
+        assert_eq!(status.cost_usd, Some("0.047832".to_string()));
+
+        // None when absent (unknown cost, not zero)
+        let json_no_cost = r#"{"session_id": "s2", "started_at": "2025-01-01T00:00:00Z"}"#;
+        let status_no_cost: SessionStatus = serde_json::from_str(json_no_cost).unwrap();
+        assert!(status_no_cost.cost_usd.is_none());
     }
 }

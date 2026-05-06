@@ -29,10 +29,11 @@ VERSION_FILES = [
     ("pyproject.toml", 3),
     ("crates/amplifier-core/Cargo.toml", 3),
     ("bindings/python/Cargo.toml", 3),
+    ("python/amplifier_core/__init__.py", 9),
 ]
 
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
-VERSION_LINE_RE = re.compile(r'^(version\s*=\s*")([^"]+)(")', re.MULTILINE)
+VERSION_LINE_RE = re.compile(r'^((?:__)?version\s*=\s*")([^"]+)(")', re.MULTILINE)
 
 
 def die(msg: str) -> NoReturn:
