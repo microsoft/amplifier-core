@@ -176,7 +176,7 @@ Support via config flags:
 - [ ] Implement `Provider` protocol (5 methods)
 - [ ] `mount()` function with entry point in pyproject.toml
 - [ ] Preserve all content block types
-- [ ] Report `Usage` (input/output/total tokens)
+- [ ] Report `Usage` (`input_tokens` and `output_tokens`)
 
 ### Recommended
 

@@ -182,6 +182,8 @@ Providers **MUST** emit `llm:response` with the following `usage` payload. Key n
 | `cache_read_tokens` | `int` | SHOULD (when non-zero) | Tokens served from prompt cache |
 | `cache_write_tokens` | `int` | SHOULD (when non-zero) | Tokens written to prompt cache (billed on top of gross) |
 
+> **NOTE:** `total_tokens` is intentionally omitted from the event payload — it is derivable as `input_tokens + output_tokens`. Consumers needing it should compute it locally. chat-completions-shaped APIs that include it in the API response MAY include it in the event payload; that is conformant but not required.
+
 **DO NOT use:** `"input"`, `"output"`, `"input_tokens_used"`, `"completion_tokens"`, or any other variant. These break consumers silently.
 
 **Reference emit pattern** (build `ChatResponse` before emitting):
@@ -230,7 +232,7 @@ Study this module for:
 - [ ] Implements all 5 Provider protocol methods
 - [ ] `mount()` function with entry point in pyproject.toml
 - [ ] Preserves all content block types (especially `signature` in ThinkingBlock)
-- [ ] Reports `Usage` (input/output/total tokens)
+- [ ] Reports `Usage` (`input_tokens` and `output_tokens`)
 - [ ] Returns `ChatResponse` from `complete()`
 
 ### Recommended
