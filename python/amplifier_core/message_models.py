@@ -24,6 +24,7 @@ from typing import Union
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import field_serializer
 from pydantic import field_validator
 
 
@@ -263,6 +264,18 @@ class Usage(BaseModel):
                 "Use Decimal('0.047') — floats lose monetary precision."
             )
         return v
+
+    @field_serializer("cost_usd", when_used="always")
+    def serialize_cost_usd(self, v: Decimal | None) -> str | None:
+        """Convert cost_usd Decimal -> string on every serialization path.
+
+        when_used='always' fires on both plain model_dump() and
+        model_dump(mode='json'), so orchestrators emitting events via
+        plain model_dump() produce JSON-safe payloads automatically.
+        Decimal precision is preserved as a string ('0.047' not 0.047).
+        Direct attribute access still returns Decimal for in-memory math.
+        """
+        return str(v) if v is not None else None
 
 
 class Degradation(BaseModel):
