@@ -12,7 +12,24 @@ from typing import Literal
 
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import field_serializer
 from pydantic import field_validator
+
+
+def _json_default(obj: Any) -> Any:
+    """JSON encoder default for raw json.dumps() paths.
+
+    Handles types that flow through tool result payloads but aren't JSON-native.
+    Currently: Decimal -> string (preserves precision; never lossy).
+
+    Used by ToolResult.get_serialized_output(). Pydantic models defend their
+    own boundary via @field_serializer; this is the safety net for the
+    non-Pydantic path where tool outputs may contain Decimal values
+    (e.g., a tool that returns {"price": Decimal("9.99")}).
+    """
+    if isinstance(obj, Decimal):
+        return str(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 def _sanitize_for_llm(text: str) -> str:
@@ -88,7 +105,12 @@ class ToolResult(BaseModel):
         # (even on failure - bash tools put error info in output.stderr)
         if self.output is not None:
             if isinstance(self.output, (dict, list)):
-                result = json.dumps(self.output)
+                # default=_json_default handles Decimal -> str (and any other
+                # types we extend it to support). Pure-Python json.dumps cannot
+                # serialize Decimal natively; without this, tool outputs that
+                # contain Decimal values (e.g., {"price": Decimal("9.99")})
+                # would raise TypeError.
+                result = json.dumps(self.output, default=_json_default)
             else:
                 result = str(self.output)
             # Sanitize to prevent LLM API errors from control characters
@@ -428,6 +450,7 @@ class SessionStatus(BaseModel):
             "Populated by provider session contributors."
         ),
     )
+
     @field_validator("cost_usd", mode="before")
     @classmethod
     def reject_float_cost_usd(cls, v):
@@ -437,6 +460,15 @@ class SessionStatus(BaseModel):
                 "Use Decimal('1.23') — floats lose monetary precision."
             )
         return v
+
+    @field_serializer("cost_usd", when_used="always")
+    def serialize_cost_usd(self, v: Decimal | None) -> str | None:
+        """Convert cost_usd Decimal -> string on every serialization path.
+
+        Mirrors Usage.cost_usd serializer. when_used='always' fires on both
+        plain model_dump() and model_dump(mode='json'). See message_models.Usage.
+        """
+        return str(v) if v is not None else None
 
     # Last activity
     last_activity: datetime | None = None

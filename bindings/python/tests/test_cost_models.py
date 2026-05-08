@@ -73,8 +73,14 @@ class TestUsageCostUsd:
         assert free.cost_usd == Decimal("0")
         assert unknown.cost_usd != free.cost_usd
 
-    def test_model_dump_includes_cost_usd_as_decimal(self):
-        """model_dump() should include cost_usd as Decimal (not string, not float)."""
+    def test_model_dump_serializes_cost_usd_as_string(self):
+        """model_dump() emits cost_usd as a JSON-safe string in every mode.
+
+        The model carries its own JSON-safety guarantee: callers can dump
+        and json.dumps the result without specifying mode='json' or providing
+        a default= encoder. Direct attribute access still returns Decimal —
+        monetary arithmetic in memory, JSON-safe strings at boundaries.
+        """
         usage = Usage(
             input_tokens=100,
             output_tokens=50,
@@ -83,7 +89,10 @@ class TestUsageCostUsd:
         )
         dumped = usage.model_dump()
         assert "cost_usd" in dumped
-        assert isinstance(dumped["cost_usd"], Decimal)
+        assert isinstance(dumped["cost_usd"], str)
+        assert dumped["cost_usd"] == "0.047"
+        # Direct attribute access still returns Decimal:
+        assert isinstance(usage.cost_usd, Decimal)
 
     def test_model_dump_json_mode_serializes_cost_usd_as_string(self):
         """model_dump(mode='json') serializes Decimal as string for JSON safety."""
@@ -125,6 +134,7 @@ class TestSessionStatusCostUsd:
         assert "cost_usd" in d
         assert isinstance(d["cost_usd"], str)
         assert d["cost_usd"] == "2.50"
+
 
 class TestSchemaSync:
     def test_session_status_schema_has_cost_usd(self):
