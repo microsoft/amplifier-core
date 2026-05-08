@@ -74,14 +74,12 @@ class TestUsageCostUsd:
         assert unknown.cost_usd != free.cost_usd
 
     def test_model_dump_serializes_cost_usd_as_string(self):
-        """model_dump() serializes cost_usd as a JSON-safe string.
+        """model_dump() emits cost_usd as a JSON-safe string in every mode.
 
-        Per @field_serializer(when_used='always') on Usage.cost_usd, BOTH
-        plain model_dump() and model_dump(mode='json') emit string. This
-        ensures every orchestrator's `event_data["usage"] = response.usage
-        .model_dump()` produces JSON-safe payloads automatically.
-
-        Direct attribute access still returns Decimal for in-memory math.
+        The model carries its own JSON-safety guarantee: callers can dump
+        and json.dumps the result without specifying mode='json' or providing
+        a default= encoder. Direct attribute access still returns Decimal —
+        monetary arithmetic in memory, JSON-safe strings at boundaries.
         """
         usage = Usage(
             input_tokens=100,
