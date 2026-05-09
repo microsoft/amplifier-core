@@ -123,6 +123,5 @@ fn load_wasm_from_path_rejects_rust_transport_with_specific_message() {
 /// Signature: `fn(Python<'_>, &Bound<'_, PyAny>) -> PyResult<String>`.
 #[test]
 fn json_dumps_safe_signature_compiles() {
-    let _: fn(Python<'_>, &Bound<'_, PyAny>) -> PyResult<String> =
-        crate::helpers::json_dumps_safe;
+    let _: fn(Python<'_>, &Bound<'_, PyAny>) -> PyResult<String> = crate::helpers::json_dumps_safe;
 }

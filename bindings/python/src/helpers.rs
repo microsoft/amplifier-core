@@ -53,10 +53,7 @@ pub(crate) fn try_model_dump<'py>(obj: &Bound<'py, PyAny>) -> Bound<'py, PyAny> 
 /// become their string representation instead of raising `TypeError`.
 ///
 /// Use this everywhere we call `json.dumps()` at the Python/Rust FFI boundary.
-pub(crate) fn json_dumps_safe<'py>(
-    py: Python<'py>,
-    obj: &Bound<'py, PyAny>,
-) -> PyResult<String> {
+pub(crate) fn json_dumps_safe<'py>(py: Python<'py>, obj: &Bound<'py, PyAny>) -> PyResult<String> {
     let json_mod = py.import("json")?;
     let str_fn = py.import("builtins")?.getattr("str")?;
     let kwargs = PyDict::new(py);
