@@ -14,7 +14,7 @@ use pyo3::types::{PyDict, PyList};
 use serde_json::Value;
 
 use crate::cancellation::PyCancellationToken;
-use crate::helpers::{try_model_dump, wrap_future_as_coroutine};
+use crate::helpers::{json_dumps_safe, try_model_dump, wrap_future_as_coroutine};
 use crate::hooks::PyHookRegistry;
 
 mod capabilities;
@@ -114,11 +114,8 @@ impl PyCoordinator {
                 };
                 let cfg = sess.getattr("config")?;
                 let rc: HashMap<String, Value> = {
-                    let json_mod = py.import("json")?;
                     let serializable = try_model_dump(&cfg);
-                    let json_str: String = json_mod
-                        .call_method1("dumps", (&serializable,))?
-                        .extract()?;
+                    let json_str: String = json_dumps_safe(py, &serializable)?;
                     serde_json::from_str(&json_str).unwrap_or_else(|e| {
                         log::warn!("Failed to parse session config as JSON object (using empty config): {e}");
                         HashMap::new()

@@ -3,8 +3,6 @@
 Verifies that emit(), emit_and_collect(), and hook result serialization
 never crash on non-JSON-native Python types (e.g. Decimal, datetime).
 The fix: json.dumps(..., default=str) at all FFI call sites.
-
-GitHub issue: microsoft-amplifier/amplifier-support#228
 """
 
 import pytest
