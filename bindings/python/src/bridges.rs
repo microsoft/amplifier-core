@@ -19,7 +19,7 @@ use amplifier_core::errors::{AmplifierError, HookError, SessionError};
 use amplifier_core::models::{HookAction, HookResult};
 use amplifier_core::traits::HookHandler;
 
-use crate::helpers::{is_approval_granted, try_model_dump};
+use crate::helpers::{is_approval_granted, json_dumps_safe, try_model_dump};
 
 // ---------------------------------------------------------------------------
 // PyHookHandlerBridge — wraps a Python callable as a Rust HookHandler
@@ -130,13 +130,8 @@ impl HookHandler for PyHookHandlerBridge {
                 if bound.is_none() {
                     return Ok("{}".to_string());
                 }
-                let json_mod = py.import("json")?;
                 let serializable = try_model_dump(bound);
-                let json_str: String = json_mod
-                    .call_method1("dumps", (&serializable,))?
-                    .extract()
-                    .unwrap_or_else(|_| "{}".to_string());
-                Ok(json_str)
+                Ok(json_dumps_safe(py, &serializable).unwrap_or_else(|_| "{}".to_string()))
             })
             .ok_or_else(|| HookError::HandlerFailed {
                 message: "Failed to attach to Python runtime for result parsing".to_string(),

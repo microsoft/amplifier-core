@@ -116,3 +116,13 @@ fn load_wasm_from_path_rejects_rust_transport_with_specific_message() {
         "load_wasm_from_path cannot load Rust modules. Use the gRPC sidecar pattern instead."
     );
 }
+
+/// Verify `json_dumps_safe` exists in helpers with the correct signature.
+///
+/// This test fails to compile until `json_dumps_safe` is added to helpers.rs.
+/// Signature: `fn(Python<'_>, &Bound<'_, PyAny>) -> PyResult<String>`.
+#[test]
+fn json_dumps_safe_signature_compiles() {
+    let _: fn(Python<'_>, &Bound<'_, PyAny>) -> PyResult<String> =
+        crate::helpers::json_dumps_safe;
+}

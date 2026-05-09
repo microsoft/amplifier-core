@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 /// Parse an approval system's decision string into a boolean.
 ///
@@ -43,4 +44,24 @@ pub(crate) fn try_model_dump<'py>(obj: &Bound<'py, PyAny>) -> Bound<'py, PyAny> 
             obj.clone()
         }
     }
+}
+
+/// Serialize a Python object to a JSON string with `default=str` fallback.
+///
+/// Like `json.dumps(obj)` but passes Python's built-in `str` as the `default=`
+/// callable so non-JSON-native types (e.g. `decimal.Decimal`, `datetime`)
+/// become their string representation instead of raising `TypeError`.
+///
+/// Use this everywhere we call `json.dumps()` at the Python/Rust FFI boundary.
+pub(crate) fn json_dumps_safe<'py>(
+    py: Python<'py>,
+    obj: &Bound<'py, PyAny>,
+) -> PyResult<String> {
+    let json_mod = py.import("json")?;
+    let str_fn = py.import("builtins")?.getattr("str")?;
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("default", &str_fn)?;
+    json_mod
+        .call_method("dumps", (obj,), Some(&kwargs))?
+        .extract()
 }

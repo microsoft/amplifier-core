@@ -84,7 +84,7 @@ class GrpcToolBridge:
         Returns:
             Tuple of (payload_bytes, content_type_string)
         """
-        data = json.dumps(input_dict).encode("utf-8")
+        data = json.dumps(input_dict, default=str).encode("utf-8")
         return data, "application/json"
 
     def _deserialize_output(self, output_bytes: bytes, content_type: str) -> Any:

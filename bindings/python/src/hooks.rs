@@ -11,7 +11,7 @@ use pyo3::types::{PyDict, PyList};
 use serde_json::Value;
 
 use crate::bridges::PyHookHandlerBridge;
-use crate::helpers::{try_model_dump, wrap_future_as_coroutine};
+use crate::helpers::{json_dumps_safe, try_model_dump, wrap_future_as_coroutine};
 
 // ---------------------------------------------------------------------------
 // PyUnregisterFn — callable returned by PyHookRegistry.register()
@@ -129,11 +129,8 @@ impl PyHookRegistry {
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner.clone();
         // Convert Python data to serde_json::Value
-        let json_mod = py.import("json")?;
         let serializable = try_model_dump(&data);
-        let json_str: String = json_mod
-            .call_method1("dumps", (&serializable,))?
-            .extract()?;
+        let json_str: String = json_dumps_safe(py, &serializable)?;
         let value: Value = serde_json::from_str(&json_str)
             .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}")))?;
 
@@ -186,8 +183,7 @@ impl PyHookRegistry {
     fn set_default_fields(&self, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<()> {
         let value = match kwargs {
             Some(dict) => {
-                let json_mod = dict.py().import("json")?;
-                let json_str: String = json_mod.call_method1("dumps", (dict,))?.extract()?;
+                let json_str = json_dumps_safe(dict.py(), dict.as_any())?;
                 serde_json::from_str(&json_str)
                     .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}")))?
             }
@@ -238,11 +234,8 @@ impl PyHookRegistry {
         timeout: f64,
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner.clone();
-        let json_mod = py.import("json")?;
         let serializable = try_model_dump(&data);
-        let json_str: String = json_mod
-            .call_method1("dumps", (&serializable,))?
-            .extract()?;
+        let json_str: String = json_dumps_safe(py, &serializable)?;
         let value: Value = serde_json::from_str(&json_str)
             .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}")))?;
         let timeout_dur = std::time::Duration::from_secs_f64(timeout);
