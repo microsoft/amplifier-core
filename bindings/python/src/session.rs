@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use serde_json::Value;
 
-use crate::helpers::wrap_future_as_coroutine;
+use crate::helpers::{json_dumps_safe, wrap_future_as_coroutine};
 use crate::hooks::PyHookRegistry;
 
 // ---------------------------------------------------------------------------
@@ -109,8 +109,7 @@ impl PySession {
         }
 
         // ---- Build Rust kernel Session ----
-        let json_mod = py.import("json")?;
-        let json_str: String = json_mod.call_method1("dumps", (config,))?.extract()?;
+        let json_str: String = json_dumps_safe(py, config.as_any())?;
         let value: Value = serde_json::from_str(&json_str)
             .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Invalid config JSON: {e}")))?;
         let session_config = amplifier_core::SessionConfig::from_value(value)

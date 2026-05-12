@@ -60,6 +60,28 @@ def test_grpc_tool_bridge_serialize_input():
     assert json.loads(data) == {"query": "hello world"}
 
 
+def test_grpc_tool_bridge_serialize_input_with_decimal():
+    """_serialize_input must not raise on Decimal values (default=str fallback).
+
+    Without default=str, json.dumps({"cost": Decimal("1.23")}) raises TypeError.
+    str(Decimal("1.23")) == "1.23".
+    """
+    from decimal import Decimal
+
+    from amplifier_core.loader_grpc import GrpcToolBridge
+
+    bridge = GrpcToolBridge(
+        name="test",
+        description="test",
+        parameters_json="{}",
+        endpoint="localhost:50052",
+        channel=None,
+    )
+    data, content_type = bridge._serialize_input({"cost": Decimal("1.23")})
+    assert content_type == "application/json"
+    assert json.loads(data)["cost"] == "1.23"
+
+
 def test_grpc_tool_bridge_deserialize_output():
     """GrpcToolBridge._deserialize_output decodes JSON bytes to dict."""
     from amplifier_core.loader_grpc import GrpcToolBridge

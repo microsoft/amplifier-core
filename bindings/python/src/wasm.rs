@@ -14,7 +14,7 @@ use pyo3::types::PyDict;
 use serde_json::Value;
 
 use crate::coordinator::PyCoordinator;
-use crate::helpers::{try_model_dump, wrap_future_as_coroutine};
+use crate::helpers::{json_dumps_safe, try_model_dump, wrap_future_as_coroutine};
 
 // ---------------------------------------------------------------------------
 // PyWasmTool — thin Python wrapper around a Rust Arc<dyn Tool>
@@ -75,11 +75,8 @@ impl PyWasmTool {
         let inner = self.inner.clone();
 
         // Convert Python input to serde_json::Value
-        let json_mod = py.import("json")?;
         let serializable = try_model_dump(&input);
-        let json_str: String = json_mod
-            .call_method1("dumps", (&serializable,))?
-            .extract()?;
+        let json_str: String = json_dumps_safe(py, &serializable)?;
         let value: Value = serde_json::from_str(&json_str)
             .map_err(|e| PyErr::new::<PyValueError, _>(format!("Invalid JSON input: {e}")))?;
 
@@ -199,11 +196,8 @@ impl PyWasmProvider {
         let inner = self.inner.clone();
 
         // Convert Python request to serde_json::Value
-        let json_mod = py.import("json")?;
         let serializable = try_model_dump(&request);
-        let json_str: String = json_mod
-            .call_method1("dumps", (&serializable,))?
-            .extract()?;
+        let json_str: String = json_dumps_safe(py, &serializable)?;
         let chat_request: amplifier_core::messages::ChatRequest = serde_json::from_str(&json_str)
             .map_err(|e| {
             PyErr::new::<PyValueError, _>(format!("Invalid ChatRequest JSON: {e}"))
@@ -242,9 +236,7 @@ impl PyWasmProvider {
     fn parse_tool_calls(&self, py: Python<'_>, response: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         let json_mod = py.import("json")?;
         let serializable = try_model_dump(&response);
-        let json_str: String = json_mod
-            .call_method1("dumps", (&serializable,))?
-            .extract()?;
+        let json_str: String = json_dumps_safe(py, &serializable)?;
         let chat_response: amplifier_core::messages::ChatResponse = serde_json::from_str(&json_str)
             .map_err(|e| {
                 PyErr::new::<PyValueError, _>(format!("Invalid ChatResponse JSON: {e}"))
@@ -300,11 +292,8 @@ impl PyWasmHook {
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner.clone();
 
-        let json_mod = py.import("json")?;
         let serializable = try_model_dump(&data);
-        let json_str: String = json_mod
-            .call_method1("dumps", (&serializable,))?
-            .extract()?;
+        let json_str: String = json_dumps_safe(py, &serializable)?;
         let value: Value = serde_json::from_str(&json_str).map_err(|e| {
             PyErr::new::<PyValueError, _>(format!("Invalid JSON for hook data: {e}"))
         })?;
@@ -372,11 +361,8 @@ impl PyWasmContext {
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner.clone();
 
-        let json_mod = py.import("json")?;
         let serializable = try_model_dump(&message);
-        let json_str: String = json_mod
-            .call_method1("dumps", (&serializable,))?
-            .extract()?;
+        let json_str: String = json_dumps_safe(py, &serializable)?;
         let value: Value = serde_json::from_str(&json_str)
             .map_err(|e| PyErr::new::<PyValueError, _>(format!("Invalid JSON for message: {e}")))?;
 
@@ -475,8 +461,7 @@ impl PyWasmContext {
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner.clone();
 
-        let json_mod = py.import("json")?;
-        let json_str: String = json_mod.call_method1("dumps", (&messages,))?.extract()?;
+        let json_str: String = json_dumps_safe(py, messages.as_any())?;
         let values: Vec<Value> = serde_json::from_str(&json_str).map_err(|e| {
             PyErr::new::<PyValueError, _>(format!("Invalid JSON for messages: {e}"))
         })?;
@@ -707,11 +692,8 @@ impl PyWasmApproval {
     ) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner.clone();
 
-        let json_mod = py.import("json")?;
         let serializable = try_model_dump(&request);
-        let json_str: String = json_mod
-            .call_method1("dumps", (&serializable,))?
-            .extract()?;
+        let json_str: String = json_dumps_safe(py, &serializable)?;
         let approval_request: amplifier_core::models::ApprovalRequest =
             serde_json::from_str(&json_str).map_err(|e| {
                 PyErr::new::<PyValueError, _>(format!("Invalid ApprovalRequest JSON: {e}"))

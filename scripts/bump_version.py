@@ -33,7 +33,7 @@ VERSION_FILES = [
 ]
 
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
-VERSION_LINE_RE = re.compile(r'^((?:__)?version\s*=\s*")([^"]+)(")', re.MULTILINE)
+VERSION_LINE_RE = re.compile(r'^((?:__)?version(?:__)?\s*=\s*")([^"]+)(")', re.MULTILINE)
 
 
 def die(msg: str) -> NoReturn:
