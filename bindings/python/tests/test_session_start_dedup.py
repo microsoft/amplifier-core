@@ -192,3 +192,130 @@ class TestSessionStartNotDuplicated:
             f"Non-raw session must emit session:start exactly once, "
             f"got {len(starts)}."
         )
+
+
+# ---------------------------------------------------------------------------
+# Multi-turn regression tests — session:start must fire ONCE per session,
+# not once per execute() call (the Rust-port regression fixed in v1.6.0).
+#
+# Before the fix: every execute() call re-fired session:start, so 3 turns
+# yielded 3 events.  After the fix: exactly 1 event across any number of
+# execute() calls.
+# ---------------------------------------------------------------------------
+
+
+class TestSessionStartOncePerSession:
+    """session:start must be emitted once per SESSION, not once per execute() call.
+
+    This tests the Rust-port regression (introduced 2026-02-14, d2826b4):
+    the Rust kernel placed session:start emission inside execute(), causing
+    every interactive turn to re-fire the event.  Hook handlers that
+    registered for session:start expecting once-per-session semantics
+    (e.g. hooks-routing, hook-context-intelligence) were re-running expensive
+    work on every turn, contributing 7-13s wall-clock cost per prompt.
+
+    Fix: session:start is guarded by an atomic flag so it fires at most once
+    per session lifetime regardless of how many times execute() is called.
+    """
+
+    @pytest.mark.asyncio
+    async def test_session_start_emitted_once_across_multiple_execute_calls(self):
+        """session:start must fire exactly once even when execute() is called 3 times."""
+        session = await _make_raw_session("multi-turn-test-1")
+
+        starts: list[dict] = []
+
+        async def _count_start(event: str, data: dict):
+            starts.append(data)
+            return None
+
+        session.coordinator.hooks.register(
+            "session:start", _count_start, name="test-multi-turn-counter"
+        )
+        _mount_stub_orchestrator(session)
+
+        await session.execute("turn one")
+        await session.execute("turn two")
+        await session.execute("turn three")
+
+        assert len(starts) == 1, (
+            f"session:start must fire exactly once per session regardless of "
+            f"how many execute() calls are made. Got {len(starts)} events "
+            f"across 3 execute() calls. "
+            f"This was the Rust-port regression: session:start was emitted "
+            f"inside execute() instead of once at session initialization."
+        )
+
+    @pytest.mark.asyncio
+    async def test_session_resume_emitted_once_across_multiple_execute_calls(self):
+        """session:resume must fire exactly once for resumed sessions with multiple turns."""
+        config = {
+            "session": {
+                "orchestrator": "loop-basic",
+                "context": "context-simple",
+            },
+            "providers": [],
+            "hooks": [],
+            "tools": [],
+        }
+        session = RustSession(
+            config=config,
+            session_id="resumed-multi-turn",
+            is_resumed=True,
+        )
+        mock_init = AsyncMock()
+        with patch("amplifier_core._session_init.initialize_session", mock_init):
+            await session.initialize()
+
+        resumes: list[dict] = []
+
+        async def _count_resume(event: str, data: dict):
+            resumes.append(data)
+            return None
+
+        session.coordinator.hooks.register(
+            "session:resume", _count_resume, name="test-resume-counter"
+        )
+        _mount_stub_orchestrator(session)
+
+        await session.execute("turn one")
+        await session.execute("turn two")
+        await session.execute("turn three")
+
+        assert len(resumes) == 1, (
+            f"session:resume must fire exactly once per session regardless of "
+            f"how many execute() calls are made. Got {len(resumes)} events "
+            f"across 3 execute() calls."
+        )
+
+    @pytest.mark.asyncio
+    async def test_session_start_not_emitted_on_second_or_third_turn(self):
+        """Verify session:start is absent on turns 2 and 3 — only present on turn 1."""
+        session = await _make_raw_session("multi-turn-test-2")
+
+        per_turn_counts: list[int] = []
+        cumulative: list[dict] = []
+
+        async def _count_start(event: str, data: dict):
+            cumulative.append(data)
+            return None
+
+        session.coordinator.hooks.register(
+            "session:start", _count_start, name="test-per-turn-counter"
+        )
+        _mount_stub_orchestrator(session)
+
+        await session.execute("turn one")
+        per_turn_counts.append(len(cumulative))  # After turn 1: should be 1
+
+        await session.execute("turn two")
+        per_turn_counts.append(len(cumulative))  # After turn 2: should still be 1
+
+        await session.execute("turn three")
+        per_turn_counts.append(len(cumulative))  # After turn 3: should still be 1
+
+        assert per_turn_counts == [1, 1, 1], (
+            f"session:start count after each turn should be [1, 1, 1]. "
+            f"Got {per_turn_counts}. "
+            f"Any count > 1 means session:start re-fired on a subsequent turn."
+        )
