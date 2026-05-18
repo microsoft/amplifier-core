@@ -2,7 +2,7 @@ name: Rust Core CI
 
 on:
   push:
-    branches: [rust-core]
+    branches: [rust-core, main]
   pull_request:
     branches: [rust-core, main]
 
