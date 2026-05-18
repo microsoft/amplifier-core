@@ -1,6 +1,6 @@
 [package]
 name = "amplifier-core"
-version = "1.5.2"
+version = "1.5.3"
 edition = "2021"
 description = "Pure Rust kernel for the Amplifier modular AI agent system"
 license = "MIT"
@@ -20,7 +20,7 @@ prost = "0.13"
 tonic = "0.12"
 tokio-stream = { version = "0.1", features = ["net"] }
 wasmtime = { version = "43", optional = true, features = ["component-model"] }
-wasmtime-wasi = { version = "42", optional = true }
+wasmtime-wasi = { version = "43", optional = true }
 sha2 = { version = "0.10", optional = true }
 
 [features]
