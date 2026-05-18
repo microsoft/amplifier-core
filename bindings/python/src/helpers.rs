@@ -34,16 +34,39 @@ pub(crate) fn wrap_future_as_coroutine<'py>(
     wrapper.call1((&future,))
 }
 
-/// Try `model_dump()` on a Python object (Pydantic BaseModel → dict).
-/// Falls back to the original object reference if not a Pydantic model.
+/// Try `model_dump(mode="json")` on a Python object (Pydantic BaseModel → JSON-safe dict).
+///
+/// Serialization strategy (three-tier):
+///
+/// 1. `model_dump(mode="json")` — preferred. Pydantic emits only JSON-native Python types
+///    (str, int, float, list, dict, bool, None). Fields like `cost_usd: Decimal` that have a
+///    `@field_serializer` convert correctly here. Any field type that Pydantic knows how to
+///    JSON-encode is handled without extra effort.
+///
+/// 2. `model_dump()` — fallback for objects whose `model_dump()` does not accept a `mode`
+///    kwarg (e.g. hand-rolled fakes, legacy Pydantic v1 models). The caller (`emit()`) then
+///    calls `json.dumps()` on the result; if any field is still non-JSON-native, that will
+///    surface as a `TypeError` rather than silently returning the raw object.
+///
+/// 3. Return the original object — if neither `model_dump` variant is callable. The caller
+///    attempts `json.dumps()` on the raw object; if it is not serializable, a `TypeError`
+///    propagates naturally.
 pub(crate) fn try_model_dump<'py>(obj: &Bound<'py, PyAny>) -> Bound<'py, PyAny> {
-    match obj.call_method0("model_dump") {
-        Ok(dict) => dict,
-        Err(e) => {
-            log::debug!("model_dump() failed (falling back to raw object): {e}");
-            obj.clone()
+    let py = obj.py();
+    // Tier 1: model_dump(mode="json") — JSON-safe output from real Pydantic models.
+    let kwargs = PyDict::new(py);
+    if kwargs.set_item("mode", "json").is_ok() {
+        if let Ok(dict) = obj.call_method("model_dump", (), Some(&kwargs)) {
+            return dict;
         }
     }
+    // Tier 2: bare model_dump() — for objects without a mode kwarg (fakes, Pydantic v1).
+    if let Ok(dict) = obj.call_method0("model_dump") {
+        return dict;
+    }
+    // Tier 3: raw object — let the caller's json.dumps() surface any TypeError.
+    log::debug!("model_dump() not available — passing raw object to json serialiser");
+    obj.clone()
 }
 
 /// Serialize a Python object to a JSON string with `default=str` fallback.
