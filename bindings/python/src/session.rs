@@ -393,16 +393,31 @@ impl PySession {
 
         // Clone references for the async block
         let coordinator = self.coordinator.clone_ref(py);
+        // Clone inner for the lifecycle-event guard (claim_lifecycle_event).
+        // The claim is checked inside the async block so it races correctly
+        // with any concurrent execute() calls.
+        let inner_for_lifecycle = Arc::clone(&self.inner);
 
         // Step 3: Return an awaitable that runs the full execute sequence
         wrap_future_as_coroutine(
             py,
             pyo3_async_runtimes::tokio::future_into_py(py, async move {
                 // 3a: Emit pre-execution event (session:start or session:resume)
-                // Call inner Rust emit directly — avoids the Future/coroutine mismatch that
-                // occurs when going through the Python PyO3 bridge (future_into_py returns
-                // a Future object, but into_future() expects a native coroutine).
-                hooks_inner.emit(event_base, pre_event_data).await;
+                // once per session lifetime — not once per execute() call.
+                // The core Session tracks the "already emitted" flag atomically;
+                // claim_lifecycle_event() returns true exactly once (the first
+                // execute() call), false on all subsequent calls.
+                let should_emit_lifecycle = {
+                    let session = inner_for_lifecycle.lock().await;
+                    session.claim_lifecycle_event()
+                };
+                if should_emit_lifecycle {
+                    // Call inner Rust emit directly — avoids the Future/coroutine
+                    // mismatch that occurs when going through the Python PyO3 bridge
+                    // (future_into_py returns a Future object, but into_future()
+                    // expects a native coroutine).
+                    hooks_inner.emit(event_base, pre_event_data).await;
+                }
 
                 // 3b: Emit debug events (delegates to Python for redact_secrets/truncate_values)
                 let debug_future = Python::try_attach(|py| {

@@ -141,6 +141,14 @@ pub struct Session {
     parent_id: Option<String>,
     coordinator: Arc<Coordinator>,
     initialized: AtomicBool,
+    /// Guards once-per-session emission of `session:start` / `session:resume`.
+    ///
+    /// The pre-Rust Python kernel emitted lifecycle events in `initialize()`,
+    /// not in `execute()`.  The Rust port incorrectly placed the emit inside
+    /// `execute()`, causing it to fire on every interactive turn.  This flag
+    /// ensures the emit fires at most once per session lifetime regardless of
+    /// how many times `execute()` is called.
+    lifecycle_event_emitted: AtomicBool,
     status: SessionState,
     is_resumed: bool,
 }
@@ -172,6 +180,7 @@ impl Session {
             parent_id,
             coordinator,
             initialized: AtomicBool::new(false),
+            lifecycle_event_emitted: AtomicBool::new(false),
             status: SessionState::Running,
             is_resumed: false,
         }
@@ -262,11 +271,25 @@ impl Session {
         self.initialized.store(false, Ordering::Relaxed);
     }
 
+    /// Claim the right to emit the session lifecycle event (`session:start` or
+    /// `session:resume`).
+    ///
+    /// Returns `true` exactly once per session lifetime — on the first call —
+    /// and `false` on all subsequent calls.  The caller that receives `true`
+    /// is responsible for emitting the event; all other callers must skip it.
+    ///
+    /// This restores the pre-Rust contract: lifecycle events fire once when the
+    /// session becomes ready, not on every `execute()` call.
+    pub fn claim_lifecycle_event(&self) -> bool {
+        // swap returns the OLD value; if old was false ⇒ first claim ⇒ return true
+        !self.lifecycle_event_emitted.swap(true, Ordering::AcqRel)
+    }
+
     /// Execute a prompt using the mounted orchestrator.
     ///
-    /// Auto-emits `session:start` (or `session:resume`) event, then delegates
-    /// to the orchestrator. Tracks status transitions on success, failure,
-    /// or cancellation.
+    /// Emits `session:start` (or `session:resume`) **once per session** on the
+    /// first `execute()` call, then delegates to the orchestrator on every
+    /// call.  Tracks status transitions on success, failure, or cancellation.
     ///
     /// # Errors
     ///
@@ -280,23 +303,27 @@ impl Session {
             return Err(AmplifierError::Session(SessionError::NotInitialized));
         }
 
-        // Emit lifecycle event
-        let event = if self.is_resumed {
-            events::SESSION_RESUME
-        } else {
-            events::SESSION_START
-        };
+        // Emit lifecycle event once per session (not once per execute() call).
+        // Pre-Rust Python kernel emitted in initialize(); we guard with an
+        // atomic flag so the event fires on the first execute() only.
+        if self.claim_lifecycle_event() {
+            let event = if self.is_resumed {
+                events::SESSION_RESUME
+            } else {
+                events::SESSION_START
+            };
 
-        self.coordinator
-            .hooks()
-            .emit(
-                event,
-                serde_json::json!({
-                    "session_id": self.session_id,
-                    "parent_id": self.parent_id,
-                }),
-            )
-            .await;
+            self.coordinator
+                .hooks()
+                .emit(
+                    event,
+                    serde_json::json!({
+                        "session_id": self.session_id,
+                        "parent_id": self.parent_id,
+                    }),
+                )
+                .await;
+        }
 
         // Get orchestrator
         let orchestrator = self.coordinator.orchestrator().ok_or_else(|| {
@@ -636,6 +663,8 @@ mod tests {
     // Hook events
     // ---------------------------------------------------------------
 
+    /// Verify session:start is emitted on first execute() — and only once
+    /// even when execute() is called multiple times on the same session.
     #[tokio::test]
     async fn execute_emits_session_start_event() {
         let config = SessionConfig::minimal("loop-basic", "context-simple");
@@ -660,16 +689,28 @@ mod tests {
         );
 
         session.set_initialized();
+        // Call execute() twice — event must appear exactly once (not twice)
         let _ = session.execute("hello").await;
+        let _ = session.execute("world").await;
 
         let events = handler.recorded_events();
-        assert!(
-            events.iter().any(|(name, _)| name == events::SESSION_START),
-            "Expected session:start event, got: {:?}",
+        let start_count = events
+            .iter()
+            .filter(|(name, _)| name == events::SESSION_START)
+            .count();
+        assert_eq!(
+            start_count,
+            1,
+            "session:start must be emitted exactly once per session. \
+             Got {} events across 2 execute() calls. \
+             Events: {:?}",
+            start_count,
             events.iter().map(|(n, _)| n).collect::<Vec<_>>()
         );
     }
 
+    /// Verify session:resume is emitted on first execute() for resumed sessions —
+    /// and only once even when execute() is called multiple times.
     #[tokio::test]
     async fn execute_emits_session_resume_for_resumed_session() {
         let config = SessionConfig::minimal("loop-basic", "context-simple");
@@ -693,15 +734,119 @@ mod tests {
         );
 
         session.set_initialized();
+        // Call execute() twice — event must appear exactly once (not twice)
         let _ = session.execute("hello").await;
+        let _ = session.execute("world").await;
 
         let events = handler.recorded_events();
-        assert!(
-            events
-                .iter()
-                .any(|(name, _)| name == events::SESSION_RESUME),
-            "Expected session:resume event, got: {:?}",
+        let resume_count = events
+            .iter()
+            .filter(|(name, _)| name == events::SESSION_RESUME)
+            .count();
+        assert_eq!(
+            resume_count,
+            1,
+            "session:resume must be emitted exactly once per session. \
+             Got {} events across 2 execute() calls. \
+             Events: {:?}",
+            resume_count,
             events.iter().map(|(n, _)| n).collect::<Vec<_>>()
+        );
+    }
+
+    /// Regression test for the Rust-port regression: session:start must fire
+    /// exactly ONCE per session, not once per execute() call.
+    ///
+    /// Pre-Rust Python kernel: `execute()` had no `hooks.emit` calls at all.
+    /// Rust port (d2826b4, 2026-02-14): emit was placed inside `execute()`,
+    /// causing every interactive turn to re-fire the event.
+    ///
+    /// This test calls execute() three times and asserts exactly one
+    /// session:start event is captured.  It must FAIL before the fix and
+    /// PASS after.
+    #[tokio::test]
+    async fn session_start_emitted_once_across_multiple_execute_calls() {
+        let config = SessionConfig::minimal("loop-basic", "context-simple");
+        let mut session = Session::new(config, None, None);
+        session
+            .coordinator_mut()
+            .set_orchestrator(Arc::new(FakeOrchestrator::new("ok")));
+        session
+            .coordinator_mut()
+            .set_context(Arc::new(FakeContextManager::new()));
+        session
+            .coordinator_mut()
+            .mount_provider("test", Arc::new(FakeProvider::new("test", "hi")));
+
+        let handler = Arc::new(FakeHookHandler::new());
+        let _ = session.coordinator().hooks().register(
+            events::SESSION_START,
+            handler.clone(),
+            0,
+            Some("test-handler".into()),
+        );
+
+        session.set_initialized();
+        let _ = session.execute("turn one").await;
+        let _ = session.execute("turn two").await;
+        let _ = session.execute("turn three").await;
+
+        let events = handler.recorded_events();
+        let start_count = events
+            .iter()
+            .filter(|(name, _)| name == events::SESSION_START)
+            .count();
+        assert_eq!(
+            start_count,
+            1,
+            "session:start must fire exactly once per session, not per execute() call. \
+             Got {} events across 3 execute() calls. \
+             This is the Rust-port regression: lifecycle events belong at session \
+             initialization, not inside execute().",
+            start_count
+        );
+    }
+
+    /// Regression test: session:resume must also fire exactly once per session,
+    /// not once per execute() call for resumed sessions.
+    #[tokio::test]
+    async fn session_resume_emitted_once_across_multiple_execute_calls() {
+        let config = SessionConfig::minimal("loop-basic", "context-simple");
+        let mut session = Session::new_resumed(config, "resumed-id".into(), None);
+        session
+            .coordinator_mut()
+            .set_orchestrator(Arc::new(FakeOrchestrator::new("ok")));
+        session
+            .coordinator_mut()
+            .set_context(Arc::new(FakeContextManager::new()));
+        session
+            .coordinator_mut()
+            .mount_provider("test", Arc::new(FakeProvider::new("test", "hi")));
+
+        let handler = Arc::new(FakeHookHandler::new());
+        let _ = session.coordinator().hooks().register(
+            events::SESSION_RESUME,
+            handler.clone(),
+            0,
+            Some("test-handler".into()),
+        );
+
+        session.set_initialized();
+        let _ = session.execute("turn one").await;
+        let _ = session.execute("turn two").await;
+        let _ = session.execute("turn three").await;
+
+        let events = handler.recorded_events();
+        let resume_count = events
+            .iter()
+            .filter(|(name, _)| name == events::SESSION_RESUME)
+            .count();
+        assert_eq!(
+            resume_count,
+            1,
+            "session:resume must fire exactly once per session, not per execute() call. \
+             Got {} events across 3 execute() calls.",
+            resume_count
         );
     }
 

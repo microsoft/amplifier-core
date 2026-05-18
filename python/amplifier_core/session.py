@@ -73,6 +73,11 @@ class AmplifierSession:
         self.config = config
         self.status = SessionStatus(session_id=self.session_id)
         self._initialized = False
+        # Guard: emit session:start / session:resume once per session, not per
+        # execute() call.  Restores the pre-Rust Python kernel contract where
+        # execute() had no hooks.emit calls — lifecycle events belonged to
+        # initialization, not to the orchestrator-dispatch loop.
+        self._lifecycle_event_emitted = False
 
         # Create coordinator with infrastructure context and injected UX systems
         self.coordinator = ModuleCoordinator(
@@ -133,24 +138,31 @@ class AmplifierSession:
         if not self._initialized:
             await self.initialize()
 
-        from .events import SESSION_RESUME, SESSION_START
+        # Emit session lifecycle event once per session (not per execute() call).
+        # Restores the pre-Rust Python kernel contract: execute() had no
+        # hooks.emit calls; lifecycle events belong at initialization, not
+        # inside the orchestrator-dispatch loop.
+        if not self._lifecycle_event_emitted:
+            self._lifecycle_event_emitted = True
 
-        # Choose event type based on whether this is a new or resumed session
-        event_base = SESSION_RESUME if self._is_resumed else SESSION_START
+            from .events import SESSION_RESUME, SESSION_START
 
-        # Emit session lifecycle event from kernel (single source of truth)
-        session_config = self.config.get("session", {})
-        session_metadata = session_config.get("metadata", {})
-        raw = session_config.get("raw", False)
+            # Choose event type based on whether this is a new or resumed session
+            event_base = SESSION_RESUME if self._is_resumed else SESSION_START
 
-        payload: dict = {
-            "session_id": self.session_id,
-            "parent_id": self.parent_id,
-            **({"metadata": session_metadata} if session_metadata else {}),
-        }
-        if raw:
-            payload["raw"] = redact_secrets(self.config)
-        await self.coordinator.hooks.emit(event_base, payload)
+            # Emit session lifecycle event from kernel (single source of truth)
+            session_config = self.config.get("session", {})
+            session_metadata = session_config.get("metadata", {})
+            raw = session_config.get("raw", False)
+
+            payload: dict = {
+                "session_id": self.session_id,
+                "parent_id": self.parent_id,
+                **({"metadata": session_metadata} if session_metadata else {}),
+            }
+            if raw:
+                payload["raw"] = redact_secrets(self.config)
+            await self.coordinator.hooks.emit(event_base, payload)
 
         orchestrator = self.coordinator.get("orchestrator")
         if not orchestrator:
