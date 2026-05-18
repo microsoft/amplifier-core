@@ -1,7 +1,7 @@
 ---
 bundle:
   name: core
-  version: 1.0.0
+  version: 1.1.0
   description: Amplifier kernel - ultra-thin mechanism layer providing stable contracts
 
 includes:
