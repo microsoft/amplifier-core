@@ -58,19 +58,22 @@ async def emit_raw_field_if_configured(
     session_id: str,
     event_base: str,
 ) -> None:
-    """Emit the base session event with an optional raw field.
+    """Emit a dedicated session:config event with the full redacted config.
 
-    When session.raw=true, a redacted copy of the full config is included
-    as the 'raw' field on the base event.
+    When session.raw=true, a redacted copy of the full config is emitted
+    as a separate ``session:config`` event.  This avoids duplicating the
+    base session event (e.g. ``session:start``) which the Rust kernel
+    already emitted synchronously before calling this helper.
 
-    This helper is called from the Rust PyO3 bridge's execute() path and
-    handles the Python utilities (redact_secrets) needed for raw payloads.
+    The ``event_base`` parameter is retained for API compatibility but is
+    NOT used as the emitted event name.  Consumers that need the raw mount
+    plan should subscribe to ``session:config`` rather than ``session:start``.
 
     Args:
         coordinator: The coordinator with hooks.
         config: Full session mount plan.
         session_id: Current session ID.
-        event_base: The base event name (e.g. 'session:start' or 'session:resume').
+        event_base: Reserved (kept for API compatibility; not used as event name).
     """
     from .utils import redact_secrets
 
@@ -80,7 +83,7 @@ async def emit_raw_field_if_configured(
     if raw:
         raw_payload = redact_secrets(config)
         await coordinator.hooks.emit(
-            event_base,
+            "session:config",
             {
                 "session_id": session_id,
                 "raw": raw_payload,
