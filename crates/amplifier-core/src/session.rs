@@ -797,8 +797,7 @@ mod tests {
             .filter(|(name, _)| name == events::SESSION_START)
             .count();
         assert_eq!(
-            start_count,
-            1,
+            start_count, 1,
             "session:start must fire exactly once per session, not per execute() call. \
              Got {} events across 3 execute() calls. \
              This is the Rust-port regression: lifecycle events belong at session \
@@ -842,8 +841,7 @@ mod tests {
             .filter(|(name, _)| name == events::SESSION_RESUME)
             .count();
         assert_eq!(
-            resume_count,
-            1,
+            resume_count, 1,
             "session:resume must fire exactly once per session, not per execute() call. \
              Got {} events across 3 execute() calls.",
             resume_count
