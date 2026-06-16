@@ -5,7 +5,7 @@ Verifies:
 - Pydantic validates Decimal type — rejects float
 - None means unknown (not zero)
 - Decimal("0") means explicitly free
-- SessionStatus.estimated_cost is removed (was never populated)
+- SessionStatus.estimated_cost is deprecated (was never populated)
 """
 
 from decimal import Decimal

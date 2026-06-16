@@ -168,6 +168,7 @@ impl From<crate::messages::Usage> for super::amplifier_module::Usage {
                     i32::MAX
                 })
             }),
+            cost_usd: native.cost_usd.clone(),
         }
     }
 }
@@ -181,6 +182,7 @@ impl From<super::amplifier_module::Usage> for crate::messages::Usage {
             reasoning_tokens: proto.reasoning_tokens.map(i64::from),
             cache_read_tokens: proto.cache_read_tokens.map(i64::from),
             cache_write_tokens: proto.cache_creation_tokens.map(i64::from),
+            cost_usd: proto.cost_usd.clone(),
             extensions: HashMap::new(),
         }
     }
@@ -1109,6 +1111,40 @@ mod tests {
             Some(0),
             "Some(0) cache_write_tokens must survive roundtrip"
         );
+    }
+
+    /// Verify that cost_usd survives roundtrip (None and Some cases).
+    #[test]
+    fn usage_cost_usd_roundtrips_correctly() {
+        // Test Some case
+        let original_with_cost = crate::messages::Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            total_tokens: 150,
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            cost_usd: Some("0.123".to_string()),
+            extensions: HashMap::new(),
+        };
+        let proto: super::super::amplifier_module::Usage = original_with_cost.clone().into();
+        let restored: crate::messages::Usage = proto.into();
+        assert_eq!(original_with_cost.cost_usd, restored.cost_usd);
+
+        // Test None case
+        let original_without_cost = crate::messages::Usage {
+            input_tokens: 100,
+            output_tokens: 50,
+            total_tokens: 150,
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            cost_usd: None,
+            extensions: HashMap::new(),
+        };
+        let proto: super::super::amplifier_module::Usage = original_without_cost.clone().into();
+        let restored: crate::messages::Usage = proto.into();
+        assert_eq!(original_without_cost.cost_usd, restored.cost_usd);
     }
 
     // -- E-3: ModelInfo i64→i32 overflow clamps to i32::MAX --
