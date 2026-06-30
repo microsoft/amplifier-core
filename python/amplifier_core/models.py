@@ -5,6 +5,7 @@ Uses Pydantic for validation and serialization.
 
 import json
 import re
+from datetime import date
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -322,6 +323,31 @@ class HookResult(BaseModel):
     )
 
 
+class Pricing(BaseModel):
+    """Per-model pricing information.
+
+    Rates are per million tokens, in the specified currency. Surfaced via
+    /v1/models so HTTP-bridge applications (e.g., amplifier-app-opencode)
+    can display cost estimates without maintaining their own pricing tables.
+    """
+
+    input_per_million: float = Field(..., description="Cost per million input tokens")
+    output_per_million: float = Field(..., description="Cost per million output tokens")
+    cache_read_per_million: float | None = Field(
+        default=None,
+        description="Cost per million cache-read input tokens (None if not supported)",
+    )
+    cache_write_per_million: float | None = Field(
+        default=None,
+        description="Cost per million cache-write input tokens (None if not supported)",
+    )
+    currency: str = Field(default="USD", description="ISO 4217 currency code")
+    as_of: date | None = Field(
+        default=None,
+        description="Date these rates were last verified; None if unknown",
+    )
+
+
 class ModelInfo(BaseModel):
     """Model metadata for provider models.
 
@@ -341,6 +367,13 @@ class ModelInfo(BaseModel):
     defaults: dict[str, Any] = Field(
         default_factory=dict,
         description="Model-specific default config values (e.g., temperature, max_tokens)",
+    )
+    pricing: Pricing | None = Field(
+        default=None,
+        description=(
+            "Per-model pricing information. None when pricing is not available "
+            "(e.g., local providers like ollama, self-hosted backends like vllm)."
+        ),
     )
 
 
