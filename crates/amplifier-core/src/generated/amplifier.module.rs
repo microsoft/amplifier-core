@@ -452,6 +452,10 @@ pub struct ModelInfo {
     pub capabilities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, tag = "6")]
     pub defaults_json: ::prost::alloc::string::String,
+    /// JSON-encoded Pricing, or empty string if pricing is unavailable
+    /// (e.g., local providers, self-hosted backends).
+    #[prost(string, tag = "7")]
+    pub pricing_json: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ProviderInfo {

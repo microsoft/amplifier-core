@@ -304,6 +304,11 @@ pub struct ModelInfo {
     /// Model-specific default config values (e.g., temperature, max_tokens).
     #[serde(default)]
     pub defaults: HashMap<String, Value>,
+
+    /// Per-model pricing information. None when pricing is not available
+    /// (e.g., local providers like ollama, self-hosted backends like vllm).
+    #[serde(default)]
+    pub pricing: Option<Pricing>,
 }
 
 /// A configuration field that a provider needs, with prompt metadata.
@@ -350,6 +355,36 @@ pub struct ConfigField {
     /// If true, this field is shown after model selection.
     #[serde(default)]
     pub requires_model: bool,
+}
+
+/// Per-model pricing information.
+///
+/// Rates are per million tokens, in the specified currency. Surfaced via
+/// `/v1/models` so HTTP-bridge applications (e.g., amplifier-app-opencode)
+/// can display cost estimates without maintaining their own pricing tables.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Pricing {
+    /// Cost per million input tokens.
+    pub input_per_million: f64,
+
+    /// Cost per million output tokens.
+    pub output_per_million: f64,
+
+    /// Cost per million cache-read input tokens (None if not supported).
+    #[serde(default)]
+    pub cache_read_per_million: Option<f64>,
+
+    /// Cost per million cache-write input tokens (None if not supported).
+    #[serde(default)]
+    pub cache_write_per_million: Option<f64>,
+
+    /// ISO 4217 currency code.
+    #[serde(default = "default_currency")]
+    pub currency: String,
+}
+
+fn default_currency() -> String {
+    "USD".to_string()
 }
 
 /// Provider metadata.
@@ -727,6 +762,7 @@ mod tests {
             max_output_tokens: 4096,
             capabilities: vec!["streaming".into()],
             defaults: Default::default(),
+            pricing: None,
         };
         assert_eq!(info.id, "gpt-4");
     }
@@ -740,6 +776,13 @@ mod tests {
             max_output_tokens: 8192,
             capabilities: vec!["tools".into(), "vision".into(), "streaming".into()],
             defaults: HashMap::from([("temperature".into(), json!(0.7))]),
+            pricing: Some(Pricing {
+                input_per_million: 3.0,
+                output_per_million: 15.0,
+                cache_read_per_million: None,
+                cache_write_per_million: None,
+                currency: "USD".into(),
+            }),
         };
         let json_str = serde_json::to_string(&info).unwrap();
         let deserialized: ModelInfo = serde_json::from_str(&json_str).unwrap();

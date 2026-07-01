@@ -1289,6 +1289,7 @@ mod provider_tests {
                 max_output_tokens: 1024,
                 capabilities: vec!["chat".to_string()],
                 defaults: HashMap::new(),
+                pricing: None,
             }])
         }
 

@@ -171,6 +171,27 @@ pub struct ProviderInfo {
     pub defaults: HashMap<String, Value>,
 }
 
+/// Per-model pricing information.
+///
+/// Rates are per million tokens, in the specified currency. Mirrors
+/// `amplifier_core::models::Pricing` on the native side (this crate has no
+/// dependency on `amplifier-core`, so the struct is duplicated here).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Pricing {
+    pub input_per_million: f64,
+    pub output_per_million: f64,
+    #[serde(default)]
+    pub cache_read_per_million: Option<f64>,
+    #[serde(default)]
+    pub cache_write_per_million: Option<f64>,
+    #[serde(default = "default_currency")]
+    pub currency: String,
+}
+
+fn default_currency() -> String {
+    "USD".to_string()
+}
+
 /// Metadata about a specific model.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelInfo {
@@ -180,6 +201,10 @@ pub struct ModelInfo {
     pub max_output_tokens: i64,
     pub capabilities: Vec<String>,
     pub defaults: HashMap<String, Value>,
+    /// Per-model pricing information. None when pricing is not available
+    /// (e.g., local providers like ollama, self-hosted backends like vllm).
+    #[serde(default)]
+    pub pricing: Option<Pricing>,
 }
 
 /// Request for an LLM chat completion.
@@ -473,9 +498,17 @@ mod tests {
             max_output_tokens: 4096,
             capabilities: vec!["chat".to_string(), "tools".to_string()],
             defaults: HashMap::new(),
+            pricing: Some(Pricing {
+                input_per_million: 30.0,
+                output_per_million: 60.0,
+                cache_read_per_million: None,
+                cache_write_per_million: None,
+                currency: "USD".to_string(),
+            }),
         };
         assert_eq!(info.context_window, 128000);
         assert_eq!(info.max_output_tokens, 4096);
+        assert_eq!(info.pricing.as_ref().unwrap().input_per_million, 30.0);
     }
 
     // --- ChatRequest tests ---
@@ -638,6 +671,13 @@ mod tests {
             max_output_tokens: 4096,
             capabilities: vec!["chat".to_string(), "tools".to_string()],
             defaults: HashMap::new(),
+            pricing: Some(Pricing {
+                input_per_million: 30.0,
+                output_per_million: 60.0,
+                cache_read_per_million: Some(15.0),
+                cache_write_per_million: Some(37.5),
+                currency: "USD".to_string(),
+            }),
         };
         let json_str = serde_json::to_string(&original).unwrap();
         let deserialized: ModelInfo = serde_json::from_str(&json_str).unwrap();
