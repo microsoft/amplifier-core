@@ -194,8 +194,8 @@ mod tests {
             max_output_tokens: 4096,
             capabilities: vec!["vision".into(), "tools".into(), "streaming".into()],
             defaults_json: r#"{"temperature":0.7}"#.into(),
-            pricing_json: r#"{"input_per_million":15.0,"output_per_million":75.0,"currency":"USD"}"#
-                .into(),
+            pricing_json:
+                r#"{"input_per_million":15.0,"output_per_million":75.0,"currency":"USD"}"#.into(),
         };
         assert_eq!(info.id, "claude-3-opus");
         assert_eq!(info.display_name, "Claude 3 Opus");
