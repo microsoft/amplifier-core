@@ -5,7 +5,6 @@ Uses Pydantic for validation and serialization.
 
 import json
 import re
-from datetime import date
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -329,6 +328,11 @@ class Pricing(BaseModel):
     Rates are per million tokens, in the specified currency. Surfaced via
     /v1/models so HTTP-bridge applications (e.g., amplifier-app-opencode)
     can display cost estimates without maintaining their own pricing tables.
+
+    Rate fields use `float` (not `Decimal`). These are display-only estimates
+    surfaced to consumers via `/v1/models` for UI-level cost display. For
+    per-turn cost accounting, use `Usage.cost_usd`, which is `Decimal` and
+    uses a field validator that explicitly rejects `float`.
     """
 
     input_per_million: float = Field(..., description="Cost per million input tokens")
@@ -342,10 +346,13 @@ class Pricing(BaseModel):
         description="Cost per million cache-write input tokens (None if not supported)",
     )
     currency: str = Field(default="USD", description="ISO 4217 currency code")
-    as_of: date | None = Field(
-        default=None,
-        description="Date these rates were last verified; None if unknown",
-    )
+
+    @field_validator("currency")
+    @classmethod
+    def _validate_currency(cls, v: str) -> str:
+        if not re.match(r"^[A-Z]{3}$", v):
+            raise ValueError(f"currency must be a 3-letter ISO 4217 code, got {v!r}")
+        return v
 
 
 class ModelInfo(BaseModel):

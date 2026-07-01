@@ -8,6 +8,10 @@ round-trip cleanly through model_dump() / model_validate() so HTTP bridges
 either branch.
 """
 
+import json
+
+from pydantic import ValidationError
+
 from amplifier_core.models import ModelInfo
 from amplifier_core.models import Pricing
 
@@ -32,7 +36,6 @@ class TestPricingRoundTrip:
         assert rebuilt.cache_read_per_million == 0.3
         assert rebuilt.cache_write_per_million == 3.75
         assert rebuilt.currency == "USD"
-        assert rebuilt.as_of is None
 
     def test_optional_fields_default_to_none(self):
         pricing = Pricing(input_per_million=1.0, output_per_million=5.0)
@@ -40,7 +43,27 @@ class TestPricingRoundTrip:
         assert pricing.cache_read_per_million is None
         assert pricing.cache_write_per_million is None
         assert pricing.currency == "USD"
-        assert pricing.as_of is None
+
+    def test_pricing_json_dumps_survives(self):
+        p = Pricing(input_per_million=3.0, output_per_million=15.0)
+        # Verify json.dumps(model_dump()) works without needing mode="json"
+        # (since we no longer have date fields, this should be trivially safe)
+        json.dumps(p.model_dump())
+        # And explicit mode="json" for consistency
+        json.dumps(p.model_dump(mode="json"))
+        # And model_dump_json() directly
+        Pricing.model_validate_json(p.model_dump_json())
+
+    def test_currency_must_be_iso_4217(self):
+        # valid 3-letter uppercase
+        Pricing(input_per_million=1.0, output_per_million=2.0, currency="EUR")
+        # invalid
+        for bad in ["usd", "US", "USDD", "us$", "123"]:
+            try:
+                Pricing(input_per_million=1.0, output_per_million=2.0, currency=bad)
+                raise AssertionError(f"expected ValidationError for currency={bad!r}")
+            except ValidationError:
+                pass
 
 
 class TestModelInfoPricingField:
