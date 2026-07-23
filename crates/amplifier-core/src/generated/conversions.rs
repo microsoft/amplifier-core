@@ -95,6 +95,11 @@ impl From<crate::models::ModelInfo> for super::amplifier_module::ModelInfo {
             }),
             capabilities: native.capabilities,
             defaults_json: to_json_or_warn(&native.defaults, "ModelInfo defaults"),
+            pricing_json: native
+                .pricing
+                .as_ref()
+                .map(|p| to_json_or_warn(p, "ModelInfo pricing"))
+                .unwrap_or_default(),
         }
     }
 }
@@ -111,6 +116,19 @@ impl From<super::amplifier_module::ModelInfo> for crate::models::ModelInfo {
                 Default::default()
             } else {
                 from_json_or_default(&proto.defaults_json, "ModelInfo defaults_json")
+            },
+            pricing: if proto.pricing_json.is_empty() {
+                None
+            } else {
+                match serde_json::from_str::<crate::models::Pricing>(&proto.pricing_json) {
+                    Ok(p) => Some(p),
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to parse ModelInfo pricing_json: {e} — pricing unavailable"
+                        );
+                        None
+                    }
+                }
             },
         }
     }
@@ -1029,10 +1047,54 @@ mod tests {
             max_output_tokens: 8192,
             capabilities: vec!["tools".into(), "vision".into()],
             defaults: HashMap::from([("temperature".to_string(), serde_json::json!(0.7))]),
+            pricing: Some(crate::models::Pricing {
+                input_per_million: 30.0,
+                output_per_million: 60.0,
+                cache_read_per_million: None,
+                cache_write_per_million: None,
+                currency: "USD".into(),
+            }),
         };
         let proto: super::super::amplifier_module::ModelInfo = original.clone().into();
         let restored: crate::models::ModelInfo = proto.into();
         assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn model_info_pricing_none_roundtrips_to_empty_json() {
+        let original = crate::models::ModelInfo {
+            id: "local-model".into(),
+            display_name: "Local Model".into(),
+            context_window: 8192,
+            max_output_tokens: 4096,
+            capabilities: vec![],
+            defaults: HashMap::new(),
+            pricing: None,
+        };
+        let proto: super::super::amplifier_module::ModelInfo = original.clone().into();
+        assert!(proto.pricing_json.is_empty());
+        let restored: crate::models::ModelInfo = proto.into();
+        assert_eq!(original, restored);
+        assert!(restored.pricing.is_none());
+    }
+
+    #[test]
+    fn model_info_pricing_invalid_json_becomes_none() {
+        let mut proto = super::super::amplifier_module::ModelInfo {
+            id: "broken-model".into(),
+            display_name: "Broken".into(),
+            context_window: 1000,
+            max_output_tokens: 100,
+            capabilities: vec![],
+            defaults_json: String::new(),
+            pricing_json: "not-valid-json".into(),
+        };
+        let restored: crate::models::ModelInfo = proto.clone().into();
+        assert!(restored.pricing.is_none());
+
+        proto.pricing_json = String::new();
+        let restored_empty: crate::models::ModelInfo = proto.into();
+        assert!(restored_empty.pricing.is_none());
     }
 
     #[test]
@@ -1122,6 +1184,7 @@ mod tests {
             max_output_tokens: 100,
             capabilities: vec![],
             defaults: HashMap::new(),
+            pricing: None,
         };
         let proto: super::super::amplifier_module::ModelInfo = original.into();
         assert_eq!(proto.context_window, i32::MAX);
@@ -1136,6 +1199,7 @@ mod tests {
             max_output_tokens: i64::from(i32::MAX) + 500,
             capabilities: vec![],
             defaults: HashMap::new(),
+            pricing: None,
         };
         let proto: super::super::amplifier_module::ModelInfo = original.into();
         assert_eq!(proto.max_output_tokens, i32::MAX);

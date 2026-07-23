@@ -148,3 +148,22 @@ def test_hook_result_json_roundtrip():
     assert restored.context_injection == "Lint error on line 42"
     assert restored.suppress_output is True
     assert restored.user_message == "Found 1 issue"
+
+
+def test_model_info_pricing_field():
+    """ModelInfo.pricing and Pricing are importable and round-trip via JSON."""
+    from amplifier_core import ModelInfo, Pricing
+
+    info = ModelInfo(
+        id="test-model",
+        display_name="Test",
+        context_window=1000,
+        max_output_tokens=100,
+        pricing=Pricing(input_per_million=3.0, output_per_million=15.0),
+    )
+    json_str = info.model_dump_json()
+    parsed = json.loads(json_str)
+    assert parsed["pricing"]["input_per_million"] == 3.0
+
+    restored = ModelInfo.model_validate(parsed)
+    assert restored.pricing.output_per_million == 15.0

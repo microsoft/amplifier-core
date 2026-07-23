@@ -415,6 +415,9 @@ message ModelInfo {
   int32           max_output_tokens = 4;
   repeated string capabilities      = 5;
   string          defaults_json     = 6;
+  // JSON-encoded Pricing, or empty string if pricing is unavailable
+  // (e.g., local providers, self-hosted backends).
+  string          pricing_json      = 7;
 }
 
 message ProviderInfo {
