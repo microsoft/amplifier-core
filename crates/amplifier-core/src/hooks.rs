@@ -402,8 +402,26 @@ fn value_to_map(value: &Value) -> HashMap<String, Value> {
 
 /// Merge multiple inject_context HookResults into a single result.
 ///
-/// Combines injections with `"\n\n"` separator, preserving settings from
-/// the first result (role, ephemeral, suppress_output).
+/// Combines injections with `"\n\n"` separator. `context_injection_role` and
+/// `suppress_output` are taken from the first result (these are display/role
+/// settings where "first wins" is a reasonable, harmless default). `ephemeral`
+/// and `append_to_last_tool_result` instead use OR semantics across ALL
+/// results, not just the first:
+///
+/// `ephemeral` in particular MUST be the logical OR of every contributing
+/// result, not `first.ephemeral`. The combined `context_injection` string is
+/// the concatenation of every hook's content -- if even one of those hooks
+/// marked its own contribution `ephemeral: true` (regenerated per turn), the
+/// resulting combined string is regenerated per turn too, byte-for-byte
+/// identical only when ALL contributors are stable. Taking only the first
+/// result's `ephemeral` flag meant a single non-ephemeral hook running before
+/// an ephemeral one (pure registration-order luck) would silently downgrade
+/// the merged result to `ephemeral: false` -- causing every downstream
+/// consumer that trusts `Message.metadata["ephemeral"]` (e.g. the Anthropic
+/// provider's conversation-region prompt-cache breakpoint placement) to lose
+/// the ephemeral signal for the ENTIRE combined injection, not just the
+/// stable part. See amplifier_module_provider_anthropic's
+/// `_count_trailing_ephemeral_messages` / `_apply_conversation_cache_control`.
 fn merge_inject_context_results(results: &[HookResult]) -> HookResult {
     if results.is_empty() {
         return HookResult::default();
@@ -420,14 +438,16 @@ fn merge_inject_context_results(results: &[HookResult]) -> HookResult {
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    // Use settings from first result
+    // role/suppress_output: "first wins" -- harmless display-only settings.
     let first = &results[0];
 
     HookResult {
         action: HookAction::InjectContext,
         context_injection: Some(combined_content),
         context_injection_role: first.context_injection_role.clone(),
-        ephemeral: first.ephemeral,
+        // OR semantics: ANY contributing result marking itself ephemeral
+        // makes the whole merged injection ephemeral (see doc comment above).
+        ephemeral: results.iter().any(|r| r.ephemeral),
         suppress_output: first.suppress_output,
         append_to_last_tool_result: results.iter().any(|r| r.append_to_last_tool_result),
         ..Default::default()
@@ -1156,6 +1176,84 @@ mod tests {
         assert!(
             !merged.append_to_last_tool_result,
             "merged result must have append_to_last_tool_result=false when both inputs are false"
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // merge_inject_context_results -- ephemeral (OR semantics)
+    // ---------------------------------------------------------------
+    //
+    // Regression coverage for the bug where `ephemeral` was taken only from
+    // `results[0]`: a non-ephemeral hook registered ahead of an ephemeral one
+    // (pure registration-order luck) silently downgraded the merged result to
+    // `ephemeral: false`, discarding the ephemeral signal for the ENTIRE
+    // combined injection -- not just the non-ephemeral hook's own content.
+
+    #[test]
+    fn merge_inject_context_ephemeral_true_when_first_is_ephemeral() {
+        let r1 = HookResult {
+            action: HookAction::InjectContext,
+            context_injection: Some("first".into()),
+            ephemeral: true,
+            ..Default::default()
+        };
+        let r2 = HookResult {
+            action: HookAction::InjectContext,
+            context_injection: Some("second".into()),
+            ephemeral: false,
+            ..Default::default()
+        };
+        let merged = merge_inject_context_results(&[r1, r2]);
+        assert!(
+            merged.ephemeral,
+            "merged result must be ephemeral when the FIRST input is ephemeral"
+        );
+    }
+
+    #[test]
+    fn merge_inject_context_ephemeral_true_when_second_is_ephemeral() {
+        // This is the exact regression case: the non-ephemeral hook runs
+        // FIRST (e.g. a stable todo-reminder registered at higher priority),
+        // and the ephemeral hook (e.g. status-context) runs SECOND. Taking
+        // only `results[0].ephemeral` would silently produce `false` here.
+        let r1 = HookResult {
+            action: HookAction::InjectContext,
+            context_injection: Some("first (stable)".into()),
+            ephemeral: false,
+            ..Default::default()
+        };
+        let r2 = HookResult {
+            action: HookAction::InjectContext,
+            context_injection: Some("second (ephemeral)".into()),
+            ephemeral: true,
+            ..Default::default()
+        };
+        let merged = merge_inject_context_results(&[r1, r2]);
+        assert!(
+            merged.ephemeral,
+            "merged result must be ephemeral when ANY input is ephemeral \
+             (OR semantics) -- regression test for registration-order bug"
+        );
+    }
+
+    #[test]
+    fn merge_inject_context_ephemeral_false_when_none_are_ephemeral() {
+        let r1 = HookResult {
+            action: HookAction::InjectContext,
+            context_injection: Some("first".into()),
+            ephemeral: false,
+            ..Default::default()
+        };
+        let r2 = HookResult {
+            action: HookAction::InjectContext,
+            context_injection: Some("second".into()),
+            ephemeral: false,
+            ..Default::default()
+        };
+        let merged = merge_inject_context_results(&[r1, r2]);
+        assert!(
+            !merged.ephemeral,
+            "merged result must not be ephemeral when no input is ephemeral"
         );
     }
 
