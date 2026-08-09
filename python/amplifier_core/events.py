@@ -62,6 +62,7 @@ from amplifier_core._engine import (
     CANCEL_COMPLETED,
     # Module lifecycle events
     MODULE_ON_SESSION_READY_FAILED,
+    MODULE_LOAD_FAILED,
     ALL_EVENTS,
 )
 
@@ -109,4 +110,5 @@ __all__ = [
     "CANCEL_COMPLETED",
     "ALL_EVENTS",
     "MODULE_ON_SESSION_READY_FAILED",
+    "MODULE_LOAD_FAILED",
 ]

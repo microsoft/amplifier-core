@@ -279,6 +279,18 @@ is added later (adding one is a breaking change).
 `module:on_session_ready_failed` event with payload `{"module_id": str, "error": str}`, in
 addition to the WARNING log. Log-only failures are invisible to observability hooks.
 
+**Same mechanism for provider/tool/hook load failures:** A provider, tool, or hook that
+raises during `mount()` is caught, logged as a WARNING with `exc_info=True`, and does
+**not** abort the session — the remaining modules still load and the session still starts.
+This is intentional non-interference (a single broken optional module must not take down
+an otherwise-working session) but it is silent by default: nothing short of grepping logs
+tells you a configured module never mounted. The kernel emits a `module:load_failed` event
+with payload `{"module_type": "provider"|"tool"|"hook", "module_id": str, "error": str}` so
+a hook module can observe the gap and decide policy (abort, notify the user, inject a
+system message telling the model the tool is unavailable, etc.). Required modules
+(orchestrator, context manager) are unaffected by this — their failure still raises
+`RuntimeError` and aborts initialization, as documented above.
+
 #### When to use `on_session_ready()`
 
 - **Discovering contributions from other modules** — read the fully-composed coordinator

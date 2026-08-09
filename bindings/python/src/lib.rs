@@ -253,6 +253,10 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
         "MODULE_ON_SESSION_READY_FAILED",
         amplifier_core::events::MODULE_ON_SESSION_READY_FAILED,
     )?;
+    m.add(
+        "MODULE_LOAD_FAILED",
+        amplifier_core::events::MODULE_LOAD_FAILED,
+    )?;
 
     // Aggregate list of all events
     m.add("ALL_EVENTS", amplifier_core::events::ALL_EVENTS.to_vec())?;

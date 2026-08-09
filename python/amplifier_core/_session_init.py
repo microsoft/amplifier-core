@@ -19,6 +19,33 @@ def _safe_exception_str(e: BaseException) -> str:
         return repr(e)
 
 
+async def _emit_module_load_failed(
+    coordinator: Any, module_type: str, module_id: str, error: BaseException
+) -> None:
+    """Emit the module:load_failed observability event for a provider, tool,
+    or hook that raised during load/mount.
+
+    This is a mechanism only: the kernel makes the failure observable via the
+    canonical event stream. It does not decide whether the session should
+    abort -- that policy choice belongs to a hook module subscribed to this
+    event. Mirrors the on_session_ready failure pattern below: event emission
+    failure must never suppress the original WARNING log.
+    """
+    from .events import MODULE_LOAD_FAILED
+
+    try:
+        await coordinator.hooks.emit(
+            MODULE_LOAD_FAILED,
+            {
+                "module_type": module_type,
+                "module_id": module_id,
+                "error": _safe_exception_str(error),
+            },
+        )
+    except Exception:
+        pass  # Event emission failure must not suppress the original warning
+
+
 async def initialize_session(
     config: dict[str, Any],
     coordinator: Any,
@@ -190,6 +217,7 @@ async def initialize_session(
                 f"Failed to load provider '{module_id}': {_safe_exception_str(e)}",
                 exc_info=True,
             )
+            await _emit_module_load_failed(coordinator, "provider", module_id, e)
 
     # Load tools
     for tool_config in config.get("tools", []):
@@ -215,6 +243,7 @@ async def initialize_session(
                 f"Failed to load tool '{module_id}': {_safe_exception_str(e)}",
                 exc_info=True,
             )
+            await _emit_module_load_failed(coordinator, "tool", module_id, e)
 
     # Load hooks
     for hook_config in config.get("hooks", []):
@@ -240,6 +269,7 @@ async def initialize_session(
                 f"Failed to load hook '{module_id}': {_safe_exception_str(e)}",
                 exc_info=True,
             )
+            await _emit_module_load_failed(coordinator, "hook", module_id, e)
 
     # Phase 6 — on_session_ready callbacks
     # Called after ALL modules have been mounted. Each callback receives the
@@ -260,6 +290,7 @@ async def initialize_session(
                 exc_info=True,
             )
             from .events import MODULE_ON_SESSION_READY_FAILED
+
             try:
                 await coordinator.hooks.emit(
                     MODULE_ON_SESSION_READY_FAILED,

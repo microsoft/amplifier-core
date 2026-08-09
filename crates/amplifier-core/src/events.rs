@@ -156,6 +156,12 @@ pub const CANCEL_COMPLETED: &str = "cancel:completed";
 /// Payload: {module_id: str, error: str}
 pub const MODULE_ON_SESSION_READY_FAILED: &str = "module:on_session_ready_failed";
 
+/// Emitted when a provider, tool, or hook module raises during load/mount and
+/// the session continues without it (the failure is caught and logged, not
+/// re-raised, so the module is silently absent unless something observes this
+/// event). Payload: {module_type: "provider"|"tool"|"hook", module_id: str, error: str}
+pub const MODULE_LOAD_FAILED: &str = "module:load_failed";
+
 // --- Aggregate ---
 
 /// All canonical event names, for iteration and validation.
@@ -205,6 +211,7 @@ pub const ALL_EVENTS: &[&str] = &[
     CANCEL_REQUESTED,
     CANCEL_COMPLETED,
     MODULE_ON_SESSION_READY_FAILED,
+    MODULE_LOAD_FAILED,
 ];
 
 #[cfg(test)]
@@ -328,6 +335,19 @@ mod tests {
     }
 
     #[test]
+    fn test_module_on_session_ready_failed_event_value() {
+        assert_eq!(
+            MODULE_ON_SESSION_READY_FAILED,
+            "module:on_session_ready_failed"
+        );
+    }
+
+    #[test]
+    fn test_module_load_failed_event_value() {
+        assert_eq!(MODULE_LOAD_FAILED, "module:load_failed");
+    }
+
+    #[test]
     fn test_all_events_contains_new_constants() {
         assert!(
             ALL_EVENTS.contains(&PROVIDER_THROTTLE),
@@ -347,7 +367,7 @@ mod tests {
 
     #[test]
     fn all_events_count() {
-        assert_eq!(ALL_EVENTS.len(), 42, "expected 42 canonical events");
+        assert_eq!(ALL_EVENTS.len(), 43, "expected 43 canonical events");
     }
 
     #[test]
@@ -391,6 +411,8 @@ mod tests {
             APPROVAL_DENIED,
             CANCEL_REQUESTED,
             CANCEL_COMPLETED,
+            MODULE_ON_SESSION_READY_FAILED,
+            MODULE_LOAD_FAILED,
         ];
         for event in expected {
             assert!(ALL_EVENTS.contains(event), "ALL_EVENTS missing: {event}");
