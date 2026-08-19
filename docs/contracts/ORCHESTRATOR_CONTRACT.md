@@ -256,10 +256,6 @@ if pre_result.action == "deny":
     # Don't execute tool
     return ToolResult(is_error=True, output=pre_result.reason)
 
-if pre_result.action == "modify":
-    # Use modified data
-    data = pre_result.data
-
 if pre_result.action == "inject_context":
     # Add feedback to context
     await context.add_message({
@@ -272,7 +268,37 @@ if pre_result.action == "ask_user":
     approved = await request_approval(pre_result)
     if not approved:
         return ToolResult(is_error=True, output="User denied")
+
+# Adopt handler modifications. `emit()` ALWAYS populates `data`, so read it
+# unconditionally -- see "Consuming modifications" below.
+if isinstance(pre_result.data, dict):
+    data = pre_result.data
 ```
+
+#### Consuming modifications
+
+**Do not branch on `action == "modify"`.** `emit()` never returns it.
+
+`modify` is a handler-to-handler chaining semantic *inside* the dispatch loop:
+each handler that returns `modify` updates the payload passed to the next one.
+The aggregate result handed back to the caller is always `action="continue"`,
+with the possibly-modified payload in `data`
+(`crates/amplifier-core/src/hooks.rs`, "Return final result with potentially
+modified data"). `data` is populated on every path -- no handlers registered,
+no matching entries, and the normal path alike.
+
+An orchestrator that checks `action == "modify"` therefore contains a branch
+that can never execute, and every handler which rewrites event data becomes a
+silent no-op: the handler runs, returns its correction, and the original data is
+used anyway, with no error and no log. That is a real failure mode -- argument
+normalization, path jailing, and secret scrubbing all depend on this path.
+
+**One interaction is easy to miss.** If any handler on the same event returns
+`inject_context` or `ask_user`, that handler's result is returned *instead of*
+the accumulated payload, so modifications made by earlier handlers are
+discarded. On the approval path the returned result carries no `data` at all.
+A modifying handler is therefore only effective when no other handler on that
+event injects context or requests approval.
 
 ### Context Management
 
