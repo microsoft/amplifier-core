@@ -112,6 +112,34 @@ impl SessionConfig {
     }
 }
 
+/// CP-SM: extract the `session.metadata` passthrough value from a session
+/// config's `session` section.
+///
+/// `session.metadata` is a documented contribution channel
+/// (`docs/specs/CONTRIBUTION_CHANNELS.md`): the kernel reads it and includes it
+/// as an optional `metadata` key in lifecycle event payloads. Pure passthrough —
+/// no interpretation, no validation.
+///
+/// Returns `None` when the key is absent *or* empty, mirroring the pure-Python
+/// kernel's `if session_metadata:` guard (`python/amplifier_core/session.py`).
+/// That guard is what keeps the payload byte-identical for every caller that
+/// does not configure metadata.
+///
+/// Shared by all Rust emit paths so they cannot drift apart again.
+pub fn session_metadata_passthrough(session_section: Option<&Value>) -> Option<Value> {
+    let metadata = session_section?.get("metadata")?;
+    // Mirror Python truthiness: null / false / 0 / "" / [] / {} are all falsy.
+    let non_empty = match metadata {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64().is_none_or(|f| f != 0.0),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(a) => !a.is_empty(),
+        Value::Object(o) => !o.is_empty(),
+    };
+    non_empty.then(|| metadata.clone())
+}
+
 // ---------------------------------------------------------------------------
 // Session
 // ---------------------------------------------------------------------------
@@ -313,16 +341,19 @@ impl Session {
                 events::SESSION_START
             };
 
-            self.coordinator
-                .hooks()
-                .emit(
-                    event,
-                    serde_json::json!({
-                        "session_id": self.session_id,
-                        "parent_id": self.parent_id,
-                    }),
-                )
-                .await;
+            let mut payload = serde_json::json!({
+                "session_id": self.session_id,
+                "parent_id": self.parent_id,
+            });
+            // CP-SM passthrough (docs/specs/CONTRIBUTION_CHANNELS.md). Absent or
+            // empty metadata leaves the payload exactly as it was before.
+            if let Some(metadata) =
+                session_metadata_passthrough(self.coordinator.config().get("session"))
+            {
+                payload["metadata"] = metadata;
+            }
+
+            self.coordinator.hooks().emit(event, payload).await;
         }
 
         // Get orchestrator
@@ -751,6 +782,130 @@ mod tests {
              Events: {:?}",
             resume_count,
             events.iter().map(|(n, _)| n).collect::<Vec<_>>()
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // CP-SM: session.metadata passthrough
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn session_metadata_passthrough_reads_configured_value() {
+        let section = serde_json::json!({
+            "orchestrator": "loop-basic",
+            "context": "context-simple",
+            "metadata": {"agent_name": "test-agent"},
+        });
+        assert_eq!(
+            session_metadata_passthrough(Some(&section)),
+            Some(serde_json::json!({"agent_name": "test-agent"}))
+        );
+    }
+
+    #[test]
+    fn session_metadata_passthrough_is_none_when_absent_or_empty() {
+        assert_eq!(session_metadata_passthrough(None), None);
+
+        let no_key = serde_json::json!({"orchestrator": "loop-basic"});
+        assert_eq!(session_metadata_passthrough(Some(&no_key)), None);
+
+        // Empty / falsy values must behave exactly like "absent" so the payload
+        // stays byte-identical for callers that configure nothing meaningful.
+        for empty in [
+            serde_json::json!({}),
+            serde_json::json!([]),
+            serde_json::json!(""),
+            serde_json::json!(null),
+        ] {
+            let section = serde_json::json!({"metadata": empty});
+            assert_eq!(session_metadata_passthrough(Some(&section)), None);
+        }
+    }
+
+    /// CP-SM contract: `config.session.metadata` must reach the `session:start`
+    /// payload. Specified in `docs/specs/CONTRIBUTION_CHANNELS.md` and already
+    /// honored by the pure-Python kernel; this pins the Rust kernel to it too.
+    #[tokio::test]
+    async fn execute_emits_session_start_with_metadata_when_configured() {
+        let config = SessionConfig::from_value(serde_json::json!({
+            "session": {
+                "orchestrator": "loop-basic",
+                "context": "context-simple",
+                "metadata": {"invocation": {"schema": 1, "mode": "single"}},
+            }
+        }))
+        .expect("valid config");
+        let mut session = Session::new(config, None, None);
+        session
+            .coordinator_mut()
+            .set_orchestrator(Arc::new(FakeOrchestrator::new("ok")));
+        session
+            .coordinator_mut()
+            .set_context(Arc::new(FakeContextManager::new()));
+        session
+            .coordinator_mut()
+            .mount_provider("test", Arc::new(FakeProvider::new("test", "hi")));
+
+        let handler = Arc::new(FakeHookHandler::new());
+        let _ = session.coordinator().hooks().register(
+            events::SESSION_START,
+            handler.clone(),
+            0,
+            Some("test-handler".into()),
+        );
+
+        session.set_initialized();
+        let _ = session.execute("hello").await;
+
+        let recorded = handler.recorded_events();
+        let (_, data) = recorded
+            .iter()
+            .find(|(name, _)| name == events::SESSION_START)
+            .expect("session:start must be emitted");
+        assert_eq!(
+            data.get("metadata"),
+            Some(&serde_json::json!({"invocation": {"schema": 1, "mode": "single"}})),
+            "session:start must carry config.session.metadata verbatim. Payload: {data:?}"
+        );
+        // Nothing else moved.
+        assert!(data.get("session_id").is_some());
+        assert!(data.get("parent_id").is_some());
+    }
+
+    /// Back-compat: unconfigured metadata leaves the payload exactly as it was.
+    #[tokio::test]
+    async fn execute_omits_metadata_when_not_configured() {
+        let config = SessionConfig::minimal("loop-basic", "context-simple");
+        let mut session = Session::new(config, None, None);
+        session
+            .coordinator_mut()
+            .set_orchestrator(Arc::new(FakeOrchestrator::new("ok")));
+        session
+            .coordinator_mut()
+            .set_context(Arc::new(FakeContextManager::new()));
+        session
+            .coordinator_mut()
+            .mount_provider("test", Arc::new(FakeProvider::new("test", "hi")));
+
+        let handler = Arc::new(FakeHookHandler::new());
+        let _ = session.coordinator().hooks().register(
+            events::SESSION_START,
+            handler.clone(),
+            0,
+            Some("test-handler".into()),
+        );
+
+        session.set_initialized();
+        let _ = session.execute("hello").await;
+
+        let recorded = handler.recorded_events();
+        let (_, data) = recorded
+            .iter()
+            .find(|(name, _)| name == events::SESSION_START)
+            .expect("session:start must be emitted");
+        assert!(
+            data.get("metadata").is_none(),
+            "session:start must not invent a metadata key. Payload: {data:?}"
         );
     }
 
