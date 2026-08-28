@@ -137,6 +137,7 @@ When multiple handlers return different actions for the same event, they are res
 - Description: If `True`, injection is temporary (only for current LLM call, not stored in conversation history). Use for transient state that updates frequently (todo reminders, live status). Orchestrator appends ephemeral injection to messages without storing in context.
 - Use Cases: Todo state, live metrics, temporary warnings
 - Not Recommended For: Persistent feedback, linter errors that need to stay visible
+- **Provider caveat**: this contract is enforced client-side only — see "Ephemeral Semantics on Stateful Providers" below for what it actually means once the message reaches a provider with server-held chain state.
 
 #### Approval Gate Fields
 
@@ -177,6 +178,42 @@ When multiple handlers return different actions for the same event, they are res
 - Type: `Literal["info", "warning", "error"]`
 - Default: `"info"`
 - Description: Severity level for `user_message`. `"info"` for status updates, `"warning"` for non-critical issues, `"error"` for failures.
+
+---
+
+### Ephemeral Semantics on Stateful Providers
+
+`ephemeral` is a **client-side-only** contract: it controls whether Amplifier's
+local context module retains the injection, not what happens once the
+message reaches the provider. On providers that chain conversation state
+server-side (sending only a delta of new items per request, rather than
+re-sending the full transcript each turn), the practical semantics differ
+from "not stored":
+
+- A `user`/`assistant`-role ephemeral injection rides the delta **once** and
+  then persists in the provider's server-held state for the rest of the
+  chain — there is no retraction API. Re-injecting the same content on later
+  turns **accumulates** additional copies rather than replacing the earlier
+  one; in practice this is bounded, since accumulated history rides on the
+  provider's own prompt caching once past its auto-cache token floor, and a
+  context-compaction event (which resets the chain) flushes it.
+- A `system`-role injection behaves differently and generally **is**
+  retractable: providers in this category typically re-derive a per-request
+  system/instructions field from the current turn rather than the chain
+  root, so withdrawing it on the next request causes it to disappear from
+  what the model sees. This is the mechanism mode enter/exit relies on.
+- Never omit the system/instructions field on a chained request once one has
+  been sent — omitting it can clear the provider's system prompt entirely,
+  rather than falling back to an earlier value.
+- Content the model has already echoed into a visible assistant reply is
+  permanent conversation history on these providers, regardless of any later
+  retraction of the field that originally prompted it.
+- Providers that rebuild the full request from scratch each turn (no
+  server-held state) are unaffected: a local drop is a remote drop, and here
+  `ephemeral` additionally serves only as a cache-breakpoint placement hint.
+
+Live-probed against a stateful, `previous_response_id`-chaining Responses-API
+provider on 2026-08-28.
 
 ---
 

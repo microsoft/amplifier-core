@@ -241,7 +241,10 @@ class HookResult(BaseModel):
         description=(
             "If True, injection is temporary (only for current LLM call, not stored in history). "
             "Use for transient state like todo reminders that update frequently. "
-            "Orchestrator must append ephemeral injection to messages without storing in context."
+            "Orchestrator must append ephemeral injection to messages without storing in context. "
+            "This is enforced client-side only: providers that chain conversation state "
+            "server-side may still retain the injected content across turns after it is sent. "
+            "See docs/HOOKS_API.md's 'Ephemeral Semantics on Stateful Providers' section."
         ),
     )
 
