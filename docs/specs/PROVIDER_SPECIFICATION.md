@@ -159,6 +159,15 @@ coordinator.register_contributor(
 )
 ```
 
+### Call Correlation
+
+The kernel stamps `request_id` onto `llm:request` and echoes it onto the
+matching `llm:response` (and `provider:error`), so consumers pair a call's
+events by identity rather than by position. In-process providers get this for
+free as long as both events are emitted from the same async task; gRPC/WASM
+providers must supply `request_id` themselves. See
+[PROVIDER_CONTRACT.md](../contracts/PROVIDER_CONTRACT.md#request_id--call-correlation-kernel-supplied).
+
 ### Debug Levels
 
 Support via config flags:

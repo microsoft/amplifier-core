@@ -23,6 +23,7 @@ use pyo3::prelude::*;
 mod bridges;
 mod cancellation;
 mod coordinator;
+mod correlation;
 mod errors;
 mod helpers;
 mod hooks;
