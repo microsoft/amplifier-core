@@ -121,6 +121,11 @@ impl PyHookRegistry {
     /// Emit an event and return the aggregated result as a JSON string.
     ///
     /// Calls all registered handlers for the event in priority order.
+    ///
+    /// For the LLM call event family this also stamps the correlation id
+    /// (`request_id`) so `llm:request` and its matching terminal event can be
+    /// paired by identity instead of by position. See
+    /// [`crate::correlation`] for the policy and its scoping rules.
     fn emit<'py>(
         &self,
         py: Python<'py>,
@@ -133,6 +138,11 @@ impl PyHookRegistry {
         let json_str: String = json_dumps_safe(py, &serializable)?;
         let value: Value = serde_json::from_str(&json_str)
             .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Invalid JSON: {e}")))?;
+        // Stamp the correlation id before handlers see the event. Must happen
+        // here, on the caller's Python stack, because the in-flight call is
+        // scoped by contextvars -- the spawned future below runs off-thread
+        // and no longer has the emitting task's context.
+        let value = crate::correlation::stamp_request_id(py, &event, value)?;
 
         wrap_future_as_coroutine(
             py,

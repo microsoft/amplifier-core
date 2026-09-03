@@ -171,6 +171,33 @@ coordinator.register_contributor(
 
 See [CONTRIBUTION_CHANNELS.md](../specs/CONTRIBUTION_CHANNELS.md) for the pattern.
 
+### `request_id` — Call Correlation (Kernel-Supplied)
+
+Providers **SHOULD NOT** do anything. The kernel stamps `request_id` onto
+`llm:request` on the emit path and echoes the same value onto the matching
+`llm:response` (and onto `provider:error` when the call fails or times out),
+so a consumer can pair a call's events by identity instead of by position.
+
+Two requirements fall on providers:
+
+1. **Emit `llm:request` before the call and `llm:response`/`provider:error`
+   after it, from the same async task.** Correlation is scoped by
+   `contextvars`, which is what keeps two concurrent calls apart. A provider
+   that emits the response from a *different* task (e.g. a streaming callback
+   scheduled separately) must pass `request_id` explicitly instead.
+
+2. **Do not overwrite it.** If a provider has a meaningful upstream id of its
+   own it may put `request_id` in the event data — an explicit value always
+   wins and the kernel adopts it for the rest of the call. Otherwise leave the
+   field alone.
+
+Out-of-process (gRPC/WASM) providers do not share the kernel's Python context
+and **MUST** supply `request_id` themselves on both events if they want their
+calls correlated.
+
+See [HOOKS_API.md](../HOOKS_API.md#request_id--llm-call-correlation) for the
+full policy and its backward-compatibility guarantees.
+
 ### `llm:response` Event — `usage` Payload Schema
 
 Providers **MUST** emit `llm:response` with the following `usage` payload. Key names are normative — derived from the kernel `Usage` struct (`crates/amplifier-core/src/messages.rs`):

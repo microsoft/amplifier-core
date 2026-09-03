@@ -217,6 +217,71 @@ provider on 2026-08-28.
 
 ---
 
+## Infrastructure-Owned Event Fields
+
+`HookRegistry.emit()` stamps a small number of fields onto event data before
+any handler sees it. Handlers and event consumers can rely on them being
+present without any provider or module doing anything.
+
+| Field | Events | Owner | Notes |
+|-------|--------|-------|-------|
+| `timestamp` | all | infrastructure | UTC ISO-8601. Callers cannot omit or override it. |
+| `request_id` | LLM call family (below) | infrastructure, caller may override | Correlates one LLM call's events. |
+
+### `request_id` — LLM call correlation
+
+`llm:request` and `llm:response` previously shared no field identifying the
+call they belonged to, so consumers had to pair them **positionally** (FIFO
+over the event stream). That silently mis-attributes whenever a second call is
+in flight — a background summarizer, a session-naming hook, a forked
+sub-agent. Both events still parse and the counts still look plausible, so the
+error is invisible: measured on real captures, positional pairing crossed
+12–31 pairs per run and put a summarizer's cost on the agent.
+
+The kernel now stamps a correlation id on the emit path:
+
+| Event | Behaviour |
+|-------|-----------|
+| `llm:request` | Generates a `request_id` (uuid4) and opens the call. |
+| `llm:response` | Echoes it exactly, then closes the call. |
+| `provider:error` | Echoes it, then closes the call — this is how a call that **times out** stays attributable even though no response ever arrives. |
+| `provider:retry`, `provider:throttle` | Echo it without closing the call. |
+| everything else | Untouched. |
+
+**Scoping.** The in-flight call is held in a `contextvars.ContextVar`, so the
+id follows the *async task* that issued the call. Two concurrent calls run in
+two tasks (`asyncio.gather`, `create_task`, a forked session, a worker thread)
+and therefore hold two independent slots — which is exactly the case
+positional pairing gets wrong. A provider whose request and response are
+emitted from *different* tasks (e.g. a streaming callback on its own task)
+will not correlate automatically; such a provider should pass `request_id`
+explicitly.
+
+**Explicit ids win.** A provider that puts its own `request_id` in the event
+data keeps it; the kernel adopts that value for the rest of the call and never
+overwrites it.
+
+**Absence is meaningful.** If a response-family event fires with no matching
+request in its context, no `request_id` is stamped at all. An absent id is
+always preferable to a wrong one.
+
+**Backward compatibility.** The field is purely additive:
+
+- Consumers that ignore `request_id` see an otherwise identical payload —
+  nothing was renamed, moved, or removed.
+- Event streams captured before this change carry no `request_id`. They remain
+  readable exactly as before; the kernel does not rewrite history. Consumers
+  must treat the field as **optional** (`data.get("request_id")`) and keep
+  their prior pairing heuristic as the fallback path.
+- Providers that already emit their own correlation id are unaffected.
+
+The policy lives in `amplifier_core.correlation` and is the single authority
+on which events carry an id. Module authors can call
+`amplifier_core.correlation.current_request_id()` to tag their own logs or
+custom events with the enclosing LLM call.
+
+---
+
 ## Hook Registration
 
 Register hooks to handle specific events.
