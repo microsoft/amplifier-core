@@ -85,4 +85,44 @@ describe('JsHookRegistry', () => {
     expect(parsed).toHaveProperty('custom', 'value')
     expect(parsed).toHaveProperty('tool', 'grep')
   })
+
+  it('supports async handlers returning Promise<string>', async () => {
+    const registry = new JsHookRegistry()
+    let handlerCalled = false
+    let receivedEvent = ''
+
+    registry.register('tool:pre', async (event: string, _data: string) => {
+      handlerCalled = true
+      receivedEvent = event
+      // Simulate async work (e.g. I/O)
+      await new Promise<void>(resolve => setImmediate(() => resolve()))
+      return JSON.stringify({ action: 'continue' })
+    }, 10, 'async-hook')
+
+    const result = await registry.emit('tool:pre', '{"tool":"grep"}')
+
+    expect(handlerCalled).toBe(true)
+    expect(receivedEvent).toBe('tool:pre')
+    expect(result.action).toBe(HookAction.Continue)
+  })
+
+  it('async handler returning deny short-circuits pipeline', async () => {
+    const registry = new JsHookRegistry()
+    let secondRan = false
+
+    registry.register('tool:pre', async (_event: string, _data: string) => {
+      await new Promise<void>(resolve => setImmediate(() => resolve()))
+      return JSON.stringify({ action: 'deny', reason: 'async blocked' })
+    }, 10, 'async-deny')
+    registry.register('tool:pre', (_event: string, _data: string) => {
+      secondRan = true
+      return JSON.stringify({ action: 'continue' })
+    }, 20, 'after')
+
+    const result = await registry.emit('tool:pre', '{"tool":"rm"}')
+
+    expect(result.action).toBe(HookAction.Deny)
+    expect(result.reason).toBe('async blocked')
+    expect(secondRan).toBe(false)
+  })
 })
