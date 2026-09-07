@@ -275,6 +275,8 @@ pub struct Usage {
     pub cache_read_tokens: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_write_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<String>,
     #[serde(flatten)]
     pub extensions: HashMap<String, Value>,
 }
