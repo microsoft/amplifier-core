@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "^2",
-    "vitest": "^3",
+    "vitest": "^5",
     "typescript": "^5"
   }
 }
