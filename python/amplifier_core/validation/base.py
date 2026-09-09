@@ -11,7 +11,8 @@ test base classes at module-load time. See incident #5 in
 ``context/release-mandate.md`` for the v1.4.0 regression that motivated this.
 """
 
-import importlib.util
+import _imp
+import importlib
 import inspect
 import sys
 from dataclasses import dataclass
@@ -67,45 +68,91 @@ class ValidationResult:
 
 
 def import_module_from_path(module_path: str | Path) -> ModuleType:
-    """Import a Python source path without duplicating its canonical module.
+    """Import a Python source path through Python's normal import machinery.
 
-    When runtime loading already imported the module from the same source,
-    validation must inspect that object.  A same-named module from another
-    source is deliberately not reused: path validation must validate the
-    requested file rather than whichever package happens to be in
-    ``sys.modules``.
+    Validation must use the canonical module object that runtime loading will
+    mount.  If another source already owns the same package name, fail closed
+    rather than replacing entries in ``sys.modules`` while another importer can
+    observe them.
     """
     path = Path(module_path)
     source_path = path / "__init__.py" if path.is_dir() else path
     module_name = path.name if path.is_dir() else path.stem
 
-    existing = sys.modules.get(module_name)
-    if existing is not None:
-        existing_file = getattr(existing, "__file__", None)
-        if existing_file is not None and Path(existing_file).resolve() == source_path.resolve():
-            return existing
-
-    spec = importlib.util.spec_from_file_location(module_name, source_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load spec for {path}")
-
-    module = importlib.util.module_from_spec(spec)
-    module_prefix = f"{module_name}."
-    previous_modules = {
-        name: value
-        for name, value in sys.modules.items()
-        if name == module_name or name.startswith(module_prefix)
-    }
-    for name in previous_modules:
-        del sys.modules[name]
-    sys.modules[module_name] = module
+    import_root = path.parent if path.is_dir() else source_path.parent
+    parent = str(import_root)
+    _imp.acquire_lock()
     try:
-        spec.loader.exec_module(module)
+        existing = sys.modules.get(module_name)
+        if existing is not None:
+            existing_file = getattr(existing, "__file__", None)
+            if (
+                existing_file is not None
+                and Path(existing_file).resolve() == source_path.resolve()
+            ):
+                return existing
+            raise ImportError(
+                f"Refusing to import '{module_name}' from {source_path}: "
+                f"it is already loaded from {existing_file}"
+            )
+
+        package_dir = source_path.parent.resolve()
+        for cached_name, cached_module in sys.modules.items():
+            if not cached_name.startswith(f"{module_name}."):
+                continue
+            cached_file = getattr(cached_module, "__file__", None)
+            if cached_file is None or not Path(cached_file).resolve().is_relative_to(
+                package_dir
+            ):
+                raise ImportError(
+                    f"Refusing to import '{module_name}' from {source_path}: "
+                    f"cached submodule '{cached_name}' is from {cached_file}"
+                )
+
+        try:
+            original_path_index = sys.path.index(parent)
+        except ValueError:
+            original_path_index = None
+        next_path = (
+            sys.path[original_path_index + 1]
+            if original_path_index is not None
+            and original_path_index + 1 < len(sys.path)
+            else None
+        )
+        if original_path_index is None:
+            sys.path.insert(0, parent)
+        elif original_path_index != 0:
+            sys.path.pop(original_path_index)
+            sys.path.insert(0, parent)
+        try:
+            module = importlib.import_module(module_name)
+        finally:
+            current_path_index = next(
+                (index for index, value in enumerate(sys.path) if value is parent),
+                None,
+            )
+            if original_path_index is None:
+                if current_path_index is not None:
+                    sys.path.pop(current_path_index)
+            elif original_path_index != 0 and current_path_index is not None:
+                sys.path.pop(current_path_index)
+                next_path_index = next(
+                    (index for index, value in enumerate(sys.path) if value is next_path),
+                    None,
+                )
+                if next_path_index is None:
+                    sys.path.append(parent)
+                else:
+                    sys.path.insert(next_path_index, parent)
     finally:
-        for name in list(sys.modules):
-            if name == module_name or name.startswith(module_prefix):
-                del sys.modules[name]
-        sys.modules.update(previous_modules)
+        _imp.release_lock()
+
+    imported_file = getattr(module, "__file__", None)
+    if imported_file is None or Path(imported_file).resolve() != source_path.resolve():
+        raise ImportError(
+            f"Refusing to validate '{module_name}' from {source_path}: "
+            f"Python imported {imported_file}"
+        )
     return module
 
 
