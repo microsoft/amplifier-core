@@ -11,9 +11,13 @@ test base classes at module-load time. See incident #5 in
 ``context/release-mandate.md`` for the v1.4.0 regression that motivated this.
 """
 
+import importlib.util
 import inspect
+import sys
 from dataclasses import dataclass
 from dataclasses import field
+from pathlib import Path
+from types import ModuleType
 from typing import Any
 from typing import Literal
 
@@ -60,6 +64,49 @@ class ValidationResult:
         passed_count = sum(1 for c in self.checks if c.passed)
         status = "PASSED" if self.passed else "FAILED"
         return f"{status}: {passed_count}/{len(self.checks)} checks passed ({len(self.errors)} errors, {len(self.warnings)} warnings)"
+
+
+def import_module_from_path(module_path: str | Path) -> ModuleType:
+    """Import a Python source path without duplicating its canonical module.
+
+    When runtime loading already imported the module from the same source,
+    validation must inspect that object.  A same-named module from another
+    source is deliberately not reused: path validation must validate the
+    requested file rather than whichever package happens to be in
+    ``sys.modules``.
+    """
+    path = Path(module_path)
+    source_path = path / "__init__.py" if path.is_dir() else path
+    module_name = path.name if path.is_dir() else path.stem
+
+    existing = sys.modules.get(module_name)
+    if existing is not None:
+        existing_file = getattr(existing, "__file__", None)
+        if existing_file is not None and Path(existing_file).resolve() == source_path.resolve():
+            return existing
+
+    spec = importlib.util.spec_from_file_location(module_name, source_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load spec for {path}")
+
+    module = importlib.util.module_from_spec(spec)
+    module_prefix = f"{module_name}."
+    previous_modules = {
+        name: value
+        for name, value in sys.modules.items()
+        if name == module_name or name.startswith(module_prefix)
+    }
+    for name in previous_modules:
+        del sys.modules[name]
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        for name in list(sys.modules):
+            if name == module_name or name.startswith(module_prefix):
+                del sys.modules[name]
+        sys.modules.update(previous_modules)
+    return module
 
 
 def check_on_session_ready(module: Any) -> ValidationCheck | None:
