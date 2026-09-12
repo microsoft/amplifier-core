@@ -112,6 +112,14 @@ maturin develop
 uv run maturin develop
 ```
 
+To regenerate the committed Python gRPC stubs, install the pinned generator
+and run the canonical command:
+
+```bash
+python -m pip install grpcio-tools==1.78.0
+python scripts/generate_grpc_stubs.py
+```
+
 See [docs/RUST_CORE_TESTING.md](docs/RUST_CORE_TESTING.md) for the full development setup guide.
 
 **Build dependencies**: Rust 1.70+, maturin

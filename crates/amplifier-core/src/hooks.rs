@@ -448,6 +448,25 @@ fn merge_inject_context_results(results: &[HookResult]) -> HookResult {
     let first = &results[0];
     let first_injection = &context_injections[0];
 
+    // A single handler may return multiple structured injections.  This is
+    // normalization, not aggregation: retain the handler's other result-level
+    // fields (including UI and approval metadata) while updating only the
+    // legacy injection projection.
+    if results.len() == 1 {
+        let mut result = first.clone();
+        result.action = HookAction::InjectContext;
+        result.context_injection = Some(combined_content);
+        result.context_injection_role = first_injection.role.clone();
+        result.ephemeral = context_injections
+            .iter()
+            .any(|injection| injection.ephemeral);
+        result.append_to_last_tool_result = context_injections
+            .iter()
+            .any(|injection| injection.append_to_last_tool_result);
+        result.context_injections = context_injections;
+        return result;
+    }
+
     HookResult {
         action: HookAction::InjectContext,
         context_injection: Some(combined_content),
@@ -864,6 +883,91 @@ mod tests {
         let injection = result.context_injection.unwrap();
         assert!(injection.contains("first injection"));
         assert!(injection.contains("second injection"));
+    }
+
+    #[tokio::test]
+    async fn single_structured_injection_result_preserves_non_injection_fields() {
+        use crate::models::{ApprovalDefault, ContextInjectionRole, UserMessageLevel};
+
+        let registry = HookRegistry::new();
+        let original_data = HashMap::from([("keep".to_string(), serde_json::json!(true))]);
+        let original_extensions =
+            HashMap::from([("future_field".to_string(), serde_json::json!("preserved"))]);
+        let handler = Arc::new(SimpleHandler(HookResult {
+            action: HookAction::InjectContext,
+            data: Some(original_data.clone()),
+            reason: Some("keep reason".into()),
+            // The scalar fields are intentionally stale: the list is canonical.
+            context_injection: Some("stale scalar".into()),
+            context_injection_role: ContextInjectionRole::System,
+            ephemeral: false,
+            approval_prompt: Some("keep approval".into()),
+            approval_options: Some(vec!["allow".into(), "deny".into()]),
+            approval_timeout: 42.0,
+            approval_default: ApprovalDefault::Allow,
+            suppress_output: true,
+            user_message: Some("Context injected".into()),
+            user_message_level: UserMessageLevel::Warning,
+            user_message_source: Some("status-context".into()),
+            append_to_last_tool_result: false,
+            context_injections: vec![
+                ContextInjection {
+                    content: "first".into(),
+                    role: ContextInjectionRole::User,
+                    ephemeral: false,
+                    append_to_last_tool_result: false,
+                    hook_name: "untrusted".into(),
+                    event: "untrusted".into(),
+                },
+                ContextInjection {
+                    content: "second".into(),
+                    role: ContextInjectionRole::Assistant,
+                    ephemeral: true,
+                    append_to_last_tool_result: true,
+                    hook_name: "untrusted".into(),
+                    event: "untrusted".into(),
+                },
+            ],
+            extensions: original_extensions.clone(),
+        }));
+        let _ = registry.register(
+            "test:structured",
+            handler,
+            0,
+            Some("structured-hook".into()),
+        );
+
+        let result = registry
+            .emit("test:structured", serde_json::json!({}))
+            .await;
+
+        assert_eq!(result.action, HookAction::InjectContext);
+        assert_eq!(result.context_injection.as_deref(), Some("first\n\nsecond"));
+        assert_eq!(result.context_injection_role, ContextInjectionRole::User);
+        assert!(result.ephemeral);
+        assert!(result.append_to_last_tool_result);
+        assert_eq!(result.context_injections.len(), 2);
+        assert_eq!(result.context_injections[0].hook_name, "structured-hook");
+        assert_eq!(result.context_injections[0].event, "test:structured");
+        assert_eq!(result.context_injections[1].hook_name, "structured-hook");
+        assert_eq!(result.context_injections[1].event, "test:structured");
+        assert_eq!(result.data, Some(original_data));
+        assert_eq!(result.reason.as_deref(), Some("keep reason"));
+        assert_eq!(result.approval_prompt.as_deref(), Some("keep approval"));
+        assert_eq!(
+            result.approval_options,
+            Some(vec!["allow".into(), "deny".into()])
+        );
+        assert_eq!(result.approval_timeout, 42.0);
+        assert_eq!(result.approval_default, ApprovalDefault::Allow);
+        assert!(result.suppress_output);
+        assert_eq!(result.user_message.as_deref(), Some("Context injected"));
+        assert_eq!(result.user_message_level, UserMessageLevel::Warning);
+        assert_eq!(
+            result.user_message_source.as_deref(),
+            Some("status-context")
+        );
+        assert_eq!(result.extensions, original_extensions);
     }
 
     // ---------------------------------------------------------------

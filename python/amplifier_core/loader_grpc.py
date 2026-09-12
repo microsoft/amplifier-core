@@ -195,8 +195,7 @@ async def load_grpc_module(
     except ImportError:
         raise ImportError(
             "gRPC proto stubs not generated. Run: "
-            "python -m grpc_tools.protoc -I proto --python_out=python/amplifier_core/_grpc_gen "
-            "--grpc_python_out=python/amplifier_core/_grpc_gen proto/amplifier_module.proto"
+            "python scripts/generate_grpc_stubs.py"
         )
 
     stub = amplifier_module_pb2_grpc.ToolServiceStub(channel)
