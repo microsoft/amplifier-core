@@ -47,6 +47,23 @@ fn parse_defaults_json(json_str: &str, id: &str) -> HashMap<String, Value> {
     })
 }
 
+/// Parse a JSON string into an optional Pricing, logging a warning on
+/// non-empty parse failures. Empty string means "no pricing available".
+fn parse_pricing_json(json_str: &str, id: &str) -> Option<crate::models::Pricing> {
+    if json_str.is_empty() {
+        return None;
+    }
+    serde_json::from_str(json_str)
+        .map_err(|e| {
+            log::warn!(
+                "Failed to parse model '{}' pricing_json: {e} — pricing unavailable",
+                id
+            );
+            e
+        })
+        .ok()
+}
+
 /// A bridge that wraps a remote gRPC `ProviderService` as a native [`Provider`].
 ///
 /// The client is held behind a [`tokio::sync::Mutex`] because
@@ -125,6 +142,7 @@ impl Provider for GrpcProviderBridge {
                 .into_iter()
                 .map(|m| {
                     let defaults = parse_defaults_json(&m.defaults_json, &m.id);
+                    let pricing = parse_pricing_json(&m.pricing_json, &m.id);
                     ModelInfo {
                         id: m.id,
                         display_name: m.display_name,
@@ -132,6 +150,7 @@ impl Provider for GrpcProviderBridge {
                         max_output_tokens: m.max_output_tokens as i64,
                         capabilities: m.capabilities,
                         defaults,
+                        pricing,
                     }
                 })
                 .collect();
