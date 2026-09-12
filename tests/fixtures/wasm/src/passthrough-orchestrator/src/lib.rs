@@ -10,6 +10,19 @@ struct PassthroughOrchestrator;
 
 impl Orchestrator for PassthroughOrchestrator {
     fn execute(&self, prompt: String) -> Result<String, String> {
+        if prompt == "test:emit-hook" {
+            let request = serde_json::json!({
+                "event": "test:async-hook",
+                "data": {}
+            });
+            let request_bytes = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
+            let result_bytes =
+                bindings::amplifier::modules::kernel_service::emit_hook(&request_bytes)?;
+            let result: serde_json::Value =
+                serde_json::from_slice(&result_bytes).map_err(|e| e.to_string())?;
+            return Ok(result.to_string());
+        }
+
         // Build a JSON request for the echo-tool via the kernel service.
         let input = serde_json::json!({
             "name": "echo-tool",

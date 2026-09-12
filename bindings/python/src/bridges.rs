@@ -32,6 +32,12 @@ use crate::helpers::{is_approval_granted, json_dumps_safe, try_model_dump};
 /// and return a dict (or None for a default continue result).
 pub(crate) struct PyHookHandlerBridge {
     pub(crate) callable: Py<PyAny>,
+    /// Event-loop fallback captured while registering the handler.
+    ///
+    /// Native callbacks from blocking WASM work do not inherit Tokio task
+    /// locals. This intentionally retains only the loop, not a contextvars
+    /// snapshot, so the emitting task's current context remains authoritative.
+    pub(crate) fallback_locals: Option<pyo3_async_runtimes::TaskLocals>,
 }
 
 // Safety: Py<PyAny> is Send+Sync (PyO3 handles GIL acquisition).
@@ -89,14 +95,24 @@ impl HookHandler for PyHookHandlerBridge {
                     handler_name: None,
                 })?;
 
-            // Step 2: If it's a coroutine, convert to a Rust Future via
-            // pyo3_async_runtimes::tokio::into_future() and await OUTSIDE the GIL.
-            // This is the key fix: the old code used run_coroutine_threadsafe /
-            // asyncio.run() which either deadlocked or created a throwaway event loop.
-            // into_future() properly drives the coroutine on the caller's event loop.
+            // Step 2: If it's a coroutine, convert to a Rust Future and await
+            // OUTSIDE the GIL. Prefer the current emitting task's locals, then
+            // fall back to the registration loop when a native callback (such as
+            // a blocking WASM host import) has lost Tokio task-local state.
             let py_result = if is_coro {
                 let future = Python::try_attach(|py| {
-                    pyo3_async_runtimes::tokio::into_future(py_result_or_coro.into_bound(py))
+                    let locals = pyo3_async_runtimes::tokio::get_current_locals(py)
+                        .ok()
+                        .or_else(|| self.fallback_locals.clone())
+                        .ok_or_else(|| {
+                            pyo3::exceptions::PyRuntimeError::new_err(
+                                "No running Python event loop available for coroutine conversion",
+                            )
+                        })?;
+                    pyo3_async_runtimes::into_future_with_locals(
+                        &locals,
+                        py_result_or_coro.into_bound(py),
+                    )
                 })
                 .ok_or_else(|| HookError::HandlerFailed {
                     message: "Failed to attach to Python runtime for coroutine conversion"
@@ -109,7 +125,8 @@ impl HookHandler for PyHookHandlerBridge {
                 })?;
 
                 // Await OUTSIDE the GIL — drives the Python coroutine on the
-                // caller's asyncio event loop via pyo3-async-runtimes task locals.
+                // current task's loop, or its registration loop after native
+                // re-entry has lost task-local state.
                 future.await.map_err(|e| HookError::HandlerFailed {
                     message: format!("Python async handler error: {e}"),
                     handler_name: None,

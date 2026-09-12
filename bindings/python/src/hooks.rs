@@ -103,7 +103,17 @@ impl PyHookRegistry {
     ) -> PyResult<Py<PyAny>> {
         let handler_name =
             name.unwrap_or_else(|| format!("_auto_{event}_{}", uuid::Uuid::new_v4()));
-        let bridge = Arc::new(PyHookHandlerBridge { callable: handler });
+        // A native callback can re-enter the shared registry from a Tokio
+        // blocking thread, where task locals are unavailable. Keep the
+        // registration loop as a fallback only; do not snapshot contextvars,
+        // because the current emitting task's context must take precedence.
+        let fallback_locals = pyo3_async_runtimes::tokio::get_current_locals(py)
+            .ok()
+            .map(|locals| pyo3_async_runtimes::TaskLocals::new(locals.event_loop(py)));
+        let bridge = Arc::new(PyHookHandlerBridge {
+            callable: handler,
+            fallback_locals,
+        });
         let unregister_fn =
             self.inner
                 .register(event, bridge, priority, Some(handler_name.clone()));

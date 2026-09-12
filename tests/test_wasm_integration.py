@@ -3,6 +3,7 @@
 Uses real Rust _engine module (no mocks). May be slow on ARM64 due to WASM compilation.
 """
 
+import json
 import os
 import shutil
 import tempfile
@@ -143,6 +144,46 @@ async def test_load_passthrough_orchestrator_wasm():
         assert result["status"] == "mounted"
         assert result["module_type"] == "orchestrator"
         assert coord.mount_points["orchestrator"] is not None
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_passthrough_orchestrator_emits_async_python_hook():
+    """A WASM host callback preserves an async Python hook's owning loop."""
+    import asyncio
+
+    tmpdir = _isolated_wasm_dir("passthrough-orchestrator.wasm")
+    try:
+        coord = _get_coordinator()
+        result = load_and_mount_wasm(coord, tmpdir)
+        assert result["status"] == "mounted"
+
+        callback_calls = []
+
+        async def async_deny_handler(event, data):
+            await asyncio.sleep(0)
+            callback_calls.append((event, data))
+            return {"action": "deny", "reason": "async Python denial"}
+
+        coord.hooks.register(
+            "test:async-hook",
+            async_deny_handler,
+            0,
+            name="async-python-deny",
+        )
+        mounted = coord.mount_points["orchestrator"]
+        response = await mounted.execute("test:emit-hook")
+        hook_result = json.loads(response)
+
+        assert hook_result["action"] == "deny"
+        assert hook_result["reason"] == "async Python denial"
+        assert len(callback_calls) == 1
+        event, payload = callback_calls[0]
+        assert event == "test:async-hook"
+        # The kernel adds its standard event timestamp to the empty input.
+        assert isinstance(payload["timestamp"], str)
+        assert {key: value for key, value in payload.items() if key != "timestamp"} == {}
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 

@@ -83,6 +83,77 @@ pub mod amplifier {
                     result10
                 }
             }
+            #[allow(unused_unsafe, clippy::all)]
+            /// Emit a hook event (EmitHookRequest proto, serialized as bytes).
+            /// Returns serialized HookResult on success.
+            pub fn emit_hook(request: &[u8]) -> Result<_rt::Vec<u8>, _rt::String> {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 3 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 3
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = request;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let ptr1 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(
+                        wasm_import_module = "amplifier:modules/kernel-service@1.0.0"
+                    )]
+                    unsafe extern "C" {
+                        #[link_name = "emit-hook"]
+                        fn wit_import2(_: *mut u8, _: usize, _: *mut u8);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import2(_: *mut u8, _: usize, _: *mut u8) {
+                        unreachable!()
+                    }
+                    unsafe { wit_import2(ptr0.cast_mut(), len0, ptr1) };
+                    let l3 = i32::from(*ptr1.add(0).cast::<u8>());
+                    let result10 = match l3 {
+                        0 => {
+                            let e = {
+                                let l4 = *ptr1
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l5 = *ptr1
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len6 = l5;
+                                _rt::Vec::from_raw_parts(l4.cast(), len6, len6)
+                            };
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l7 = *ptr1
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l8 = *ptr1
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len9 = l8;
+                                let bytes9 = _rt::Vec::from_raw_parts(
+                                    l7.cast(),
+                                    len9,
+                                    len9,
+                                );
+                                _rt::string_lift(bytes9)
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    result10
+                }
+            }
         }
     }
 }
@@ -273,14 +344,15 @@ pub(crate) use __export_orchestrator_module_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 357] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xdb\x01\x01A\x02\x01\
-A\x04\x01B\x04\x01p}\x01j\x01\0\x01s\x01@\x01\x07request\0\0\x01\x04\0\x0cexecut\
-e-tool\x01\x02\x03\0&amplifier:modules/kernel-service@1.0.0\x05\0\x01B\x04\x01p}\
-\x01j\x01\0\x01s\x01@\x01\x07request\0\0\x01\x04\0\x07execute\x01\x02\x04\0$ampl\
-ifier:modules/orchestrator@1.0.0\x05\x01\x04\0+amplifier:modules/orchestrator-mo\
-dule@1.0.0\x04\0\x0b\x19\x01\0\x13orchestrator-module\x03\0\0\0G\x09producers\x01\
-\x0cprocessed-by\x02\x0dwit-component\x070.227.1\x10wit-bindgen-rust\x060.41.0";
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 371] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xe9\x01\x01A\x02\x01\
+A\x04\x01B\x05\x01p}\x01j\x01\0\x01s\x01@\x01\x07request\0\0\x01\x04\0\x0cexecut\
+e-tool\x01\x02\x04\0\x09emit-hook\x01\x02\x03\0&amplifier:modules/kernel-service\
+@1.0.0\x05\0\x01B\x04\x01p}\x01j\x01\0\x01s\x01@\x01\x07request\0\0\x01\x04\0\x07\
+execute\x01\x02\x04\0$amplifier:modules/orchestrator@1.0.0\x05\x01\x04\0+amplifi\
+er:modules/orchestrator-module@1.0.0\x04\0\x0b\x19\x01\0\x13orchestrator-module\x03\
+\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.227.1\x10wit-\
+bindgen-rust\x060.41.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {
