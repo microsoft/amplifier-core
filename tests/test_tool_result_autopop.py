@@ -1,5 +1,6 @@
 """Tests for ToolResult auto-populate output from error message."""
 
+import json
 import pytest
 
 from amplifier_core.models import ToolResult
@@ -74,6 +75,14 @@ class TestToolResultContent:
             ],
         }
         assert ToolResult(content=[]).content is None
+        assert "content" not in json.loads(legacy.model_dump_json())
+        assert "content" not in json.loads(ToolResult(content=[]).model_dump_json())
+
+    def test_legacy_model_dump_json_preserves_pydantic_serialization_options(self) -> None:
+        serialized = ToolResult(output={"status": "ok"}).model_dump_json(indent=2)
+
+        assert serialized.startswith("{\n")
+        assert '"content"' not in serialized
 
     @pytest.mark.parametrize(
         "content, expected",
@@ -127,3 +136,34 @@ class TestToolResultContent:
                 },
             ],
         }
+
+    def test_pydantic_escape_hatch_cannot_serialize_noncanonical_content(self) -> None:
+        result = ToolResult.model_construct(
+            content=[{"type": "thinking", "thinking": "PYDANTIC-SECRET"}]
+        )
+
+        for serialize in (result.model_dump, result.model_dump_json):
+            with pytest.raises(ValueError) as exc_info:
+                serialize()
+            assert "invalid tool result content" in str(exc_info.value)
+            assert "PYDANTIC-SECRET" not in str(exc_info.value)
+
+    def test_assignment_and_copy_updates_stay_inside_content_boundary(self) -> None:
+        result = ToolResult(content=[{"type": "text", "text": "details"}])
+        result.content = []
+        assert result.content is None
+
+        with pytest.raises(ValueError, match="invalid tool result image source"):
+            result.content = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "url",
+                        "media_type": "image/png",
+                        "data": "AA==",
+                    },
+                }
+            ]
+
+        with pytest.raises(ValueError, match="invalid tool result content"):
+            result.model_copy(update={"content": [{"type": "thinking", "thinking": "no"}]})

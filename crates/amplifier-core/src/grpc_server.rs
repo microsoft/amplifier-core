@@ -226,7 +226,13 @@ impl KernelService for KernelServiceImpl {
 
         // Execute the tool
         match tool.execute(input).await {
-            Ok(result) => Ok(Response::new(result.into())),
+            Ok(result) => {
+                let response = result.try_into().map_err(|error| {
+                    log::warn!("Invalid canonical ToolResult content for {tool_name}: {error}");
+                    Status::internal("Invalid tool result content")
+                })?;
+                Ok(Response::new(response))
+            }
             Err(e) => {
                 log::error!("Tool execution failed for {tool_name}: {e}");
                 Err(Status::internal("Tool execution failed"))
@@ -1501,6 +1507,82 @@ mod tests {
     // -----------------------------------------------------------------------
     // H-07: JSON payload size limits
     // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn execute_tool_transports_canonical_rich_content() {
+        struct RichTool;
+
+        impl crate::traits::Tool for RichTool {
+            fn name(&self) -> &str {
+                "rich-tool"
+            }
+
+            fn description(&self) -> &str {
+                "Returns canonical rich content"
+            }
+
+            fn get_spec(&self) -> crate::messages::ToolSpec {
+                crate::messages::ToolSpec {
+                    name: self.name().to_string(),
+                    parameters: std::collections::HashMap::new(),
+                    description: Some(self.description().to_string()),
+                    extensions: std::collections::HashMap::new(),
+                }
+            }
+
+            fn execute(
+                &self,
+                _input: serde_json::Value,
+            ) -> std::pin::Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<crate::models::ToolResult, crate::errors::ToolError>,
+                        > + Send
+                        + '_,
+                >,
+            > {
+                Box::pin(async {
+                    Ok(crate::models::ToolResult {
+                        success: true,
+                        output: None,
+                        error: None,
+                        content: crate::models::ToolResult::normalize_content(Some(vec![
+                            serde_json::json!({"type": "text", "text": "details"}),
+                            serde_json::json!({
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/png",
+                                    "data": "AA=="
+                                }
+                            }),
+                        ]))
+                        .unwrap(),
+                    })
+                })
+            }
+        }
+
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.mount_tool("rich-tool", Arc::new(RichTool));
+        let service = KernelServiceImpl::new(coord);
+        let response = service
+            .execute_tool(Request::new(amplifier_module::ExecuteToolRequest {
+                tool_name: "rich-tool".to_string(),
+                input_json: "{}".to_string(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+
+        assert_eq!(response.content_blocks.len(), 2);
+        let image = match response.content_blocks[1].block.as_ref().unwrap() {
+            amplifier_module::content_block::Block::ImageBlock(image) => image,
+            _ => panic!("expected image block"),
+        };
+        assert_eq!(image.data, vec![0]);
+        assert!(image.source_json.is_empty());
+    }
 
     #[tokio::test]
     async fn execute_tool_rejects_oversized_input_json() {

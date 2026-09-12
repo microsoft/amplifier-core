@@ -46,7 +46,7 @@ field name differs from the JSON key.
 |-----------------|-------------|---------------|-------|
 | `HookResult` | `HookResult` (BaseModel) | JSON round-trip at PyO3 boundary | Field-for-field match. Rust `HookAction` enum ↔ Python `Literal` strings. |
 | `HookAction` | `Literal["continue","deny","modify","inject_context","ask_user"]` | `serde(rename_all = "snake_case")` | Enum variants map 1:1 to string literals. |
-| `ToolResult` | `ToolResult` (BaseModel) | JSON round-trip | 1:1. Python adds `__str__()` and `get_serialized_output()` convenience methods. |
+| `ToolResult` | `ToolResult` (BaseModel) | JSON round-trip | 1:1. `content`, when present, is a canonical non-empty ordered list of text/base64-image blocks; `None` and `[]` omit it during serialization. Rust enforces this with a private `ToolResultContent` wrapper; Python validates through PyO3. Python also adds `__str__()` and `get_serialized_output()` convenience methods. |
 | `ModelInfo` | `ModelInfo` (BaseModel) | JSON round-trip | 1:1. |
 | `ConfigField` | `ConfigField` (BaseModel) | JSON round-trip | Rust `default_value` ↔ Python `default`. |
 | `ConfigFieldType` | `Literal["text","secret","choice","boolean"]` | snake_case | |

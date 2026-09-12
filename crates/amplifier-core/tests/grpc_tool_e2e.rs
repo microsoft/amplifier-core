@@ -63,6 +63,41 @@ impl ToolService for EchoToolService {
     }
 }
 
+/// A ToolService response with an invalid rich-content oneof.
+struct InvalidContentToolService;
+
+#[tonic::async_trait]
+impl ToolService for InvalidContentToolService {
+    async fn get_spec(
+        &self,
+        _request: tonic::Request<amplifier_module::Empty>,
+    ) -> Result<tonic::Response<amplifier_module::ToolSpec>, tonic::Status> {
+        Ok(tonic::Response::new(amplifier_module::ToolSpec {
+            name: "invalid-content".to_string(),
+            description: "Returns malformed rich content".to_string(),
+            parameters_json: "{}".to_string(),
+        }))
+    }
+
+    async fn execute(
+        &self,
+        _request: tonic::Request<amplifier_module::ToolExecuteRequest>,
+    ) -> Result<tonic::Response<amplifier_module::ToolExecuteResponse>, tonic::Status> {
+        Ok(tonic::Response::new(
+            amplifier_module::ToolExecuteResponse {
+                success: true,
+                output: b"null".to_vec(),
+                content_type: "application/json".to_string(),
+                error: String::new(),
+                content_blocks: vec![amplifier_module::ContentBlock {
+                    block: None,
+                    visibility: 0,
+                }],
+            },
+        ))
+    }
+}
+
 /// Helper: bind to random port, spawn gRPC server, return address string.
 async fn spawn_tool_server(svc: ToolServiceServer<impl ToolService>) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -218,6 +253,21 @@ async fn grpc_tool_round_trip() -> Result<(), Box<dyn std::error::Error + Send +
         ])
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn grpc_tool_rejects_malformed_rich_content(
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let endpoint = spawn_tool_server(ToolServiceServer::new(InvalidContentToolService)).await;
+    let bridge = GrpcToolBridge::connect(&endpoint).await?;
+
+    let error = bridge
+        .execute(serde_json::json!({}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert_eq!(error, "invalid tool result content from gRPC tool");
     Ok(())
 }
 

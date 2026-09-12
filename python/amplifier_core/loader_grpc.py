@@ -113,10 +113,14 @@ class GrpcToolBridge:
 
         raw_content: list[dict[str, Any]] = []
         for block in content_blocks:
+            if block.visibility != 0:
+                raise ValueError("invalid tool result content")
             block_type = block.WhichOneof("block")
             if block_type == "text_block":
                 raw_content.append({"type": "text", "text": block.text_block.text})
             elif block_type == "image_block":
+                if block.image_block.source_json:
+                    raise ValueError("invalid tool result content")
                 raw_content.append(
                     {
                         "type": "image",
@@ -165,7 +169,17 @@ class GrpcToolBridge:
                 content_type=content_type,
             )
             response = await self._stub.Execute(request)
-            content = self._deserialize_content_blocks(response.content_blocks)
+            try:
+                content = self._deserialize_content_blocks(response.content_blocks)
+            except ValueError:
+                logger.warning(
+                    "gRPC tool '%s' returned invalid tool result content", self._name
+                )
+                return {
+                    "success": False,
+                    "output": None,
+                    "error": {"message": "invalid tool result content from gRPC tool"},
+                }
 
             if response.success:
                 output = self._deserialize_output(

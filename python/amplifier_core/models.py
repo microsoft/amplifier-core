@@ -15,6 +15,7 @@ from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import field_serializer
 from pydantic import field_validator
+from pydantic import model_serializer
 
 from .message_models import ImageBlock
 from .message_models import TextBlock
@@ -26,8 +27,9 @@ def _json_default(obj: Any) -> Any:
     Handles types that flow through tool result payloads but aren't JSON-native.
     Currently: Decimal -> string (preserves precision; never lossy).
 
-    Used by ToolResult.get_serialized_output(). Pydantic models defend their
-    own boundary via @field_serializer; this is the safety net for the
+    Used by ToolResult.get_serialized_output() and as the fallback for
+    ToolResult rich-content serialization. Pydantic models defend their own
+    boundary via @field_serializer; this is the safety net for the
     non-Pydantic path where tool outputs may contain Decimal values
     (e.g., a tool that returns {"price": Decimal("9.99")}).
     """
@@ -57,10 +59,26 @@ def _sanitize_for_llm(text: str) -> str:
     return sanitized
 
 
+def _validated_tool_result_content(content: Any) -> list[dict[str, Any]] | None:
+    """Canonicalize rich content through the Rust validation boundary."""
+    from amplifier_core._engine import _normalize_tool_result_content
+
+    serialized = json.dumps(
+        content,
+        default=lambda value: (
+            value.model_dump(exclude_none=True)
+            if isinstance(value, BaseModel)
+            else _json_default(value)
+        ),
+    )
+    normalized = _normalize_tool_result_content(serialized)
+    return json.loads(normalized) if normalized is not None else None
+
+
 class ToolResult(BaseModel):
     """Result from tool execution."""
 
-    model_config = ConfigDict(hide_input_in_errors=True)
+    model_config = ConfigDict(hide_input_in_errors=True, validate_assignment=True)
 
     success: bool = Field(default=True, description="Whether execution succeeded")
     output: Any | None = Field(default=None, description="Tool output data")
@@ -78,26 +96,29 @@ class ToolResult(BaseModel):
         if content is None:
             return None
 
-        from amplifier_core._engine import _normalize_tool_result_content
-
-        serialized = json.dumps(
-            content,
-            default=lambda value: value.model_dump(exclude_none=True),
-        )
-        normalized = _normalize_tool_result_content(serialized)
-        return json.loads(normalized) if normalized is not None else None
+        return _validated_tool_result_content(content)
 
     @field_serializer("content", when_used="unless-none")
     def serialize_content(self, content: list[TextBlock | ImageBlock]) -> list[dict[str, Any]]:
-        """Emit only the canonical block fields retained by Rust normalization."""
-        return [block.model_dump(exclude_none=True) for block in content]
+        """Revalidate content so Pydantic escape hatches cannot serialize a bypass."""
+        return _validated_tool_result_content(content) or []
 
-    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
-        """Preserve the legacy no-content key set while exposing rich content."""
-        result = super().model_dump(**kwargs)
-        if self.content is None:
+    @model_serializer(mode="wrap")
+    def serialize_model(self, handler: Any) -> Any:
+        """Preserve the legacy no-content key set for every Pydantic dump mode."""
+        result = handler(self)
+        if not self.content:
             result.pop("content", None)
         return result
+
+    def model_copy(
+        self, *, update: dict[str, Any] | None = None, deep: bool = False
+    ) -> "ToolResult":
+        """Keep copy updates on the same strict ToolResult content boundary."""
+        data = self.model_dump()
+        if update:
+            data.update(update)
+        return type(self).model_validate(data)
 
     def model_post_init(self, __context: Any) -> None:
         """Auto-populate output from error when tools forget to set it.

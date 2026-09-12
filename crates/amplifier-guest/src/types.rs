@@ -1,3 +1,4 @@
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -20,12 +21,122 @@ pub struct ToolResult {
     pub output: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<HashMap<String, Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<Vec<Value>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_tool_result_content",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub content: Option<ToolResultContent>,
 }
 
 fn default_true() -> bool {
     true
+}
+
+/// A non-empty collection of canonical ToolResult text/base64-image blocks.
+///
+/// The storage is private so a WASM guest cannot create an empty collection or
+/// bypass the ToolResult-only validation rules with arbitrary JSON values.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct ToolResultContent(Vec<Value>);
+
+impl ToolResultContent {
+    /// Strictly validate and canonicalize guest content.
+    ///
+    /// `None` and an empty array retain the legacy no-content representation.
+    pub fn normalize(content: Option<Vec<Value>>) -> Result<Option<Self>, &'static str> {
+        let Some(content) = content else {
+            return Ok(None);
+        };
+        if content.is_empty() {
+            return Ok(None);
+        }
+
+        let mut normalized = Vec::with_capacity(content.len());
+        for block in content {
+            let object = block.as_object().ok_or("invalid tool result content")?;
+            match object.get("type").and_then(Value::as_str) {
+                Some("text") => {
+                    let text = object
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .ok_or("invalid tool result content")?;
+                    normalized.push(serde_json::json!({"type": "text", "text": text}));
+                }
+                Some("image") => {
+                    let source = object
+                        .get("source")
+                        .and_then(Value::as_object)
+                        .ok_or("invalid tool result image source")?;
+                    if source.get("type").and_then(Value::as_str) != Some("base64") {
+                        return Err("invalid tool result image source");
+                    }
+                    let media_type = source
+                        .get("media_type")
+                        .and_then(Value::as_str)
+                        .ok_or("invalid tool result image media type")?;
+                    if !valid_image_media_type(media_type) {
+                        return Err("invalid tool result image media type");
+                    }
+                    let data = source
+                        .get("data")
+                        .and_then(Value::as_str)
+                        .filter(|data| !data.is_empty())
+                        .ok_or("invalid tool result image data")?;
+                    let decoded = base64::engine::general_purpose::STANDARD
+                        .decode(data)
+                        .map_err(|_| "invalid tool result image data")?;
+                    if base64::engine::general_purpose::STANDARD.encode(decoded) != data {
+                        return Err("invalid tool result image data");
+                    }
+                    normalized.push(serde_json::json!({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": data,
+                        }
+                    }));
+                }
+                _ => return Err("invalid tool result content"),
+            }
+        }
+        Ok(Some(Self(normalized)))
+    }
+}
+
+fn deserialize_tool_result_content<'de, D>(
+    deserializer: D,
+) -> Result<Option<ToolResultContent>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw_content = Option::<Value>::deserialize(deserializer)?;
+    let raw_content = match raw_content {
+        None => None,
+        Some(Value::Array(content)) => Some(content),
+        Some(_) => return Err(serde::de::Error::custom("invalid tool result content")),
+    };
+    ToolResultContent::normalize(raw_content).map_err(serde::de::Error::custom)
+}
+
+fn valid_image_media_type(media_type: &str) -> bool {
+    let Some(subtype) = media_type.strip_prefix("image/") else {
+        return false;
+    };
+    let mut chars = subtype.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_alphanumeric()
+        && chars.all(|character| {
+            character.is_ascii_alphanumeric()
+                || matches!(
+                    character,
+                    '!' | '#' | '$' | '&' | '^' | '_' | '.' | '+' | '-'
+                )
+        })
 }
 
 impl Default for ToolResult {
@@ -269,7 +380,11 @@ mod tests {
                 m.insert("code".to_string(), json!(404));
                 m
             }),
-            content: Some(vec![json!({"type": "text", "text": "details"})]),
+            content: ToolResultContent::normalize(Some(vec![json!({
+                "type": "text",
+                "text": "details"
+            })]))
+            .unwrap(),
         };
         let json_str = serde_json::to_string(&result).unwrap();
         let deserialized: ToolResult = serde_json::from_str(&json_str).unwrap();
@@ -278,9 +393,44 @@ mod tests {
         let err = deserialized.error.as_ref().unwrap();
         assert_eq!(err.get("code"), Some(&json!(404)));
         assert_eq!(
-            deserialized.content,
-            Some(vec![json!({"type": "text", "text": "details"})])
+            serde_json::to_value(deserialized.content).unwrap(),
+            json!([{"type": "text", "text": "details"}])
         );
+    }
+
+    #[test]
+    fn test_tool_result_empty_content_omits_key() {
+        let result: ToolResult = serde_json::from_value(json!({"content": []})).unwrap();
+        assert!(result.content.is_none());
+        assert_eq!(
+            serde_json::to_value(result).unwrap(),
+            json!({"success": true})
+        );
+    }
+
+    #[test]
+    fn test_tool_result_media_type_matches_core_contract() {
+        assert!(ToolResultContent::normalize(Some(vec![json!({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/a_b",
+                "data": "AA=="
+            }
+        })]))
+        .is_ok());
+    }
+
+    #[test]
+    fn test_tool_result_rejects_invalid_content_without_echoing_it() {
+        let error = serde_json::from_value::<ToolResult>(json!({
+            "content": [{"type": "thinking", "thinking": "WASM-GUEST-SECRET"}]
+        }))
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("invalid tool result content"));
+        assert!(!error.contains("WASM-GUEST-SECRET"));
     }
 
     // --- HookAction tests ---
@@ -560,7 +710,11 @@ mod tests {
                 m.insert("code".to_string(), json!(404));
                 m
             }),
-            content: Some(vec![json!({"type": "text", "text": "details"})]),
+            content: ToolResultContent::normalize(Some(vec![json!({
+                "type": "text",
+                "text": "details"
+            })]))
+            .unwrap(),
         };
         let json_str = serde_json::to_string(&original).unwrap();
         let deserialized: ToolResult = serde_json::from_str(&json_str).unwrap();

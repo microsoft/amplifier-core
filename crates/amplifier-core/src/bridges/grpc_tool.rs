@@ -159,8 +159,12 @@ impl Tool for GrpcToolBridge {
             };
             let content =
                 proto_tool_result_content_to_native(resp.content_blocks).map_err(|error| {
+                    log::warn!(
+                        "gRPC tool '{}' returned invalid ToolResult content: {error}",
+                        self.name
+                    );
                     ToolError::Other {
-                        message: error.to_string(),
+                        message: "invalid tool result content from gRPC tool".to_string(),
                     }
                 })?;
 

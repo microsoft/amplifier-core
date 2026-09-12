@@ -244,7 +244,7 @@ pub struct ToolResult {
         deserialize_with = "deserialize_tool_result_content",
         skip_serializing_if = "Option::is_none"
     )]
-    pub content: Option<Vec<ContentBlock>>,
+    pub content: Option<ToolResultContent>,
 }
 
 fn default_true() -> bool {
@@ -275,13 +275,29 @@ pub enum ToolResultContentError {
     InvalidImageData,
 }
 
+/// A non-empty, ordered collection of canonical ToolResult content blocks.
+///
+/// The wrapped vector is deliberately private: only [`ToolResult::normalize_content`]
+/// may create this type, so generic message blocks, URL images, extensions, and
+/// empty collections cannot cross the ToolResult boundary.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct ToolResultContent(Vec<ContentBlock>);
+
+impl ToolResultContent {
+    /// Iterate over the canonical blocks without exposing mutable or owned storage.
+    pub fn iter(&self) -> impl Iterator<Item = &ContentBlock> {
+        self.0.iter()
+    }
+}
+
 /// Deserialize ToolResult content through its strict canonicalization boundary.
 ///
 /// Decode as a JSON value first so type errors cannot include untrusted image data
 /// in the error returned to callers.
 fn deserialize_tool_result_content<'de, D>(
     deserializer: D,
-) -> Result<Option<Vec<ContentBlock>>, D::Error>
+) -> Result<Option<ToolResultContent>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -319,7 +335,7 @@ impl ToolResult {
     /// fields are deliberately dropped at this boundary.
     pub fn normalize_content(
         content: Option<Vec<Value>>,
-    ) -> Result<Option<Vec<ContentBlock>>, ToolResultContentError> {
+    ) -> Result<Option<ToolResultContent>, ToolResultContentError> {
         let Some(content) = content else {
             return Ok(None);
         };
@@ -394,7 +410,7 @@ impl ToolResult {
             }
         }
 
-        Ok(Some(normalized))
+        Ok(Some(ToolResultContent(normalized)))
     }
 
     /// Produce an image-safe representation for hook event payloads.
@@ -947,6 +963,10 @@ mod tests {
 
         let empty: ToolResult = serde_json::from_value(json!({"content": []})).unwrap();
         assert!(empty.content.is_none());
+        assert_eq!(
+            serde_json::to_value(empty).unwrap(),
+            json!({"success": true, "output": null, "error": null})
+        );
 
         for content in [
             json!([{"type": "thinking", "thinking": "private-bytes"}]),

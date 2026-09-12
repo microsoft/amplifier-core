@@ -104,6 +104,7 @@ dependencies = [
 name = "amplifier-guest"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "prost",
  "serde",
  "serde_json",
