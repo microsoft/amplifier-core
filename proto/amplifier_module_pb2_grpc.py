@@ -5,7 +5,7 @@ import warnings
 
 import amplifier_module_pb2 as amplifier__module__pb2
 
-GRPC_GENERATED_VERSION = '1.83.1'
+GRPC_GENERATED_VERSION = '1.78.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -25,7 +25,7 @@ if _version_not_supported:
     )
 
 
-class ToolServiceStub:
+class ToolServiceStub(object):
     """Universal contract for tool modules in any language.
     Implement this service to create an Amplifier tool in Go, TypeScript, C#, etc.
     """
@@ -48,7 +48,7 @@ class ToolServiceStub:
                 _registered_method=True)
 
 
-class ToolServiceServicer:
+class ToolServiceServicer(object):
     """Universal contract for tool modules in any language.
     Implement this service to create an Amplifier tool in Go, TypeScript, C#, etc.
     """
@@ -88,7 +88,7 @@ def add_ToolServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class ToolService:
+class ToolService(object):
     """Universal contract for tool modules in any language.
     Implement this service to create an Amplifier tool in Go, TypeScript, C#, etc.
     """
@@ -148,7 +148,7 @@ class ToolService:
             _registered_method=True)
 
 
-class ProviderServiceStub:
+class ProviderServiceStub(object):
     """---------------------------------------------------------------------------
     Module services
     ---------------------------------------------------------------------------
@@ -189,7 +189,7 @@ class ProviderServiceStub:
                 _registered_method=True)
 
 
-class ProviderServiceServicer:
+class ProviderServiceServicer(object):
     """---------------------------------------------------------------------------
     Module services
     ---------------------------------------------------------------------------
@@ -263,7 +263,7 @@ def add_ProviderServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class ProviderService:
+class ProviderService(object):
     """---------------------------------------------------------------------------
     Module services
     ---------------------------------------------------------------------------
@@ -407,7 +407,7 @@ class ProviderService:
             _registered_method=True)
 
 
-class OrchestratorServiceStub:
+class OrchestratorServiceStub(object):
     """Orchestrator module contract — high-level prompt execution.
     """
 
@@ -424,7 +424,7 @@ class OrchestratorServiceStub:
                 _registered_method=True)
 
 
-class OrchestratorServiceServicer:
+class OrchestratorServiceServicer(object):
     """Orchestrator module contract — high-level prompt execution.
     """
 
@@ -450,7 +450,7 @@ def add_OrchestratorServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class OrchestratorService:
+class OrchestratorService(object):
     """Orchestrator module contract — high-level prompt execution.
     """
 
@@ -482,7 +482,7 @@ class OrchestratorService:
             _registered_method=True)
 
 
-class ContextServiceStub:
+class ContextServiceStub(object):
     """Context module contract — conversation message management.
     """
 
@@ -519,7 +519,7 @@ class ContextServiceStub:
                 _registered_method=True)
 
 
-class ContextServiceServicer:
+class ContextServiceServicer(object):
     """Context module contract — conversation message management.
     """
 
@@ -589,7 +589,7 @@ def add_ContextServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class ContextService:
+class ContextService(object):
     """Context module contract — conversation message management.
     """
 
@@ -729,7 +729,7 @@ class ContextService:
             _registered_method=True)
 
 
-class HookServiceStub:
+class HookServiceStub(object):
     """Hook module contract — event interception.
     """
 
@@ -751,7 +751,7 @@ class HookServiceStub:
                 _registered_method=True)
 
 
-class HookServiceServicer:
+class HookServiceServicer(object):
     """Hook module contract — event interception.
     """
 
@@ -792,7 +792,7 @@ def add_HookServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class HookService:
+class HookService(object):
     """Hook module contract — event interception.
     """
 
@@ -851,7 +851,7 @@ class HookService:
             _registered_method=True)
 
 
-class ApprovalServiceStub:
+class ApprovalServiceStub(object):
     """Approval module contract — human-in-the-loop approval.
     """
 
@@ -868,7 +868,7 @@ class ApprovalServiceStub:
                 _registered_method=True)
 
 
-class ApprovalServiceServicer:
+class ApprovalServiceServicer(object):
     """Approval module contract — human-in-the-loop approval.
     """
 
@@ -894,7 +894,7 @@ def add_ApprovalServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class ApprovalService:
+class ApprovalService(object):
     """Approval module contract — human-in-the-loop approval.
     """
 
@@ -926,7 +926,7 @@ class ApprovalService:
             _registered_method=True)
 
 
-class KernelServiceStub:
+class KernelServiceStub(object):
     """Missing associated documentation comment in .proto file."""
 
     def __init__(self, channel):
@@ -987,7 +987,7 @@ class KernelServiceStub:
                 _registered_method=True)
 
 
-class KernelServiceServicer:
+class KernelServiceServicer(object):
     """Missing associated documentation comment in .proto file."""
 
     def CompleteWithProvider(self, request, context):
@@ -1117,7 +1117,7 @@ def add_KernelServiceServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class KernelService:
+class KernelService(object):
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
@@ -1391,7 +1391,7 @@ class KernelService:
             _registered_method=True)
 
 
-class ModuleLifecycleStub:
+class ModuleLifecycleStub(object):
     """---------------------------------------------------------------------------
     ModuleLifecycle — every gRPC module implements this service
     ---------------------------------------------------------------------------
@@ -1428,7 +1428,7 @@ class ModuleLifecycleStub:
                 _registered_method=True)
 
 
-class ModuleLifecycleServicer:
+class ModuleLifecycleServicer(object):
     """---------------------------------------------------------------------------
     ModuleLifecycle — every gRPC module implements this service
     ---------------------------------------------------------------------------
@@ -1492,7 +1492,7 @@ def add_ModuleLifecycleServicer_to_server(servicer, server):
 
 
  # This class is part of an EXPERIMENTAL API.
-class ModuleLifecycle:
+class ModuleLifecycle(object):
     """---------------------------------------------------------------------------
     ModuleLifecycle — every gRPC module implements this service
     ---------------------------------------------------------------------------

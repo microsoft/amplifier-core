@@ -28,8 +28,8 @@ def _service_body(proto_text: str, service_name: str) -> str:
     return match.group(1)
 
 
-def _compile_proto() -> subprocess.CompletedProcess[str]:
-    """Compile the proto file using protoc and return the result."""
+def _compile_proto(output_dir: Path) -> subprocess.CompletedProcess[str]:
+    """Compile into test storage without changing committed generated files."""
     proto_dir = PROTO_PATH.parent
     result = subprocess.run(
         [
@@ -37,8 +37,8 @@ def _compile_proto() -> subprocess.CompletedProcess[str]:
             "-m",
             "grpc_tools.protoc",
             f"--proto_path={proto_dir}",
-            f"--python_out={proto_dir}",
-            f"--grpc_python_out={proto_dir}",
+            f"--python_out={output_dir}",
+            f"--grpc_python_out={output_dir}",
             str(PROTO_PATH.name),
         ],
         capture_output=True,
@@ -49,12 +49,14 @@ def _compile_proto() -> subprocess.CompletedProcess[str]:
 
 
 class TestProtoCompiles:
-    def test_proto_compiles_with_exit_code_0(self):
-        result = _compile_proto()
+    def test_proto_compiles_with_exit_code_0(self, tmp_path: Path):
+        result = _compile_proto(tmp_path)
         assert result.returncode == 0, (
             f"Proto compilation failed (exit {result.returncode}):\n"
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
         )
+        assert (tmp_path / "amplifier_module_pb2.py").is_file()
+        assert (tmp_path / "amplifier_module_pb2_grpc.py").is_file()
 
 
 class TestProviderService:
