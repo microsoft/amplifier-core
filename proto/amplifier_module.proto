@@ -36,6 +36,8 @@ message ToolExecuteResponse {
   string content_type = 3;
   // Error message if success is false.
   string error = 4;
+  // Canonical rich tool-result content.
+  repeated ContentBlock content_blocks = 5;
 }
 
 // ---------------------------------------------------------------------------
@@ -387,6 +389,7 @@ message ToolResult {
   bool   success     = 1;
   string output_json = 2;
   string error_json  = 3;
+  repeated ContentBlock content_blocks = 4;
 }
 
 message HookResult {

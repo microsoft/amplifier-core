@@ -28,6 +28,7 @@ use tonic::transport::Channel;
 use crate::errors::ToolError;
 use crate::generated::amplifier_module;
 use crate::generated::amplifier_module::tool_service_client::ToolServiceClient;
+use crate::generated::conversions::proto_tool_result_content_to_native;
 use crate::messages;
 use crate::models::ToolResult;
 use crate::traits::Tool;
@@ -156,11 +157,18 @@ impl Tool for GrpcToolBridge {
                     Value::String(resp.error),
                 )]))
             };
+            let content =
+                proto_tool_result_content_to_native(resp.content_blocks).map_err(|error| {
+                    ToolError::Other {
+                        message: error.to_string(),
+                    }
+                })?;
 
             Ok(ToolResult {
                 success: resp.success,
                 output,
                 error,
+                content,
             })
         })
     }

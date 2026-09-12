@@ -42,6 +42,7 @@ mod tests {
             success: true,
             output_json: r#"{"value": 42}"#.into(),
             error_json: String::new(),
+            content_blocks: vec![],
         };
         assert!(result.success);
         assert_eq!(result.output_json, r#"{"value": 42}"#);
@@ -52,6 +53,7 @@ mod tests {
             success: false,
             output_json: String::new(),
             error_json: r#"{"code":"NOT_FOUND"}"#.into(),
+            content_blocks: vec![],
         };
         assert!(!err_result.success);
         assert!(err_result.output_json.is_empty());

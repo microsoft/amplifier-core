@@ -762,7 +762,10 @@ pub(crate) fn load_and_mount_wasm(
     coordinator: &PyCoordinator,
     path: String,
 ) -> PyResult<Py<PyDict>> {
-    let manifest = amplifier_core::module_resolver::resolve_module(std::path::Path::new(&path))
+    let manifest = py
+        .detach(move || {
+            amplifier_core::module_resolver::resolve_module(std::path::Path::new(&path))
+        })
         .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("{e}")))?;
 
     if manifest.transport != amplifier_core::transport::Transport::Wasm {
@@ -772,21 +775,23 @@ pub(crate) fn load_and_mount_wasm(
         )));
     }
 
-    let engine = amplifier_core::wasm_engine::WasmEngine::new().map_err(|e| {
-        PyErr::new::<PyRuntimeError, _>(format!("WASM engine creation failed: {e}"))
-    })?;
-
     // Use the real coordinator's inner Arc<Coordinator> for orchestrator modules
     let rust_coordinator = coordinator.inner.clone();
-    let loaded = amplifier_core::module_resolver::load_module(
-        &manifest,
-        engine.inner(),
-        Some(rust_coordinator),
-    )
-    .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Module loading failed: {e}")))?;
+    let loaded = py
+        .detach(move || {
+            let engine = amplifier_core::wasm_engine::WasmEngine::new()
+                .map_err(|e| format!("WASM engine creation failed: {e}"))?;
+            amplifier_core::module_resolver::load_module(
+                &manifest,
+                engine.inner(),
+                Some(rust_coordinator),
+            )
+            .map_err(|e| format!("Module loading failed: {e}"))
+        })
+        .map_err(PyErr::new::<PyRuntimeError, _>)?;
 
     let dict = PyDict::new(py);
-    dict.set_item("module_type", loaded.variant_name())?;
+    dict.set_item("module_type", loaded.variant_name().to_ascii_lowercase())?;
 
     match loaded {
         amplifier_core::module_resolver::LoadedModule::Tool(tool) => {

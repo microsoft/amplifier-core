@@ -38,6 +38,26 @@ impl ToolService for EchoToolService {
                 output: req.input,
                 content_type: req.content_type,
                 error: String::new(),
+                content_blocks: vec![
+                    amplifier_module::ContentBlock {
+                        block: Some(amplifier_module::content_block::Block::TextBlock(
+                            amplifier_module::TextBlock {
+                                text: "echo result".to_string(),
+                            },
+                        )),
+                        visibility: 0,
+                    },
+                    amplifier_module::ContentBlock {
+                        block: Some(amplifier_module::content_block::Block::ImageBlock(
+                            amplifier_module::ImageBlock {
+                                media_type: "image/png".to_string(),
+                                data: vec![0],
+                                source_json: String::new(),
+                            },
+                        )),
+                        visibility: 0,
+                    },
+                ],
             },
         ))
     }
@@ -88,6 +108,7 @@ impl ToolService for InvalidParamsToolService {
                 output: b"{}".to_vec(),
                 content_type: "application/json".to_string(),
                 error: String::new(),
+                content_blocks: vec![],
             },
         ))
     }
@@ -123,6 +144,7 @@ impl ToolService for BinaryOutputToolService {
                 output: vec![0xFF, 0xFE, 0x00, 0x01], // not valid JSON
                 content_type: "application/json".to_string(),
                 error: String::new(),
+                content_blocks: vec![],
             },
         ))
     }
@@ -158,6 +180,7 @@ impl ToolService for NonJsonContentTypeToolService {
                 output: b"{\"result\": 42}".to_vec(),
                 content_type: "text/plain".to_string(),
                 error: String::new(),
+                content_blocks: vec![],
             },
         ))
     }
@@ -180,6 +203,20 @@ async fn grpc_tool_round_trip() -> Result<(), Box<dyn std::error::Error + Send +
 
     assert!(result.success);
     assert_eq!(result.output, Some(input));
+    assert_eq!(
+        serde_json::to_value(result.content).unwrap(),
+        serde_json::json!([
+            {"type": "text", "text": "echo result"},
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": "AA=="
+                }
+            }
+        ])
+    );
 
     Ok(())
 }

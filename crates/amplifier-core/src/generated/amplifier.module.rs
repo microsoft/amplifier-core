@@ -33,6 +33,9 @@ pub struct ToolExecuteResponse {
     /// Error message if success is false.
     #[prost(string, tag = "4")]
     pub error: ::prost::alloc::string::String,
+    /// Canonical rich tool-result content.
+    #[prost(message, repeated, tag = "5")]
+    pub content_blocks: ::prost::alloc::vec::Vec<ContentBlock>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ModuleInfo {
@@ -403,6 +406,8 @@ pub struct ToolResult {
     pub output_json: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
     pub error_json: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "4")]
+    pub content_blocks: ::prost::alloc::vec::Vec<ContentBlock>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct HookResult {

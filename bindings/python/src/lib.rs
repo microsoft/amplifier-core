@@ -102,6 +102,30 @@ fn json_to_proto_chat_response(json_str: &str) -> PyResult<Vec<u8>> {
     Ok(proto.encode_to_vec())
 }
 
+/// Normalize untrusted ToolResult rich content through the Rust core.
+#[pyfunction(name = "_normalize_tool_result_content")]
+fn normalize_tool_result_content(content_json: &str) -> PyResult<Option<String>> {
+    let content = serde_json::from_str(content_json)
+        .map_err(|_| pyo3::exceptions::PyValueError::new_err("invalid tool result content"))?;
+    let normalized = amplifier_core::ToolResult::normalize_content(content)
+        .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
+    normalized
+        .map(|value| {
+            serde_json::to_string(&value)
+                .map_err(|_| pyo3::exceptions::PyValueError::new_err("invalid tool result content"))
+        })
+        .transpose()
+}
+
+/// Return an image-safe ToolResult payload for hook events.
+#[pyfunction(name = "_tool_result_safe_hook_presentation")]
+fn tool_result_safe_hook_presentation(tool_result_json: &str) -> PyResult<String> {
+    let result: amplifier_core::ToolResult = serde_json::from_str(tool_result_json)
+        .map_err(|_| pyo3::exceptions::PyValueError::new_err("invalid tool result content"))?;
+    serde_json::to_string(&result.safe_hook_presentation())
+        .map_err(|_| pyo3::exceptions::PyValueError::new_err("invalid tool result content"))
+}
+
 // ---------------------------------------------------------------------------
 // Module registration
 // ---------------------------------------------------------------------------
@@ -134,6 +158,8 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(resolve_module, m)?)?;
     m.add_function(wrap_pyfunction!(proto_chat_request_to_json, m)?)?;
     m.add_function(wrap_pyfunction!(json_to_proto_chat_response, m)?)?;
+    m.add_function(wrap_pyfunction!(normalize_tool_result_content, m)?)?;
+    m.add_function(wrap_pyfunction!(tool_result_safe_hook_presentation, m)?)?;
     #[cfg(feature = "wasm")]
     {
         m.add_function(wrap_pyfunction!(load_wasm_from_path, m)?)?;

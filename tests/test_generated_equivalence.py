@@ -24,11 +24,15 @@ class TestToolResultEquivalence:
         tr = pb2.ToolResult()
         assert hasattr(tr, "error_json")
 
+    def test_proto_tool_result_has_content_blocks(self):
+        tr = pb2.ToolResult()
+        assert hasattr(tr, "content_blocks")
+
     def test_proto_tool_result_field_count(self):
-        """ToolResult must have exactly 3 fields (success, output_json, error_json)."""
+        """ToolResult must have four fields, including canonical rich content."""
         tr = pb2.ToolResult()
         fields = [f.name for f in tr.DESCRIPTOR.fields]
-        assert len(fields) == 3
+        assert fields == ["success", "output_json", "error_json", "content_blocks"]
 
 
 class TestHookResultEquivalence:

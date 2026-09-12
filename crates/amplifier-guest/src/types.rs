@@ -20,6 +20,8 @@ pub struct ToolResult {
     pub output: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<HashMap<String, Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<Vec<Value>>,
 }
 
 fn default_true() -> bool {
@@ -32,6 +34,7 @@ impl Default for ToolResult {
             success: true,
             output: None,
             error: None,
+            content: None,
         }
     }
 }
@@ -253,6 +256,7 @@ mod tests {
         assert!(result.success);
         assert!(result.output.is_none());
         assert!(result.error.is_none());
+        assert!(result.content.is_none());
     }
 
     #[test]
@@ -265,6 +269,7 @@ mod tests {
                 m.insert("code".to_string(), json!(404));
                 m
             }),
+            content: Some(vec![json!({"type": "text", "text": "details"})]),
         };
         let json_str = serde_json::to_string(&result).unwrap();
         let deserialized: ToolResult = serde_json::from_str(&json_str).unwrap();
@@ -272,6 +277,10 @@ mod tests {
         assert_eq!(deserialized.output, Some(json!("hello")));
         let err = deserialized.error.as_ref().unwrap();
         assert_eq!(err.get("code"), Some(&json!(404)));
+        assert_eq!(
+            deserialized.content,
+            Some(vec![json!({"type": "text", "text": "details"})])
+        );
     }
 
     // --- HookAction tests ---
@@ -551,6 +560,7 @@ mod tests {
                 m.insert("code".to_string(), json!(404));
                 m
             }),
+            content: Some(vec![json!({"type": "text", "text": "details"})]),
         };
         let json_str = serde_json::to_string(&original).unwrap();
         let deserialized: ToolResult = serde_json::from_str(&json_str).unwrap();

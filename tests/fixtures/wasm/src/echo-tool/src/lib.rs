@@ -31,6 +31,17 @@ impl Tool for EchoTool {
             success: true,
             output: Some(input),
             error: None,
+            content: Some(vec![
+                serde_json::json!({"type": "text", "text": "echo result"}),
+                serde_json::json!({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "AA=="
+                    }
+                }),
+            ]),
         })
     }
 }

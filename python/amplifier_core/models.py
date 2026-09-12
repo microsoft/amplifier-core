@@ -11,9 +11,13 @@ from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel
+from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import field_serializer
 from pydantic import field_validator
+
+from .message_models import ImageBlock
+from .message_models import TextBlock
 
 
 def _json_default(obj: Any) -> Any:
@@ -56,11 +60,44 @@ def _sanitize_for_llm(text: str) -> str:
 class ToolResult(BaseModel):
     """Result from tool execution."""
 
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     success: bool = Field(default=True, description="Whether execution succeeded")
     output: Any | None = Field(default=None, description="Tool output data")
     error: dict[str, Any] | None = Field(
         default=None, description="Error details if failed"
     )
+    content: list[TextBlock | ImageBlock] | None = Field(
+        default=None, description="Canonical rich tool-result content"
+    )
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def normalize_content(cls, content: Any) -> Any:
+        """Normalize untrusted rich content through the Rust validation boundary."""
+        if content is None:
+            return None
+
+        from amplifier_core._engine import _normalize_tool_result_content
+
+        serialized = json.dumps(
+            content,
+            default=lambda value: value.model_dump(exclude_none=True),
+        )
+        normalized = _normalize_tool_result_content(serialized)
+        return json.loads(normalized) if normalized is not None else None
+
+    @field_serializer("content", when_used="unless-none")
+    def serialize_content(self, content: list[TextBlock | ImageBlock]) -> list[dict[str, Any]]:
+        """Emit only the canonical block fields retained by Rust normalization."""
+        return [block.model_dump(exclude_none=True) for block in content]
+
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
+        """Preserve the legacy no-content key set while exposing rich content."""
+        result = super().model_dump(**kwargs)
+        if self.content is None:
+            result.pop("content", None)
+        return result
 
     def model_post_init(self, __context: Any) -> None:
         """Auto-populate output from error when tools forget to set it.
@@ -122,6 +159,26 @@ class ToolResult(BaseModel):
 
         # Success with no output
         return "Success"
+
+    def safe_hook_presentation(self) -> dict[str, Any]:
+        """Return an image-safe hook event payload from the Rust core."""
+        from amplifier_core._engine import _tool_result_safe_hook_presentation
+
+        payload = {
+            "success": self.success,
+            "output": self.output,
+            "error": self.error,
+            "content": (
+                [block.model_dump(exclude_none=True) for block in self.content]
+                if self.content is not None
+                else None
+            ),
+        }
+        return json.loads(
+            _tool_result_safe_hook_presentation(
+                json.dumps(payload, default=_json_default)
+            )
+        )
 
 
 class HookResult(BaseModel):

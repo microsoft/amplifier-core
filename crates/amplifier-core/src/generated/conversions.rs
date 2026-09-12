@@ -38,6 +38,7 @@ impl From<crate::models::ToolResult> for super::amplifier_module::ToolResult {
                 .error
                 .map(|e| to_json_or_warn(&e, "ToolResult error"))
                 .unwrap_or_default(),
+            content_blocks: native_tool_result_content_to_proto(native.content),
         }
     }
 }
@@ -66,6 +67,12 @@ impl From<super::amplifier_module::ToolResult> for crate::models::ToolResult {
                     })
                     .ok()
             },
+            content: proto_tool_result_content_to_native(proto.content_blocks).unwrap_or_else(
+                |error| {
+                    log::warn!("Invalid tool result content from proto: {error}");
+                    None
+                },
+            ),
         }
     }
 }
@@ -256,6 +263,75 @@ fn proto_visibility_to_native(vis: i32) -> Option<crate::messages::Visibility> {
 // ---------------------------------------------------------------------------
 // ContentBlock conversion helpers (private)
 // ---------------------------------------------------------------------------
+
+/// Convert canonical ToolResult blocks without using the generic Message image
+/// representation, which redundantly stores base64 data in `source_json`.
+pub(crate) fn native_tool_result_content_to_proto(
+    content: Option<Vec<crate::messages::ContentBlock>>,
+) -> Vec<super::amplifier_module::ContentBlock> {
+    use super::amplifier_module::content_block::Block;
+    use crate::messages::ContentBlock;
+    use base64::Engine;
+
+    content
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|block| match block {
+            ContentBlock::Text { text, .. } => Some(super::amplifier_module::ContentBlock {
+                block: Some(Block::TextBlock(super::amplifier_module::TextBlock {
+                    text,
+                })),
+                visibility: 0,
+            }),
+            ContentBlock::Image { source, .. } => {
+                let media_type = source.get("media_type")?.as_str()?.to_string();
+                let data = source.get("data")?.as_str()?;
+                let data = base64::engine::general_purpose::STANDARD
+                    .decode(data)
+                    .ok()?;
+                Some(super::amplifier_module::ContentBlock {
+                    block: Some(Block::ImageBlock(super::amplifier_module::ImageBlock {
+                        media_type,
+                        data,
+                        source_json: String::new(),
+                    })),
+                    visibility: 0,
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Decode ToolResult-only protobuf blocks and validate them through the
+/// canonical ToolResult ingress path.
+pub(crate) fn proto_tool_result_content_to_native(
+    content: Vec<super::amplifier_module::ContentBlock>,
+) -> Result<Option<Vec<crate::messages::ContentBlock>>, crate::models::ToolResultContentError> {
+    use super::amplifier_module::content_block::Block;
+    use base64::Engine;
+
+    let raw_content = content
+        .into_iter()
+        .map(|block| match block.block {
+            Some(Block::TextBlock(text)) => Ok(serde_json::json!({
+                "type": "text",
+                "text": text.text,
+            })),
+            Some(Block::ImageBlock(image)) => Ok(serde_json::json!({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": image.media_type,
+                    "data": base64::engine::general_purpose::STANDARD.encode(image.data),
+                }
+            })),
+            _ => Err(crate::models::ToolResultContentError::InvalidContent),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    crate::models::ToolResult::normalize_content(Some(raw_content))
+}
 
 fn native_content_block_to_proto(
     block: crate::messages::ContentBlock,
@@ -999,8 +1075,26 @@ mod tests {
             success: true,
             output: Some(serde_json::json!({"key": "value"})),
             error: None,
+            content: crate::models::ToolResult::normalize_content(Some(vec![
+                serde_json::json!({"type": "text", "text": "details"}),
+                serde_json::json!({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "AA=="
+                    }
+                }),
+            ]))
+            .unwrap(),
         };
         let proto: super::super::amplifier_module::ToolResult = original.clone().into();
+        let image = match proto.content_blocks[1].block.as_ref().unwrap() {
+            super::super::amplifier_module::content_block::Block::ImageBlock(image) => image,
+            _ => panic!("expected image block"),
+        };
+        assert_eq!(image.data, vec![0]);
+        assert!(image.source_json.is_empty());
         let restored: crate::models::ToolResult = proto.into();
         assert_eq!(original, restored);
     }
@@ -1014,6 +1108,7 @@ mod tests {
                 "message".to_string(),
                 serde_json::json!("something failed"),
             )])),
+            content: None,
         };
         let proto: super::super::amplifier_module::ToolResult = original.clone().into();
         let restored: crate::models::ToolResult = proto.into();

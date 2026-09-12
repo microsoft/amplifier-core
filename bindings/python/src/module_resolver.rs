@@ -15,7 +15,10 @@ use pyo3::types::PyDict;
 /// and artifact-specific keys ("artifact_path", "endpoint", "package_name").
 #[pyfunction]
 pub(crate) fn resolve_module(py: Python<'_>, path: String) -> PyResult<Py<PyDict>> {
-    let manifest = amplifier_core::module_resolver::resolve_module(std::path::Path::new(&path))
+    let manifest = py
+        .detach(move || {
+            amplifier_core::module_resolver::resolve_module(std::path::Path::new(&path))
+        })
         .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("{e}")))?;
 
     let dict = PyDict::new(py);
@@ -78,7 +81,10 @@ pub(crate) const RUST_TRANSPORT_ERROR_MSG: &str =
 #[cfg(feature = "wasm")]
 #[pyfunction]
 pub(crate) fn load_wasm_from_path(py: Python<'_>, path: String) -> PyResult<Py<PyDict>> {
-    let manifest = amplifier_core::module_resolver::resolve_module(std::path::Path::new(&path))
+    let manifest = py
+        .detach(move || {
+            amplifier_core::module_resolver::resolve_module(std::path::Path::new(&path))
+        })
         .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("{e}")))?;
 
     if manifest.transport == amplifier_core::transport::Transport::Rust {
@@ -92,14 +98,19 @@ pub(crate) fn load_wasm_from_path(py: Python<'_>, path: String) -> PyResult<Py<P
         )));
     }
 
-    let engine = amplifier_core::wasm_engine::WasmEngine::new().map_err(|e| {
-        PyErr::new::<PyRuntimeError, _>(format!("WASM engine creation failed: {e}"))
-    })?;
-
-    let coordinator = std::sync::Arc::new(amplifier_core::Coordinator::new_for_test());
-    let loaded =
-        amplifier_core::module_resolver::load_module(&manifest, engine.inner(), Some(coordinator))
-            .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Module loading failed: {e}")))?;
+    let loaded = py
+        .detach(move || {
+            let engine = amplifier_core::wasm_engine::WasmEngine::new()
+                .map_err(|e| format!("WASM engine creation failed: {e}"))?;
+            let coordinator = std::sync::Arc::new(amplifier_core::Coordinator::new_for_test());
+            amplifier_core::module_resolver::load_module(
+                &manifest,
+                engine.inner(),
+                Some(coordinator),
+            )
+            .map_err(|e| format!("Module loading failed: {e}"))
+        })
+        .map_err(PyErr::new::<PyRuntimeError, _>)?;
 
     let dict = PyDict::new(py);
     dict.set_item("status", "loaded")?;

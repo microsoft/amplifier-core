@@ -646,6 +646,7 @@ mod tool_tests {
                 success: true,
                 output: Some(input),
                 error: None,
+                content: None,
             })
         }
     }
@@ -746,6 +747,7 @@ mod macro_tests {
                 success: true,
                 output: Some(input),
                 error: None,
+                content: None,
             })
         }
     }

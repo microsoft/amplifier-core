@@ -544,6 +544,7 @@ mod tests {
                 success: true,
                 output: Some(serde_json::json!({"prompt": "hello from test"})),
                 error: None,
+                content: None,
             }],
         ));
         coordinator.mount_tool("echo-tool", echo);

@@ -83,6 +83,18 @@ async def test_load_echo_tool_wasm():
         assert hasattr(tool, "get_spec")
         assert hasattr(tool, "execute")
         assert tool.name == "echo-tool"
+        execution = await tool.execute({"message": "hello"})
+        assert execution["content"] == [
+            {"type": "text", "text": "echo result"},
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": "AA==",
+                },
+            },
+        ]
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 

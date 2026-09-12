@@ -11,6 +11,8 @@ Proto bytes were generated from the amplifier_module.proto schema:
 
 import json
 
+import pytest
+
 
 class TestProtoChatRequestToJson:
     """Tests for the proto_chat_request_to_json PyO3 bridge function."""
@@ -189,3 +191,48 @@ class TestJsonToProtoChatResponse:
 
         assert isinstance(response_proto_bytes, bytes), "Must return bytes"
         assert len(response_proto_bytes) > 0, "Proto bytes must be non-empty"
+
+
+class TestToolResultContentBridge:
+    """The private ToolResult bridge normalizes content without input echoing."""
+
+    def test_normalizes_canonical_content(self):
+        from amplifier_core._engine import _normalize_tool_result_content
+
+        result = _normalize_tool_result_content(
+            json.dumps(
+                [
+                    {"type": "text", "text": "details", "ignored": True},
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": "AA==",
+                            "ignored": True,
+                        },
+                    },
+                ]
+            )
+        )
+        assert json.loads(result) == [
+            {"type": "text", "text": "details"},
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": "AA==",
+                },
+            },
+        ]
+
+    def test_rejects_bad_content_without_input_echo(self):
+        from amplifier_core._engine import _normalize_tool_result_content
+
+        with pytest.raises(ValueError) as exc_info:
+            _normalize_tool_result_content(
+                '[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"private-bytes"}}]'
+            )
+        assert str(exc_info.value) == "invalid tool result image data"
+        assert "private-bytes" not in str(exc_info.value)

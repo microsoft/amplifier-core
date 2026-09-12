@@ -95,6 +95,20 @@ async fn tool_execute_roundtrip() {
         Some(input),
         "ToolResult.output should echo the input"
     );
+    assert_eq!(
+        serde_json::to_value(result.content).unwrap(),
+        json!([
+            {"type": "text", "text": "echo result"},
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": "AA=="
+                }
+            }
+        ])
+    );
 }
 
 // ---------------------------------------------------------------------------
