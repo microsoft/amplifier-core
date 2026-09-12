@@ -83,6 +83,21 @@ def import_module_from_path(module_path: str | Path) -> ModuleType:
     parent = str(import_root)
     _imp.acquire_lock()
     try:
+        # Audit children even when the matching root package is already loaded:
+        # a canonical root must not hide a child cached from a different source.
+        package_dir = source_path.parent.resolve()
+        for cached_name, cached_module in list(sys.modules.items()):
+            if not cached_name.startswith(f"{module_name}."):
+                continue
+            cached_file = getattr(cached_module, "__file__", None)
+            if cached_file is None or not Path(cached_file).resolve().is_relative_to(
+                package_dir
+            ):
+                raise ImportError(
+                    f"Refusing to import '{module_name}' from {source_path}: "
+                    f"cached submodule '{cached_name}' is from {cached_file}"
+                )
+
         existing = sys.modules.get(module_name)
         if existing is not None:
             existing_file = getattr(existing, "__file__", None)
@@ -95,19 +110,6 @@ def import_module_from_path(module_path: str | Path) -> ModuleType:
                 f"Refusing to import '{module_name}' from {source_path}: "
                 f"it is already loaded from {existing_file}"
             )
-
-        package_dir = source_path.parent.resolve()
-        for cached_name, cached_module in sys.modules.items():
-            if not cached_name.startswith(f"{module_name}."):
-                continue
-            cached_file = getattr(cached_module, "__file__", None)
-            if cached_file is None or not Path(cached_file).resolve().is_relative_to(
-                package_dir
-            ):
-                raise ImportError(
-                    f"Refusing to import '{module_name}' from {source_path}: "
-                    f"cached submodule '{cached_name}' is from {cached_file}"
-                )
 
         try:
             original_path_index = sys.path.index(parent)
@@ -128,7 +130,7 @@ def import_module_from_path(module_path: str | Path) -> ModuleType:
             module = importlib.import_module(module_name)
         finally:
             current_path_index = next(
-                (index for index, value in enumerate(sys.path) if value is parent),
+                (index for index, value in enumerate(sys.path) if value == parent),
                 None,
             )
             if original_path_index is None:
@@ -137,7 +139,7 @@ def import_module_from_path(module_path: str | Path) -> ModuleType:
             elif original_path_index != 0 and current_path_index is not None:
                 sys.path.pop(current_path_index)
                 next_path_index = next(
-                    (index for index, value in enumerate(sys.path) if value is next_path),
+                    (index for index, value in enumerate(sys.path) if value == next_path),
                     None,
                 )
                 if next_path_index is None:

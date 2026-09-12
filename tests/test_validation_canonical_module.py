@@ -243,6 +243,37 @@ async def test_source_resolved_cache_rejects_a_different_source(
 
 
 @pytest.mark.asyncio
+async def test_matching_root_with_foreign_cached_child_cannot_mount(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cached canonical root does not exempt its children from source checks."""
+    module_id = "tool-mixed-cache"
+    package_name = "amplifier_module_tool_mixed_cache"
+    source_root = tmp_path / "source"
+    _write_tool_package(source_root, package_name, "canonical")
+    foreign_package = _write_tool_package(tmp_path / "foreign", package_name, "foreign")
+    monkeypatch.syspath_prepend(str(source_root))
+    loader = ModuleLoader(coordinator=_ResolverCoordinator(source_root))
+
+    try:
+        canonical = importlib.import_module(package_name)
+        foreign_child = types.ModuleType(f"{package_name}.marker")
+        foreign_child.__file__ = str(foreign_package / "marker.py")
+        sys.modules[f"{package_name}.marker"] = foreign_child
+
+        with pytest.raises(ModuleValidationError, match="cached submodule"):
+            await loader.load(module_id)
+
+        assert sys.modules[package_name] is canonical
+        assert sys.modules[f"{package_name}.marker"] is foreign_child
+        assert module_id not in loader._loaded_modules
+        assert canonical.IMPORT_COUNT == 1
+    finally:
+        loader.cleanup()
+        _clear_package(package_name)
+
+
+@pytest.mark.asyncio
 async def test_direct_cache_does_not_override_a_later_source_resolution(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -348,6 +379,28 @@ def test_standalone_path_validation_prioritizes_requested_source(
         _clear_package(package_name)
         sys.path.remove(injected_path)
         sys.path.remove(str(requested_root))
+
+
+def test_standalone_path_validation_removes_reconstructed_import_path(
+    tmp_path: Path,
+) -> None:
+    """Cleanup works when the imported package recreates sys.path strings."""
+    package_name = "amplifier_module_tool_path_reconstruction"
+    import_root = tmp_path / "requested"
+    package = import_root / package_name
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text(
+        "import sys\n"
+        "sys.path[:] = [entry.encode().decode() for entry in sys.path]\n"
+    )
+
+    try:
+        module = import_module_from_path(package)
+
+        assert module.__name__ == package_name
+        assert str(import_root) not in sys.path
+    finally:
+        _clear_package(package_name)
 
 
 def test_standalone_path_validation_does_not_expose_temporary_import_path(
