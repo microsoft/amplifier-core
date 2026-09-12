@@ -526,6 +526,102 @@ impl KernelService for KernelServiceImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use std::future::Future;
+    use std::pin::Pin;
+
+    struct CostProvider {
+        cost_usd: Option<String>,
+    }
+
+    impl CostProvider {
+        fn new(cost_usd: Option<&str>) -> Self {
+            Self {
+                cost_usd: cost_usd.map(String::from),
+            }
+        }
+    }
+
+    impl crate::traits::Provider for CostProvider {
+        fn name(&self) -> &str {
+            "cost-provider"
+        }
+
+        fn get_info(&self) -> crate::models::ProviderInfo {
+            crate::models::ProviderInfo {
+                id: self.name().into(),
+                display_name: "Cost Provider".into(),
+                credential_env_vars: Vec::new(),
+                capabilities: Vec::new(),
+                defaults: HashMap::new(),
+                config_fields: Vec::new(),
+            }
+        }
+
+        fn list_models(
+            &self,
+        ) -> Pin<
+            Box<
+                dyn Future<
+                        Output = Result<
+                            Vec<crate::models::ModelInfo>,
+                            crate::errors::ProviderError,
+                        >,
+                    > + Send
+                    + '_,
+            >,
+        > {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+
+        fn complete(
+            &self,
+            _request: crate::messages::ChatRequest,
+        ) -> Pin<
+            Box<
+                dyn Future<
+                        Output = Result<
+                            crate::messages::ChatResponse,
+                            crate::errors::ProviderError,
+                        >,
+                    > + Send
+                    + '_,
+            >,
+        > {
+            let cost_usd = self.cost_usd.clone();
+            Box::pin(async move {
+                Ok(crate::messages::ChatResponse {
+                    content: vec![crate::messages::ContentBlock::Text {
+                        text: "response with provider-reported cost".into(),
+                        visibility: None,
+                        extensions: HashMap::new(),
+                    }],
+                    tool_calls: None,
+                    usage: Some(crate::messages::Usage {
+                        input_tokens: 10,
+                        output_tokens: 5,
+                        total_tokens: 15,
+                        reasoning_tokens: None,
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                        cost_usd,
+                        extensions: HashMap::new(),
+                    }),
+                    degradation: None,
+                    finish_reason: Some("stop".into()),
+                    metadata: None,
+                    extensions: HashMap::new(),
+                })
+            })
+        }
+
+        fn parse_tool_calls(
+            &self,
+            response: &crate::messages::ChatResponse,
+        ) -> Vec<crate::messages::ToolCall> {
+            response.tool_calls.clone().unwrap_or_default()
+        }
+    }
 
     #[test]
     fn kernel_service_impl_compiles() {
@@ -1355,6 +1451,104 @@ mod tests {
             "Expected response to contain provider text, got: {}",
             inner.content
         );
+    }
+
+    #[tokio::test]
+    async fn generated_grpc_client_preserves_provider_reported_cost_for_unary_and_streaming() {
+        use crate::generated::amplifier_module::kernel_service_client::KernelServiceClient;
+        use crate::generated::amplifier_module::kernel_service_server::KernelServiceServer;
+        use tokio::sync::oneshot;
+        use tokio_stream::wrappers::TcpListenerStream;
+        use tonic::transport::Server;
+
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.mount_provider(
+            "with-cost",
+            Arc::new(CostProvider::new(Some("0.000000000123456789"))),
+        );
+        coord.mount_provider("without-cost", Arc::new(CostProvider::new(None)));
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test server must bind");
+        let address = listener
+            .local_addr()
+            .expect("test server must have an address");
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            Server::builder()
+                .add_service(KernelServiceServer::new(KernelServiceImpl::new(coord)))
+                .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+        });
+
+        let mut client = KernelServiceClient::connect(format!("http://{address}"))
+            .await
+            .expect("generated client must connect to test server");
+        let request = amplifier_module::CompleteWithProviderRequest {
+            provider_name: "with-cost".into(),
+            request: Some(make_chat_request("ping")),
+        };
+
+        let unary = client
+            .complete_with_provider(request.clone())
+            .await
+            .expect("unary RPC must succeed")
+            .into_inner();
+        assert_eq!(
+            unary.usage.and_then(|usage| usage.cost_usd),
+            Some("0.000000000123456789".into())
+        );
+
+        let mut stream = client
+            .complete_with_provider_streaming(request)
+            .await
+            .expect("one-shot streaming RPC must succeed")
+            .into_inner();
+        let streamed = stream
+            .message()
+            .await
+            .expect("stream must not fail")
+            .expect("stream must contain one response");
+        assert_eq!(
+            streamed.usage.and_then(|usage| usage.cost_usd),
+            Some("0.000000000123456789".into())
+        );
+        assert!(
+            stream
+                .message()
+                .await
+                .expect("stream must not fail")
+                .is_none(),
+            "one-shot streaming RPC must end after one response"
+        );
+
+        let absent_cost = client
+            .complete_with_provider(amplifier_module::CompleteWithProviderRequest {
+                provider_name: "without-cost".into(),
+                request: Some(make_chat_request("ping")),
+            })
+            .await
+            .expect("unary RPC without cost must succeed")
+            .into_inner();
+        assert!(
+            absent_cost
+                .usage
+                .expect("provider returned usage")
+                .cost_usd
+                .is_none(),
+            "None cost must remain absent in protobuf"
+        );
+
+        shutdown_tx
+            .send(())
+            .expect("test server must still accept shutdown");
+        server
+            .await
+            .expect("test server task must not panic")
+            .expect("test server must shut down cleanly");
     }
 
     #[tokio::test]

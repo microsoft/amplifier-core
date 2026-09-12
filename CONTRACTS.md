@@ -70,7 +70,7 @@ field name differs from the JSON key.
 | `ToolSpec` | `ToolSpec` (BaseModel) | JSON round-trip | 1:1. |
 | `ChatRequest` | `ChatRequest` (BaseModel) | JSON round-trip | 1:1. |
 | `ToolCall` | `ToolCall` (BaseModel) | JSON round-trip | 1:1. |
-| `Usage` | `Usage` (BaseModel) | JSON round-trip | 1:1. |
+| `Usage` | `Usage` (BaseModel) | JSON round-trip | 1:1. `cost_usd` is optional quoted decimal text at the Rust/protobuf boundary (`Option<String>`); Python exposes it as `Decimal \| None`. None is omitted and `"0"` remains present. |
 | `Degradation` | `Degradation` (BaseModel) | JSON round-trip | 1:1. |
 | `ChatResponse` | `ChatResponse` (BaseModel) | JSON round-trip | 1:1. |
 | `ResponseFormat` (tagged enum) | `ResponseFormat` (Union) | `serde(tag = "type")` | Text/Json/JsonSchema variants match. |

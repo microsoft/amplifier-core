@@ -335,12 +335,30 @@ pub struct ChatRequest {
     pub extra: HashMap<String, Value>,
 }
 
+/// Token usage information reported by an LLM provider.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Usage {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub total_tokens: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<String>,
+}
+
 /// Response from an LLM chat completion.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatResponse {
     pub content: Vec<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finish_reason: Option<String>,
     #[serde(flatten)]
@@ -705,6 +723,15 @@ mod tests {
         let resp = ChatResponse {
             content: vec![json!({"type": "text", "text": "Hello!"})],
             tool_calls: None,
+            usage: Some(Usage {
+                input_tokens: 10,
+                output_tokens: 5,
+                total_tokens: 15,
+                reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+                cost_usd: Some("0.000000000123456789".to_string()),
+            }),
             finish_reason: Some("stop".to_string()),
             extra: HashMap::new(),
         };
@@ -713,8 +740,41 @@ mod tests {
         assert_eq!(deserialized.content.len(), 1);
         assert_eq!(deserialized.content[0]["text"], json!("Hello!"));
         assert!(deserialized.tool_calls.is_none());
+        assert_eq!(
+            deserialized
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.cost_usd.as_deref()),
+            Some("0.000000000123456789")
+        );
         assert_eq!(deserialized.finish_reason, Some("stop".to_string()));
         assert!(deserialized.extra.is_empty());
+    }
+
+    #[test]
+    fn test_usage_cost_usd_none_is_omitted_and_zero_is_preserved() {
+        let absent = Usage {
+            input_tokens: 10,
+            output_tokens: 5,
+            total_tokens: 15,
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            cost_usd: None,
+        };
+        assert!(serde_json::to_value(&absent)
+            .unwrap()
+            .get("cost_usd")
+            .is_none());
+
+        let present_zero = Usage {
+            cost_usd: Some("0".to_string()),
+            ..absent
+        };
+        let serialized = serde_json::to_value(&present_zero).unwrap();
+        assert_eq!(serialized["cost_usd"], "0");
+        let restored: Usage = serde_json::from_value(serialized).unwrap();
+        assert_eq!(restored.cost_usd.as_deref(), Some("0"));
     }
 
     // --- PartialEq roundtrip tests ---

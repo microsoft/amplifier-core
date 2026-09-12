@@ -305,6 +305,18 @@ async fn provider_complete() {
         !response.content.is_empty(),
         "provider.complete() should return non-empty content"
     );
+    assert_eq!(
+        response
+            .usage
+            .as_ref()
+            .and_then(|usage| usage.cost_usd.as_deref()),
+        Some("0.000000000123456789"),
+        "provider-reported cost must survive the WASM response boundary"
+    );
+    assert!(
+        provider.parse_tool_calls(&response).is_empty(),
+        "parse_tool_calls must accept a response carrying usage"
+    );
 }
 
 // ---------------------------------------------------------------------------

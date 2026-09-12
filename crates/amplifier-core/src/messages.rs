@@ -275,6 +275,8 @@ pub struct Usage {
     pub cache_read_tokens: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_write_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<String>,
     #[serde(flatten)]
     pub extensions: HashMap<String, Value>,
 }
@@ -936,6 +938,7 @@ mod tests {
             reasoning_tokens: Some(20),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            cost_usd: Some("0.000000000123456789".into()),
             extensions: HashMap::new(),
         };
         let json = serde_json::to_value(&usage).unwrap();
@@ -943,6 +946,7 @@ mod tests {
         assert_eq!(json["output_tokens"], 50);
         assert_eq!(json["total_tokens"], 150);
         assert_eq!(json["reasoning_tokens"], 20);
+        assert_eq!(json["cost_usd"], "0.000000000123456789");
         assert!(json.get("cache_read_tokens").is_none());
         let deserialized: Usage = serde_json::from_value(json).unwrap();
         assert_eq!(deserialized, usage);
@@ -1003,6 +1007,7 @@ mod tests {
                 reasoning_tokens: None,
                 cache_read_tokens: None,
                 cache_write_tokens: None,
+                cost_usd: Some("0".into()),
                 extensions: HashMap::new(),
             }),
             degradation: None,
@@ -1015,6 +1020,7 @@ mod tests {
         assert_eq!(json["content"][0]["type"], "text");
         assert_eq!(json["content"][0]["text"], "Hello!");
         assert_eq!(json["usage"]["input_tokens"], 10);
+        assert_eq!(json["usage"]["cost_usd"], "0");
         assert_eq!(json["finish_reason"], "stop");
         assert!(json.get("tool_calls").is_none());
         assert!(json.get("degradation").is_none());

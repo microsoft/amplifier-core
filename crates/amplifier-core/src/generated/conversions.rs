@@ -192,6 +192,7 @@ impl From<crate::messages::Usage> for super::amplifier_module::Usage {
                     i32::MAX
                 })
             }),
+            cost_usd: native.cost_usd,
         }
     }
 }
@@ -205,6 +206,7 @@ impl From<super::amplifier_module::Usage> for crate::messages::Usage {
             reasoning_tokens: proto.reasoning_tokens.map(i64::from),
             cache_read_tokens: proto.cache_read_tokens.map(i64::from),
             cache_write_tokens: proto.cache_creation_tokens.map(i64::from),
+            cost_usd: proto.cost_usd,
             extensions: HashMap::new(),
         }
     }
@@ -1255,9 +1257,11 @@ mod tests {
             reasoning_tokens: Some(20),
             cache_read_tokens: Some(10),
             cache_write_tokens: None, // 0 in proto, None when restored
+            cost_usd: Some("0.000000000123456789".into()),
             extensions: HashMap::new(),
         };
         let proto: super::super::amplifier_module::Usage = original.clone().into();
+        assert_eq!(proto.cost_usd.as_deref(), Some("0.000000000123456789"));
         let restored: crate::messages::Usage = proto.into();
         assert_eq!(original.input_tokens, restored.input_tokens);
         assert_eq!(original.output_tokens, restored.output_tokens);
@@ -1266,6 +1270,7 @@ mod tests {
         assert_eq!(original.cache_read_tokens, restored.cache_read_tokens);
         // cache_write_tokens: None → None (optional proto preserves None)
         assert_eq!(restored.cache_write_tokens, None);
+        assert_eq!(restored.cost_usd.as_deref(), Some("0.000000000123456789"));
         // extensions are lost in proto roundtrip (proto has no extensions field)
         assert!(restored.extensions.is_empty());
     }
@@ -1279,9 +1284,11 @@ mod tests {
             reasoning_tokens: Some(50),
             cache_read_tokens: Some(30),
             cache_write_tokens: Some(20),
+            cost_usd: None,
             extensions: HashMap::new(),
         };
         let proto: super::super::amplifier_module::Usage = original.clone().into();
+        assert!(proto.cost_usd.is_none());
         let restored: crate::messages::Usage = proto.into();
         assert_eq!(original.input_tokens, restored.input_tokens);
         assert_eq!(original.output_tokens, restored.output_tokens);
@@ -1289,6 +1296,7 @@ mod tests {
         assert_eq!(original.reasoning_tokens, restored.reasoning_tokens);
         assert_eq!(original.cache_read_tokens, restored.cache_read_tokens);
         assert_eq!(original.cache_write_tokens, restored.cache_write_tokens);
+        assert!(restored.cost_usd.is_none());
     }
 
     /// Verify that `Some(0)` survives roundtrip now that proto uses `optional` fields.
@@ -1301,9 +1309,11 @@ mod tests {
             reasoning_tokens: Some(0),
             cache_read_tokens: Some(0),
             cache_write_tokens: Some(0),
+            cost_usd: Some("0".into()),
             extensions: HashMap::new(),
         };
         let proto: super::super::amplifier_module::Usage = original.clone().into();
+        assert_eq!(proto.cost_usd.as_deref(), Some("0"));
         let restored: crate::messages::Usage = proto.into();
         assert_eq!(
             restored.reasoning_tokens,
@@ -1320,6 +1330,7 @@ mod tests {
             Some(0),
             "Some(0) cache_write_tokens must survive roundtrip"
         );
+        assert_eq!(restored.cost_usd.as_deref(), Some("0"));
     }
 
     // -- E-3: ModelInfo i64→i32 overflow clamps to i32::MAX --
@@ -1365,6 +1376,7 @@ mod tests {
             reasoning_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            cost_usd: None,
             extensions: HashMap::new(),
         };
         let proto: super::super::amplifier_module::Usage = original.into();
@@ -1380,6 +1392,7 @@ mod tests {
             reasoning_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            cost_usd: None,
             extensions: HashMap::new(),
         };
         let proto: super::super::amplifier_module::Usage = original.into();
@@ -1395,6 +1408,7 @@ mod tests {
             reasoning_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            cost_usd: None,
             extensions: HashMap::new(),
         };
         let proto: super::super::amplifier_module::Usage = original.into();
@@ -2081,6 +2095,7 @@ mod tests {
                 reasoning_tokens: Some(50),
                 cache_read_tokens: Some(20),
                 cache_write_tokens: None,
+                cost_usd: None,
                 extensions: HashMap::new(),
             }),
             degradation: Some(Degradation {

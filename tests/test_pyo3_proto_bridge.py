@@ -10,6 +10,7 @@ Proto bytes were generated from the amplifier_module.proto schema:
 """
 
 import json
+from decimal import Decimal
 
 import pytest
 
@@ -191,6 +192,54 @@ class TestJsonToProtoChatResponse:
 
         assert isinstance(response_proto_bytes, bytes), "Must return bytes"
         assert len(response_proto_bytes) > 0, "Proto bytes must be non-empty"
+
+    @pytest.mark.parametrize(
+        ("cost_usd", "expected_cost_usd", "is_present"),
+        [
+            (Decimal("0.000000000123456789"), "1.23456789E-10", True),
+            (Decimal("0.123456789123456789"), "0.123456789123456789", True),
+            (None, None, False),
+            (Decimal("0"), "0", True),
+        ],
+    )
+    def test_usage_cost_usd_preserves_decimal_text_and_presence(
+        self, cost_usd, expected_cost_usd, is_present
+    ):
+        """Python Decimal cost crosses PyO3/protobuf as exact optional quoted text."""
+        from amplifier_core._engine import json_to_proto_chat_response
+        from amplifier_core._grpc_gen import amplifier_module_pb2 as pb2
+        from amplifier_core.message_models import ChatResponse, Usage
+
+        response = ChatResponse(
+            content=[{"type": "text", "text": "cost response"}],
+            usage=Usage(
+                input_tokens=10,
+                output_tokens=5,
+                total_tokens=15,
+                cost_usd=cost_usd,
+            ),
+        )
+        serialized = response.model_dump()
+        assert serialized["usage"]["cost_usd"] == expected_cost_usd
+        proto_bytes = json_to_proto_chat_response(json.dumps(serialized))
+        proto = pb2.ChatResponse()
+        proto.ParseFromString(proto_bytes)
+
+        assert proto.usage.HasField("cost_usd") is is_present
+        if is_present:
+            assert proto.usage.cost_usd == expected_cost_usd
+
+        restored = Usage.model_validate(
+            {
+                "input_tokens": proto.usage.prompt_tokens,
+                "output_tokens": proto.usage.completion_tokens,
+                "total_tokens": proto.usage.total_tokens,
+                "cost_usd": proto.usage.cost_usd if is_present else None,
+            }
+        )
+        assert restored.cost_usd == cost_usd
+        if is_present:
+            assert isinstance(proto.usage.cost_usd, str)
 
 
 class TestToolResultContentBridge:

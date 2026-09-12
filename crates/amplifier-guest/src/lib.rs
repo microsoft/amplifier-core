@@ -1299,6 +1299,7 @@ mod provider_tests {
             Ok(ChatResponse {
                 content: vec![json!({"type": "text", "text": "hello"})],
                 tool_calls: None,
+                usage: None,
                 finish_reason: Some("stop".to_string()),
                 extra: HashMap::new(),
             })
@@ -1347,6 +1348,7 @@ mod provider_tests {
         let resp = ChatResponse {
             content: vec![],
             tool_calls: None,
+            usage: None,
             finish_reason: None,
             extra: HashMap::new(),
         };
@@ -1360,6 +1362,7 @@ mod provider_tests {
         let resp = ChatResponse {
             content: vec![],
             tool_calls: Some(vec![json!({"name": "echo", "args": {}})]),
+            usage: None,
             finish_reason: None,
             extra: HashMap::new(),
         };
@@ -1433,6 +1436,7 @@ mod provider_macro_tests {
             Ok(ChatResponse {
                 content: vec![],
                 tool_calls: None,
+                usage: None,
                 finish_reason: None,
                 extra: HashMap::new(),
             })
