@@ -147,7 +147,6 @@ async def test_load_passthrough_orchestrator_wasm():
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_load_deny_hook_wasm():
     """Load deny-hook.wasm via load_and_mount_wasm — hook module."""
@@ -157,8 +156,21 @@ async def test_load_deny_hook_wasm():
         result = load_and_mount_wasm(coord, tmpdir)
 
         assert result["module_type"] == "hook"
-        assert result["status"] == "loaded"
-        assert "wrapper" in result
+        assert result["status"] == "mounted"
+        assert result["subscriptions_count"] == 1
+        assert coord.hooks.list_handlers("tool:pre") == {"tool:pre": ["deny-all"]}
+        assert coord.mount_points["hooks"] is coord.hooks
+
+        denial = await coord.hooks.emit("tool:pre", {"tool": "test-tool"})
+        assert denial.action == "deny"
+        assert denial.reason == "Denied by WASM hook"
+
+        # A separately constructed registry must not inherit coordinator hooks.
+        from amplifier_core._engine import RustHookRegistry
+
+        standalone = RustHookRegistry()
+        assert standalone.list_handlers("tool:pre") == {"tool:pre": []}
+        assert (await standalone.emit("tool:pre", {})).action == "continue"
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 

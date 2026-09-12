@@ -61,15 +61,22 @@ pub(crate) struct PyHookRegistry {
     unregister_fns: Arc<std::sync::Mutex<HashMap<String, Box<dyn Fn() + Send + Sync>>>>,
 }
 
+impl PyHookRegistry {
+    /// Wrap the coordinator's registry so every transport shares dispatch.
+    pub(crate) fn from_shared(inner: Arc<amplifier_core::HookRegistry>) -> Self {
+        Self {
+            inner,
+            unregister_fns: Arc::new(std::sync::Mutex::new(HashMap::new())),
+        }
+    }
+}
+
 #[pymethods]
 impl PyHookRegistry {
     /// Create a new empty hook registry.
     #[new]
     pub(crate) fn new() -> Self {
-        Self {
-            inner: Arc::new(amplifier_core::HookRegistry::new()),
-            unregister_fns: Arc::new(std::sync::Mutex::new(HashMap::new())),
-        }
+        Self::from_shared(Arc::new(amplifier_core::HookRegistry::new()))
     }
 
     /// Register a Python callable as a hook handler.
