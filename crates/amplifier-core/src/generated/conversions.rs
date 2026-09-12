@@ -602,6 +602,27 @@ pub fn native_hook_result_to_proto(
         .map(|d| to_json_or_warn(d, "HookResult data"))
         .unwrap_or_default();
 
+    let context_injections = result
+        .context_injections
+        .iter()
+        .map(|injection| amplifier_module::ContextInjection {
+            content: injection.content.clone(),
+            role: match injection.role {
+                ContextInjectionRole::System => {
+                    amplifier_module::ContextInjectionRole::System as i32
+                }
+                ContextInjectionRole::User => amplifier_module::ContextInjectionRole::User as i32,
+                ContextInjectionRole::Assistant => {
+                    amplifier_module::ContextInjectionRole::Assistant as i32
+                }
+            },
+            ephemeral: injection.ephemeral,
+            append_to_last_tool_result: injection.append_to_last_tool_result,
+            hook_name: injection.hook_name.clone(),
+            event: injection.event.clone(),
+        })
+        .collect();
+
     amplifier_module::HookResult {
         action,
         data_json,
@@ -618,6 +639,7 @@ pub fn native_hook_result_to_proto(
         user_message_level,
         user_message_source: result.user_message_source.clone().unwrap_or_default(),
         append_to_last_tool_result: result.append_to_last_tool_result,
+        context_injections,
     }
 }
 
@@ -2289,7 +2311,8 @@ mod tests {
     fn hook_result_roundtrip_via_bridge_reverse() {
         use crate::bridges::grpc_hook::GrpcHookBridge;
         use crate::models::{
-            ApprovalDefault, ContextInjectionRole, HookAction, HookResult, UserMessageLevel,
+            ApprovalDefault, ContextInjection, ContextInjectionRole, HookAction, HookResult,
+            UserMessageLevel,
         };
 
         let original = HookResult {
@@ -2308,6 +2331,14 @@ mod tests {
             user_message_level: UserMessageLevel::Warning,
             user_message_source: Some("approval-hook".to_string()),
             append_to_last_tool_result: false,
+            context_injections: vec![ContextInjection {
+                content: "ordered injection".to_string(),
+                role: ContextInjectionRole::Assistant,
+                ephemeral: true,
+                append_to_last_tool_result: true,
+                hook_name: "registered-hook".to_string(),
+                event: "tool:post".to_string(),
+            }],
             extensions: HashMap::new(),
         };
 
@@ -2334,6 +2365,7 @@ mod tests {
             restored.append_to_last_tool_result,
             original.append_to_last_tool_result
         );
+        assert_eq!(restored.context_injections, original.context_injections);
     }
 
     #[test]

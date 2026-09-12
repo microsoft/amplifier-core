@@ -31,6 +31,14 @@ export const enum UserMessageLevel {
   Warning = 'Warning',
   Error = 'Error'
 }
+export interface JsContextInjection {
+  content: string
+  role: ContextInjectionRole
+  ephemeral: boolean
+  appendToLastToolResult: boolean
+  hookName: string
+  event: string
+}
 export interface JsHookResult {
   action: HookAction
   reason?: string
@@ -44,6 +52,7 @@ export interface JsHookResult {
   approvalPrompt?: string
   approvalTimeout?: number
   approvalDefault?: ApprovalDefault
+  contextInjections?: Array<JsContextInjection>
 }
 /** Structured error object returned to JS with a typed `code` property. */
 export interface JsAmplifierError {

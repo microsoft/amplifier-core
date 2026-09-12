@@ -194,6 +194,35 @@ impl GrpcHookBridge {
                 }
             };
 
+        let context_injections = proto
+            .context_injections
+            .into_iter()
+            .map(|injection| {
+                let role = match amplifier_module::ContextInjectionRole::try_from(injection.role) {
+                    Ok(amplifier_module::ContextInjectionRole::System) => {
+                        models::ContextInjectionRole::System
+                    }
+                    Ok(amplifier_module::ContextInjectionRole::User) => {
+                        models::ContextInjectionRole::User
+                    }
+                    Ok(amplifier_module::ContextInjectionRole::Assistant) => {
+                        models::ContextInjectionRole::Assistant
+                    }
+                    Ok(amplifier_module::ContextInjectionRole::Unspecified) | Err(_) => {
+                        models::ContextInjectionRole::System
+                    }
+                };
+                models::ContextInjection {
+                    content: injection.content,
+                    role,
+                    ephemeral: injection.ephemeral,
+                    append_to_last_tool_result: injection.append_to_last_tool_result,
+                    hook_name: injection.hook_name,
+                    event: injection.event,
+                }
+            })
+            .collect();
+
         let approval_prompt = if proto.approval_prompt.is_empty() {
             None
         } else {
@@ -267,6 +296,7 @@ impl GrpcHookBridge {
             user_message_level,
             user_message_source,
             append_to_last_tool_result: proto.append_to_last_tool_result,
+            context_injections,
             extensions: HashMap::new(),
         }
     }
@@ -333,6 +363,7 @@ mod tests {
             user_message_level: 0,
             user_message_source: String::new(),
             append_to_last_tool_result: false,
+            context_injections: vec![],
         }
     }
 

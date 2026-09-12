@@ -389,6 +389,15 @@ message ToolResult {
   string error_json  = 3;
 }
 
+message ContextInjection {
+  string               content                    = 1;
+  ContextInjectionRole role                       = 2;
+  bool                 ephemeral                  = 3;
+  bool                 append_to_last_tool_result = 4;
+  string               hook_name                  = 5;
+  string               event                      = 6;
+}
+
 message HookResult {
   HookAction           action                     = 1;
   string               data_json                  = 2;
@@ -406,6 +415,7 @@ message HookResult {
   UserMessageLevel     user_message_level         = 13;
   string               user_message_source        = 14;
   bool                 append_to_last_tool_result = 15;
+  repeated ContextInjection context_injections    = 16;
 }
 
 message ModelInfo {

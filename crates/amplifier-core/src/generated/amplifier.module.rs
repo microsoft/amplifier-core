@@ -405,6 +405,21 @@ pub struct ToolResult {
     pub error_json: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ContextInjection {
+    #[prost(string, tag = "1")]
+    pub content: ::prost::alloc::string::String,
+    #[prost(enumeration = "ContextInjectionRole", tag = "2")]
+    pub role: i32,
+    #[prost(bool, tag = "3")]
+    pub ephemeral: bool,
+    #[prost(bool, tag = "4")]
+    pub append_to_last_tool_result: bool,
+    #[prost(string, tag = "5")]
+    pub hook_name: ::prost::alloc::string::String,
+    #[prost(string, tag = "6")]
+    pub event: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct HookResult {
     #[prost(enumeration = "HookAction", tag = "1")]
     pub action: i32,
@@ -437,6 +452,8 @@ pub struct HookResult {
     pub user_message_source: ::prost::alloc::string::String,
     #[prost(bool, tag = "15")]
     pub append_to_last_tool_result: bool,
+    #[prost(message, repeated, tag = "16")]
+    pub context_injections: ::prost::alloc::vec::Vec<ContextInjection>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ModelInfo {

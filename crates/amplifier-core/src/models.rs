@@ -106,6 +106,40 @@ pub enum SessionState {
 // Structs
 // ---------------------------------------------------------------------------
 
+/// One independently processed context injection from a hook.
+///
+/// The registry binds `hook_name` and `event` from the registered handler that
+/// emitted this item. Consumers must not rely on handler-provided provenance.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextInjection {
+    /// Text to inject into the agent's conversation context.
+    pub content: String,
+
+    /// Role for the injected message in conversation.
+    #[serde(default)]
+    pub role: ContextInjectionRole,
+
+    /// Whether this injection is request-only rather than durable history.
+    #[serde(default)]
+    pub ephemeral: bool,
+
+    /// Carrier for post-tool-result placement; interpreted by the loop layer.
+    #[serde(default)]
+    pub append_to_last_tool_result: bool,
+
+    /// Registered handler name, bound by the hook registry.
+    #[serde(default = "default_unknown_hook_name")]
+    pub hook_name: String,
+
+    /// Event that emitted the injection, bound by the hook registry.
+    #[serde(default)]
+    pub event: String,
+}
+
+fn default_unknown_hook_name() -> String {
+    "unknown".to_string()
+}
+
 /// Result from hook execution with enhanced capabilities.
 ///
 /// Hooks can observe, block, modify operations, inject context to the agent,
@@ -187,6 +221,13 @@ pub struct HookResult {
     #[serde(default)]
     pub append_to_last_tool_result: bool,
 
+    /// Ordered, lossless context injection items.
+    ///
+    /// The legacy scalar context fields remain for backwards compatibility and
+    /// are projected from this list by the hook registry.
+    #[serde(default)]
+    pub context_injections: Vec<ContextInjection>,
+
     /// Extension fields for forward-compatibility.
     /// Captures any unknown JSON keys during deserialization.
     #[serde(flatten)]
@@ -215,6 +256,7 @@ impl Default for HookResult {
             user_message_level: UserMessageLevel::default(),
             user_message_source: None,
             append_to_last_tool_result: false,
+            context_injections: Vec::new(),
             extensions: HashMap::new(),
         }
     }
@@ -560,6 +602,23 @@ mod tests {
         assert!(result.context_injection.is_none());
         assert_eq!(result.context_injection_role, ContextInjectionRole::System);
         assert!(!result.ephemeral);
+        assert!(result.context_injections.is_empty());
+    }
+
+    #[test]
+    fn context_injection_serialization_roundtrip() {
+        let injection = ContextInjection {
+            content: "temporary reminder".into(),
+            role: ContextInjectionRole::User,
+            ephemeral: true,
+            append_to_last_tool_result: true,
+            hook_name: "registered-hook".into(),
+            event: "tool:post".into(),
+        };
+
+        let json = serde_json::to_string(&injection).unwrap();
+        let restored: ContextInjection = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, injection);
     }
 
     #[test]
