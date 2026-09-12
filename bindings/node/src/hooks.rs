@@ -43,14 +43,24 @@ impl HookHandler for JsHookHandlerBridge {
             "{}".to_string()
         });
         Box::pin(async move {
-            let result_str: String =
-                self.callback
-                    .call_async((event, data_str))
-                    .await
-                    .map_err(|e| HookError::HandlerFailed {
-                        message: e.to_string(),
-                        handler_name: None,
-                    })?;
+            // The JS handler may return either a bare string (synchronous) or a
+            // Promise<String> (async). `call_async` returns whichever value the
+            // JS function returned, so await a promise result explicitly.
+            let ret: Either<String, Promise<String>> = self
+                .callback
+                .call_async((event, data_str))
+                .await
+                .map_err(|e| HookError::HandlerFailed {
+                    message: e.to_string(),
+                    handler_name: None,
+                })?;
+            let result_str = match ret {
+                Either::A(result) => result,
+                Either::B(promise) => promise.await.map_err(|e| HookError::HandlerFailed {
+                    message: e.to_string(),
+                    handler_name: None,
+                })?,
+            };
             let hook_result: HookResult = serde_json::from_str(&result_str).unwrap_or_else(|e| {
                 log::error!(
                     "SECURITY: Hook handler returned unparseable result — failing closed (Deny): {e} — json: {result_str}"
