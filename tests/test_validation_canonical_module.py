@@ -45,6 +45,40 @@ class _ResolverCoordinator:
         return self.resolver
 
 
+class _AsyncResolver:
+    def __init__(self, root: Path) -> None:
+        self.source = _Source(root)
+        self.async_calls = 0
+        self.sync_calls = 0
+
+    async def async_resolve(
+        self,
+        module_id: str,
+        source_hint: str | dict | None = None,
+        profile_hint: str | dict | None = None,
+    ) -> _Source:
+        self.async_calls += 1
+        return self.source
+
+    def resolve(
+        self,
+        module_id: str,
+        source_hint: str | dict | None = None,
+        profile_hint: str | dict | None = None,
+    ) -> _Source:
+        self.sync_calls += 1
+        return self.source
+
+
+class _AsyncResolverCoordinator:
+    def __init__(self, root: Path) -> None:
+        self.resolver = _AsyncResolver(root)
+
+    def get(self, mount_point: str) -> _AsyncResolver:
+        assert mount_point == "module-source-resolver"
+        return self.resolver
+
+
 class _RecordingCoordinator:
     def __init__(self) -> None:
         self.mounted: dict[str, object] = {}
@@ -146,6 +180,100 @@ async def test_loader_validation_and_runtime_share_canonical_package(
     finally:
         loader.cleanup()
         _clear_package(package_name)
+
+
+@pytest.mark.asyncio
+async def test_independent_loaders_share_canonical_module_via_async_resolution(
+    tmp_path: Path,
+) -> None:
+    """Independent loaders share one same-source module object and its state."""
+    module_id = "tool-cross-session"
+    package_name = "amplifier_module_tool_cross_session"
+    source_root = tmp_path / "source"
+    _write_tool_package(source_root, package_name, "canonical")
+    parent_coordinator = _AsyncResolverCoordinator(source_root)
+    child_coordinator = _AsyncResolverCoordinator(source_root)
+    parent_loader = ModuleLoader(coordinator=parent_coordinator)
+    child_loader = ModuleLoader(coordinator=child_coordinator)
+    original_path = list(sys.path)
+
+    try:
+        parent_mount = await parent_loader.load(module_id)
+        canonical = sys.modules[package_name]
+        canonical_marker = sys.modules[f"{package_name}.marker"]
+        child_mount = await child_loader.load(module_id)
+
+        assert sys.modules[package_name] is canonical
+        assert sys.modules[f"{package_name}.marker"] is canonical_marker
+        assert parent_loader._loaded_modules[module_id] is canonical.mount
+        assert child_loader._loaded_modules[module_id] is canonical.mount
+        assert canonical.IMPORT_COUNT == 1
+        assert parent_coordinator.resolver.async_calls == 1
+        assert child_coordinator.resolver.async_calls == 1
+        assert parent_coordinator.resolver.sync_calls == 0
+        assert child_coordinator.resolver.sync_calls == 0
+
+        parent_runtime = _RecordingCoordinator()
+        child_runtime = _RecordingCoordinator()
+        await parent_mount(parent_runtime)
+        await child_mount(child_runtime)
+
+        parent_tool = parent_runtime.mounted["stateful"]
+        child_tool = child_runtime.mounted["stateful"]
+        assert type(parent_tool) is canonical.StatefulTool
+        assert type(child_tool) is canonical.StatefulTool
+        assert parent_tool.module_token is canonical.MODULE_TOKEN
+        assert child_tool.module_token is canonical.MODULE_TOKEN
+        assert canonical.IMPORT_COUNT == 1
+    finally:
+        child_loader.cleanup()
+        parent_loader.cleanup()
+        _clear_package(package_name)
+
+    assert sys.path == original_path
+
+
+@pytest.mark.asyncio
+async def test_independent_loaders_reject_different_async_resolved_sources(
+    tmp_path: Path,
+) -> None:
+    """A child loader cannot replace another loader's canonical package source."""
+    module_id = "tool-cross-session-collision"
+    package_name = "amplifier_module_tool_cross_session_collision"
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    _write_tool_package(first_root, package_name, "first")
+    _write_tool_package(second_root, package_name, "second")
+    parent_coordinator = _AsyncResolverCoordinator(first_root)
+    child_coordinator = _AsyncResolverCoordinator(second_root)
+    parent_loader = ModuleLoader(coordinator=parent_coordinator)
+    child_loader = ModuleLoader(coordinator=child_coordinator)
+    child_runtime = _RecordingCoordinator()
+    original_path = list(sys.path)
+
+    try:
+        await parent_loader.load(module_id)
+        canonical = sys.modules[package_name]
+        canonical_marker = sys.modules[f"{package_name}.marker"]
+
+        with pytest.raises(ModuleValidationError, match="Refusing to import"):
+            await child_loader.load(module_id)
+
+        assert sys.modules[package_name] is canonical
+        assert sys.modules[f"{package_name}.marker"] is canonical_marker
+        assert canonical.StatefulTool.description == "first"
+        assert child_loader._loaded_modules == {}
+        assert child_runtime.mounted == {}
+        assert parent_coordinator.resolver.async_calls == 1
+        assert child_coordinator.resolver.async_calls == 1
+        assert parent_coordinator.resolver.sync_calls == 0
+        assert child_coordinator.resolver.sync_calls == 0
+    finally:
+        child_loader.cleanup()
+        parent_loader.cleanup()
+        _clear_package(package_name)
+
+    assert sys.path == original_path
 
 
 @pytest.mark.asyncio
