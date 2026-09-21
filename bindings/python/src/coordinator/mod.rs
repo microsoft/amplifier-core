@@ -138,8 +138,8 @@ impl PyCoordinator {
 
         let inner = Arc::new(amplifier_core::Coordinator::new(rust_config));
 
-        // Create the hooks registry
-        let hooks_instance = Py::new(py, PyHookRegistry::new())?;
+        // Python and native/WASM dispatch must use the same registry.
+        let hooks_instance = Py::new(py, PyHookRegistry::from_shared(inner.hooks_shared()))?;
         let hooks_any: Py<PyAny> = hooks_instance.clone_ref(py).into_any();
 
         // Create the cancellation token

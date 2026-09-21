@@ -18,6 +18,10 @@ from typing import Any, Optional
 __version__: str
 RUST_AVAILABLE: bool
 
+# Private helpers used by ``ToolResult`` to enforce the Rust content boundary.
+def _normalize_tool_result_content(content_json: str) -> str | None: ...
+def _tool_result_safe_hook_presentation(tool_result_json: str) -> str: ...
+
 # ---------------------------------------------------------------------------
 # RustSession — wraps amplifier_core::Session
 # ---------------------------------------------------------------------------

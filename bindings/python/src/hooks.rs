@@ -61,15 +61,22 @@ pub(crate) struct PyHookRegistry {
     unregister_fns: Arc<std::sync::Mutex<HashMap<String, Box<dyn Fn() + Send + Sync>>>>,
 }
 
+impl PyHookRegistry {
+    /// Wrap the coordinator's registry so every transport shares dispatch.
+    pub(crate) fn from_shared(inner: Arc<amplifier_core::HookRegistry>) -> Self {
+        Self {
+            inner,
+            unregister_fns: Arc::new(std::sync::Mutex::new(HashMap::new())),
+        }
+    }
+}
+
 #[pymethods]
 impl PyHookRegistry {
     /// Create a new empty hook registry.
     #[new]
     pub(crate) fn new() -> Self {
-        Self {
-            inner: Arc::new(amplifier_core::HookRegistry::new()),
-            unregister_fns: Arc::new(std::sync::Mutex::new(HashMap::new())),
-        }
+        Self::from_shared(Arc::new(amplifier_core::HookRegistry::new()))
     }
 
     /// Register a Python callable as a hook handler.
@@ -96,7 +103,17 @@ impl PyHookRegistry {
     ) -> PyResult<Py<PyAny>> {
         let handler_name =
             name.unwrap_or_else(|| format!("_auto_{event}_{}", uuid::Uuid::new_v4()));
-        let bridge = Arc::new(PyHookHandlerBridge { callable: handler });
+        // A native callback can re-enter the shared registry from a Tokio
+        // blocking thread, where task locals are unavailable. Keep the
+        // registration loop as a fallback only; do not snapshot contextvars,
+        // because the current emitting task's context must take precedence.
+        let fallback_locals = pyo3_async_runtimes::tokio::get_current_locals(py)
+            .ok()
+            .map(|locals| pyo3_async_runtimes::TaskLocals::new(locals.event_loop(py)));
+        let bridge = Arc::new(PyHookHandlerBridge {
+            callable: handler,
+            fallback_locals,
+        });
         let unregister_fn =
             self.inner
                 .register(event, bridge, priority, Some(handler_name.clone()));

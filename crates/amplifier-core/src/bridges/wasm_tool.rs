@@ -168,6 +168,12 @@ impl WasmToolBridge {
     }
 }
 
+fn deserialize_guest_tool_result(result_bytes: &[u8]) -> Result<ToolResult, ToolError> {
+    serde_json::from_slice(result_bytes).map_err(|_| ToolError::Other {
+        message: "invalid ToolResult returned by WASM tool".to_string(),
+    })
+}
+
 impl Tool for WasmToolBridge {
     fn name(&self) -> &str {
         &self.name
@@ -206,10 +212,7 @@ impl Tool for WasmToolBridge {
                         message: format!("WASM execute failed: {e}"),
                     })?;
 
-            let tool_result: ToolResult =
-                serde_json::from_slice(&result_bytes).map_err(|e| ToolError::Other {
-                    message: format!("failed to deserialize ToolResult: {e}"),
-                })?;
+            let tool_result = deserialize_guest_tool_result(&result_bytes)?;
 
             Ok(tool_result)
         })
@@ -230,6 +233,18 @@ mod tests {
     #[allow(dead_code)]
     fn _assert_wasm_tool_bridge_is_tool(bridge: WasmToolBridge) {
         let _: Arc<dyn crate::traits::Tool> = Arc::new(bridge);
+    }
+
+    #[test]
+    fn wasm_host_rejects_invalid_guest_rich_content_without_echoing_it() {
+        let error = deserialize_guest_tool_result(
+            br#"{"content":[{"type":"thinking","thinking":"WASM-GUEST-SECRET"}]}"#,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(error, "invalid ToolResult returned by WASM tool");
+        assert!(!error.contains("WASM-GUEST-SECRET"));
     }
 
     /// Helper: read the echo-tool.wasm fixture bytes.

@@ -1282,15 +1282,19 @@ mod tests {
     static LOG_MESSAGES: OnceLock<Mutex<Vec<(log::Level, String)>>> = OnceLock::new();
 
     impl log::Log for TestLogger {
-        fn enabled(&self, _metadata: &log::Metadata) -> bool {
-            true
+        fn enabled(&self, metadata: &log::Metadata) -> bool {
+            metadata.target().starts_with("amplifier_core::hooks")
+                && metadata.level() <= log::Level::Warn
         }
         fn log(&self, record: &log::Record) {
+            if !self.enabled(record.metadata()) {
+                return;
+            }
+            // Display implementations may themselves log. Never format while
+            // holding the non-reentrant capture mutex.
+            let message = format!("{}", record.args());
             let messages = LOG_MESSAGES.get_or_init(|| Mutex::new(Vec::new()));
-            messages
-                .lock()
-                .unwrap()
-                .push((record.level(), format!("{}", record.args())));
+            messages.lock().unwrap().push((record.level(), message));
         }
         fn flush(&self) {}
     }
@@ -1299,7 +1303,68 @@ mod tests {
 
     fn install_test_logger() {
         // set_logger is one-shot per process; ignore AlreadySet errors
-        let _ = log::set_logger(&TEST_LOGGER).map(|()| log::set_max_level(log::LevelFilter::Trace));
+        let _ = log::set_logger(&TEST_LOGGER).map(|()| log::set_max_level(log::LevelFilter::Warn));
+    }
+
+    #[test]
+    fn test_logger_formats_reentrant_messages_before_locking() {
+        use log::Log;
+        use std::cell::Cell;
+        use std::fmt;
+
+        struct ReentrantDisplay<'a>(&'a Cell<bool>);
+
+        impl fmt::Display for ReentrantDisplay<'_> {
+            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                TEST_LOGGER.log(
+                    &log::Record::builder()
+                        .level(log::Level::Warn)
+                        .target("amplifier_core::hooks")
+                        .args(format_args!("nested formatting regression"))
+                        .build(),
+                );
+                self.0.set(true);
+                formatter.write_str("outer formatting regression")
+            }
+        }
+
+        let nested_returned = Cell::new(false);
+        TEST_LOGGER.log(
+            &log::Record::builder()
+                .level(log::Level::Warn)
+                .target("amplifier_core::hooks")
+                .args(format_args!("{}", ReentrantDisplay(&nested_returned)))
+                .build(),
+        );
+        assert!(nested_returned.get(), "nested logging must return");
+    }
+
+    #[test]
+    fn test_logger_ignores_dependency_records_without_formatting() {
+        use log::Log;
+        use std::fmt;
+
+        struct MustNotFormat;
+
+        impl fmt::Display for MustNotFormat {
+            fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
+                panic!("dependency log arguments must not be formatted");
+            }
+        }
+
+        assert!(!TEST_LOGGER.enabled(
+            &log::Metadata::builder()
+                .level(log::Level::Warn)
+                .target("cranelift_codegen")
+                .build()
+        ));
+        TEST_LOGGER.log(
+            &log::Record::builder()
+                .level(log::Level::Warn)
+                .target("cranelift_codegen")
+                .args(format_args!("{}", MustNotFormat))
+                .build(),
+        );
     }
 
     fn clear_captured_logs() {

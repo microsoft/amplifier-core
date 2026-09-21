@@ -77,6 +77,7 @@ from .models import ConfigField
 from .models import HookResult
 from .models import ModelInfo
 from .models import ModuleInfo
+from .models import Pricing
 from .models import ProviderInfo
 from .models import SessionStatus
 from .models import ToolResult
@@ -118,6 +119,7 @@ __all__ = [
     "ConfigField",
     "ModelInfo",
     "ModuleInfo",
+    "Pricing",
     "ProviderInfo",
     "SessionStatus",
     "ApprovalRequest",

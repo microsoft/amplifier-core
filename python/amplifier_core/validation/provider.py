@@ -8,7 +8,6 @@ Uses structural hasattr() checks for cross-version compatibility
 
 import asyncio
 import importlib
-import importlib.util
 import inspect
 from pathlib import Path
 from typing import Any
@@ -17,6 +16,7 @@ from ..models import ProviderInfo
 from .base import ValidationCheck
 from .base import ValidationResult
 from .base import check_on_session_ready
+from .base import import_module_from_path
 
 
 def _implements_provider_interface(obj: Any) -> bool:
@@ -96,11 +96,7 @@ class ProviderValidator:
                 # File path - find the Python module
                 if path.is_dir():
                     init_file = path / "__init__.py"
-                    if init_file.exists():
-                        spec = importlib.util.spec_from_file_location(
-                            path.name, init_file
-                        )
-                    else:
+                    if not init_file.exists():
                         result.add(
                             ValidationCheck(
                                 name="module_importable",
@@ -110,21 +106,16 @@ class ProviderValidator:
                             )
                         )
                         return None
-                else:
-                    spec = importlib.util.spec_from_file_location(path.stem, path)
-
-                if spec and spec.loader:
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
-                    result.add(
-                        ValidationCheck(
-                            name="module_importable",
-                            passed=True,
-                            message=f"Module loaded from {path}",
-                            severity="info",
-                        )
+                module = import_module_from_path(path)
+                result.add(
+                    ValidationCheck(
+                        name="module_importable",
+                        passed=True,
+                        message=f"Module loaded from {path}",
+                        severity="info",
                     )
-                    return module
+                )
+                return module
             else:
                 # Module name - import directly
                 module = importlib.import_module(str(module_path))

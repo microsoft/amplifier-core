@@ -91,7 +91,7 @@ use crate::models::{
 ///         input: Value,
 ///     ) -> Pin<Box<dyn Future<Output = Result<ToolResult, ToolError>> + Send + '_>> {
 ///         Box::pin(async move {
-///             Ok(ToolResult { success: true, output: Some(input), error: None })
+///             Ok(ToolResult { success: true, output: Some(input), error: None, content: None })
 ///         })
 ///     }
 /// }

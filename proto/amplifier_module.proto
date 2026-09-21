@@ -36,6 +36,8 @@ message ToolExecuteResponse {
   string content_type = 3;
   // Error message if success is false.
   string error = 4;
+  // Canonical rich tool-result content.
+  repeated ContentBlock content_blocks = 5;
 }
 
 // ---------------------------------------------------------------------------
@@ -305,6 +307,7 @@ message Usage {
   optional int32 reasoning_tokens        = 4;
   optional int32 cache_read_tokens       = 5;
   optional int32 cache_creation_tokens   = 6;
+  optional string cost_usd               = 7;
 }
 
 message Degradation {
@@ -387,6 +390,7 @@ message ToolResult {
   bool   success     = 1;
   string output_json = 2;
   string error_json  = 3;
+  repeated ContentBlock content_blocks = 4;
 }
 
 message HookResult {
@@ -415,6 +419,9 @@ message ModelInfo {
   int32           max_output_tokens = 4;
   repeated string capabilities      = 5;
   string          defaults_json     = 6;
+  // JSON-encoded Pricing, or empty string if pricing is unavailable
+  // (e.g., local providers, self-hosted backends).
+  string          pricing_json      = 7;
 }
 
 message ProviderInfo {

@@ -33,6 +33,9 @@ pub struct ToolExecuteResponse {
     /// Error message if success is false.
     #[prost(string, tag = "4")]
     pub error: ::prost::alloc::string::String,
+    /// Canonical rich tool-result content.
+    #[prost(message, repeated, tag = "5")]
+    pub content_blocks: ::prost::alloc::vec::Vec<ContentBlock>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ModuleInfo {
@@ -318,7 +321,7 @@ pub mod response_format {
         JsonSchema(super::JsonSchemaFormat),
     }
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Usage {
     #[prost(int32, tag = "1")]
     pub prompt_tokens: i32,
@@ -332,6 +335,8 @@ pub struct Usage {
     pub cache_read_tokens: ::core::option::Option<i32>,
     #[prost(int32, optional, tag = "6")]
     pub cache_creation_tokens: ::core::option::Option<i32>,
+    #[prost(string, optional, tag = "7")]
+    pub cost_usd: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Degradation {
@@ -403,6 +408,8 @@ pub struct ToolResult {
     pub output_json: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
     pub error_json: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "4")]
+    pub content_blocks: ::prost::alloc::vec::Vec<ContentBlock>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct HookResult {
@@ -452,6 +459,10 @@ pub struct ModelInfo {
     pub capabilities: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(string, tag = "6")]
     pub defaults_json: ::prost::alloc::string::String,
+    /// JSON-encoded Pricing, or empty string if pricing is unavailable
+    /// (e.g., local providers, self-hosted backends).
+    #[prost(string, tag = "7")]
+    pub pricing_json: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ProviderInfo {

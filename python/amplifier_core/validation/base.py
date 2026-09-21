@@ -11,9 +11,14 @@ test base classes at module-load time. See incident #5 in
 ``context/release-mandate.md`` for the v1.4.0 regression that motivated this.
 """
 
+import _imp
+import importlib
 import inspect
+import sys
 from dataclasses import dataclass
 from dataclasses import field
+from pathlib import Path
+from types import ModuleType
 from typing import Any
 from typing import Literal
 
@@ -60,6 +65,97 @@ class ValidationResult:
         passed_count = sum(1 for c in self.checks if c.passed)
         status = "PASSED" if self.passed else "FAILED"
         return f"{status}: {passed_count}/{len(self.checks)} checks passed ({len(self.errors)} errors, {len(self.warnings)} warnings)"
+
+
+def import_module_from_path(module_path: str | Path) -> ModuleType:
+    """Import a Python source path through Python's normal import machinery.
+
+    Validation must use the canonical module object that runtime loading will
+    mount.  If another source already owns the same package name, fail closed
+    rather than replacing entries in ``sys.modules`` while another importer can
+    observe them.
+    """
+    path = Path(module_path)
+    source_path = path / "__init__.py" if path.is_dir() else path
+    module_name = path.name if path.is_dir() else path.stem
+
+    import_root = path.parent if path.is_dir() else source_path.parent
+    parent = str(import_root)
+    _imp.acquire_lock()
+    try:
+        # Audit children even when the matching root package is already loaded:
+        # a canonical root must not hide a child cached from a different source.
+        package_dir = source_path.parent.resolve()
+        for cached_name, cached_module in list(sys.modules.items()):
+            if not cached_name.startswith(f"{module_name}."):
+                continue
+            cached_file = getattr(cached_module, "__file__", None)
+            if cached_file is None or not Path(cached_file).resolve().is_relative_to(
+                package_dir
+            ):
+                raise ImportError(
+                    f"Refusing to import '{module_name}' from {source_path}: "
+                    f"cached submodule '{cached_name}' is from {cached_file}"
+                )
+
+        existing = sys.modules.get(module_name)
+        if existing is not None:
+            existing_file = getattr(existing, "__file__", None)
+            if (
+                existing_file is not None
+                and Path(existing_file).resolve() == source_path.resolve()
+            ):
+                return existing
+            raise ImportError(
+                f"Refusing to import '{module_name}' from {source_path}: "
+                f"it is already loaded from {existing_file}"
+            )
+
+        try:
+            original_path_index = sys.path.index(parent)
+        except ValueError:
+            original_path_index = None
+        next_path = (
+            sys.path[original_path_index + 1]
+            if original_path_index is not None
+            and original_path_index + 1 < len(sys.path)
+            else None
+        )
+        if original_path_index is None:
+            sys.path.insert(0, parent)
+        elif original_path_index != 0:
+            sys.path.pop(original_path_index)
+            sys.path.insert(0, parent)
+        try:
+            module = importlib.import_module(module_name)
+        finally:
+            current_path_index = next(
+                (index for index, value in enumerate(sys.path) if value == parent),
+                None,
+            )
+            if original_path_index is None:
+                if current_path_index is not None:
+                    sys.path.pop(current_path_index)
+            elif original_path_index != 0 and current_path_index is not None:
+                sys.path.pop(current_path_index)
+                next_path_index = next(
+                    (index for index, value in enumerate(sys.path) if value == next_path),
+                    None,
+                )
+                if next_path_index is None:
+                    sys.path.append(parent)
+                else:
+                    sys.path.insert(next_path_index, parent)
+    finally:
+        _imp.release_lock()
+
+    imported_file = getattr(module, "__file__", None)
+    if imported_file is None or Path(imported_file).resolve() != source_path.resolve():
+        raise ImportError(
+            f"Refusing to validate '{module_name}' from {source_path}: "
+            f"Python imported {imported_file}"
+        )
+    return module
 
 
 def check_on_session_ready(module: Any) -> ValidationCheck | None:

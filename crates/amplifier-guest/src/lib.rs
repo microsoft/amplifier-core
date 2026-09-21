@@ -646,6 +646,7 @@ mod tool_tests {
                 success: true,
                 output: Some(input),
                 error: None,
+                content: None,
             })
         }
     }
@@ -746,6 +747,7 @@ mod macro_tests {
                 success: true,
                 output: Some(input),
                 error: None,
+                content: None,
             })
         }
     }
@@ -1289,6 +1291,7 @@ mod provider_tests {
                 max_output_tokens: 1024,
                 capabilities: vec!["chat".to_string()],
                 defaults: HashMap::new(),
+                pricing: None,
             }])
         }
 
@@ -1296,6 +1299,7 @@ mod provider_tests {
             Ok(ChatResponse {
                 content: vec![json!({"type": "text", "text": "hello"})],
                 tool_calls: None,
+                usage: None,
                 finish_reason: Some("stop".to_string()),
                 extra: HashMap::new(),
             })
@@ -1344,6 +1348,7 @@ mod provider_tests {
         let resp = ChatResponse {
             content: vec![],
             tool_calls: None,
+            usage: None,
             finish_reason: None,
             extra: HashMap::new(),
         };
@@ -1357,6 +1362,7 @@ mod provider_tests {
         let resp = ChatResponse {
             content: vec![],
             tool_calls: Some(vec![json!({"name": "echo", "args": {}})]),
+            usage: None,
             finish_reason: None,
             extra: HashMap::new(),
         };
@@ -1430,6 +1436,7 @@ mod provider_macro_tests {
             Ok(ChatResponse {
                 content: vec![],
                 tool_calls: None,
+                usage: None,
                 finish_reason: None,
                 extra: HashMap::new(),
             })

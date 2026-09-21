@@ -11,9 +11,14 @@ from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel
+from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import field_serializer
 from pydantic import field_validator
+from pydantic import model_serializer
+
+from .message_models import ImageBlock
+from .message_models import TextBlock
 
 
 def _json_default(obj: Any) -> Any:
@@ -22,8 +27,9 @@ def _json_default(obj: Any) -> Any:
     Handles types that flow through tool result payloads but aren't JSON-native.
     Currently: Decimal -> string (preserves precision; never lossy).
 
-    Used by ToolResult.get_serialized_output(). Pydantic models defend their
-    own boundary via @field_serializer; this is the safety net for the
+    Used by ToolResult.get_serialized_output() and as the fallback for
+    ToolResult rich-content serialization. Pydantic models defend their own
+    boundary via @field_serializer; this is the safety net for the
     non-Pydantic path where tool outputs may contain Decimal values
     (e.g., a tool that returns {"price": Decimal("9.99")}).
     """
@@ -53,14 +59,66 @@ def _sanitize_for_llm(text: str) -> str:
     return sanitized
 
 
+def _validated_tool_result_content(content: Any) -> list[dict[str, Any]] | None:
+    """Canonicalize rich content through the Rust validation boundary."""
+    from amplifier_core._engine import _normalize_tool_result_content
+
+    serialized = json.dumps(
+        content,
+        default=lambda value: (
+            value.model_dump(exclude_none=True)
+            if isinstance(value, BaseModel)
+            else _json_default(value)
+        ),
+    )
+    normalized = _normalize_tool_result_content(serialized)
+    return json.loads(normalized) if normalized is not None else None
+
+
 class ToolResult(BaseModel):
     """Result from tool execution."""
+
+    model_config = ConfigDict(hide_input_in_errors=True, validate_assignment=True)
 
     success: bool = Field(default=True, description="Whether execution succeeded")
     output: Any | None = Field(default=None, description="Tool output data")
     error: dict[str, Any] | None = Field(
         default=None, description="Error details if failed"
     )
+    content: list[TextBlock | ImageBlock] | None = Field(
+        default=None, description="Canonical rich tool-result content"
+    )
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def normalize_content(cls, content: Any) -> Any:
+        """Normalize untrusted rich content through the Rust validation boundary."""
+        if content is None:
+            return None
+
+        return _validated_tool_result_content(content)
+
+    @field_serializer("content", when_used="unless-none")
+    def serialize_content(self, content: list[TextBlock | ImageBlock]) -> list[dict[str, Any]]:
+        """Revalidate content so Pydantic escape hatches cannot serialize a bypass."""
+        return _validated_tool_result_content(content) or []
+
+    @model_serializer(mode="wrap")
+    def serialize_model(self, handler: Any) -> Any:
+        """Preserve the legacy no-content key set for every Pydantic dump mode."""
+        result = handler(self)
+        if not self.content:
+            result.pop("content", None)
+        return result
+
+    def model_copy(
+        self, *, update: dict[str, Any] | None = None, deep: bool = False
+    ) -> "ToolResult":
+        """Keep copy updates on the same strict ToolResult content boundary."""
+        data = self.model_dump()
+        if update:
+            data.update(update)
+        return type(self).model_validate(data)
 
     def model_post_init(self, __context: Any) -> None:
         """Auto-populate output from error when tools forget to set it.
@@ -122,6 +180,26 @@ class ToolResult(BaseModel):
 
         # Success with no output
         return "Success"
+
+    def safe_hook_presentation(self) -> dict[str, Any]:
+        """Return an image-safe hook event payload from the Rust core."""
+        from amplifier_core._engine import _tool_result_safe_hook_presentation
+
+        payload = {
+            "success": self.success,
+            "output": self.output,
+            "error": self.error,
+            "content": (
+                [block.model_dump(exclude_none=True) for block in self.content]
+                if self.content is not None
+                else None
+            ),
+        }
+        return json.loads(
+            _tool_result_safe_hook_presentation(
+                json.dumps(payload, default=_json_default)
+            )
+        )
 
 
 class HookResult(BaseModel):
@@ -325,6 +403,39 @@ class HookResult(BaseModel):
     )
 
 
+class Pricing(BaseModel):
+    """Per-model pricing information.
+
+    Rates are per million tokens, in the specified currency. Surfaced via
+    /v1/models so HTTP-bridge applications (e.g., amplifier-app-opencode)
+    can display cost estimates without maintaining their own pricing tables.
+
+    Rate fields use `float` (not `Decimal`). These are display-only estimates
+    surfaced to consumers via `/v1/models` for UI-level cost display. For
+    per-turn cost accounting, use `Usage.cost_usd`, which is `Decimal` and
+    uses a field validator that explicitly rejects `float`.
+    """
+
+    input_per_million: float = Field(..., description="Cost per million input tokens")
+    output_per_million: float = Field(..., description="Cost per million output tokens")
+    cache_read_per_million: float | None = Field(
+        default=None,
+        description="Cost per million cache-read input tokens (None if not supported)",
+    )
+    cache_write_per_million: float | None = Field(
+        default=None,
+        description="Cost per million cache-write input tokens (None if not supported)",
+    )
+    currency: str = Field(default="USD", description="ISO 4217 currency code")
+
+    @field_validator("currency")
+    @classmethod
+    def _validate_currency(cls, v: str) -> str:
+        if not re.match(r"^[A-Z]{3}$", v):
+            raise ValueError(f"currency must be a 3-letter ISO 4217 code, got {v!r}")
+        return v
+
+
 class ModelInfo(BaseModel):
     """Model metadata for provider models.
 
@@ -344,6 +455,13 @@ class ModelInfo(BaseModel):
     defaults: dict[str, Any] = Field(
         default_factory=dict,
         description="Model-specific default config values (e.g., temperature, max_tokens)",
+    )
+    pricing: Pricing | None = Field(
+        default=None,
+        description=(
+            "Per-model pricing information. None when pricing is not available "
+            "(e.g., local providers like ollama, self-hosted backends like vllm)."
+        ),
     )
 
 

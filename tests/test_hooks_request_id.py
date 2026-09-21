@@ -218,16 +218,17 @@ async def test_concurrent_calls_get_distinct_ids_and_pair_correctly():
     for event in ("llm:request", "llm:response"):
         registry.register(event, _recorder(seen), name=f"cap-{event}")
 
-    summarizer_requested = asyncio.Event()
+    agent_requested = asyncio.Event()
     summarizer_responded = asyncio.Event()
 
     async def agent_call():
         await registry.emit("llm:request", {"caller": "agent"})
+        agent_requested.set()
         await summarizer_responded.wait()
         await registry.emit("llm:response", {"caller": "agent"})
 
     async def summarizer_call():
-        await summarizer_requested.wait()
+        await agent_requested.wait()
         await registry.emit("llm:request", {"caller": "summarizer"})
         await registry.emit("llm:response", {"caller": "summarizer"})
         summarizer_responded.set()
@@ -235,8 +236,6 @@ async def test_concurrent_calls_get_distinct_ids_and_pair_correctly():
     async def run():
         task_agent = asyncio.create_task(agent_call())
         task_summarizer = asyncio.create_task(summarizer_call())
-        await asyncio.sleep(0)
-        summarizer_requested.set()
         await asyncio.gather(task_agent, task_summarizer)
 
     await run()

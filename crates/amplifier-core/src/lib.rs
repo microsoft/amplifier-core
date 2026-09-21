@@ -52,7 +52,8 @@ pub use errors::{AmplifierError, ContextError, HookError, ProviderError, Session
 pub use models::{
     ApprovalDefault, ApprovalRequest, ApprovalResponse, ConfigField, ConfigFieldType,
     ContextInjectionRole, HookAction, HookResult, ModelInfo, ModuleInfo, ModuleType, ProviderInfo,
-    SessionState, SessionStatus, ToolResult, UserMessageLevel,
+    SessionState, SessionStatus, ToolResult, ToolResultContent, ToolResultContentError,
+    UserMessageLevel,
 };
 
 // Chat protocol models
