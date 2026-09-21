@@ -61,7 +61,7 @@ mod tests {
     }
 
     #[test]
-    fn proto_hook_result_has_all_15_fields() {
+    fn proto_hook_result_has_all_16_fields() {
         let result = HookResult {
             action: HookAction::Modify as i32,
             data_json: r#"{"modified": true}"#.into(),
@@ -78,6 +78,7 @@ mod tests {
             user_message_level: UserMessageLevel::Warning as i32,
             user_message_source: "content-filter".into(),
             append_to_last_tool_result: true,
+            context_injections: vec![],
         };
         assert_eq!(result.action, HookAction::Modify as i32);
         assert_eq!(result.data_json, r#"{"modified": true}"#);

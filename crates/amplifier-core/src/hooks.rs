@@ -31,7 +31,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::models::{HookAction, HookResult};
+use crate::models::{ContextInjection, HookAction, HookResult};
 use crate::traits::HookHandler;
 
 // ---------------------------------------------------------------------------
@@ -209,7 +209,7 @@ impl HookRegistry {
         let mut inject_context_results: Vec<HookResult> = Vec::new();
 
         for (handler, name) in &entries {
-            let result = match handler.handle(event, current_data.clone()).await {
+            let mut result = match handler.handle(event, current_data.clone()).await {
                 Ok(r) => r,
                 Err(e) => {
                     // Error in handler -- log and continue (matches Python behaviour).
@@ -221,6 +221,8 @@ impl HookRegistry {
                     continue;
                 }
             };
+
+            normalize_inject_context_result(&mut result, name, event);
 
             // Deny short-circuits immediately
             if result.action == HookAction::Deny {
@@ -241,7 +243,7 @@ impl HookRegistry {
             }
 
             // Collect inject_context for merging at end
-            if result.action == HookAction::InjectContext && result.context_injection.is_some() {
+            if result.action == HookAction::InjectContext && !result.context_injections.is_empty() {
                 inject_context_results.push(result.clone());
             }
 
@@ -402,55 +404,108 @@ fn value_to_map(value: &Value) -> HashMap<String, Value> {
 
 /// Merge multiple inject_context HookResults into a single result.
 ///
-/// Combines injections with `"\n\n"` separator. `context_injection_role` and
-/// `suppress_output` are taken from the first result (these are display/role
-/// settings where "first wins" is a reasonable, harmless default). `ephemeral`
-/// and `append_to_last_tool_result` instead use OR semantics across ALL
-/// results, not just the first:
-///
-/// `ephemeral` in particular MUST be the logical OR of every contributing
-/// result, not `first.ephemeral`. The combined `context_injection` string is
-/// the concatenation of every hook's content -- if even one of those hooks
-/// marked its own contribution `ephemeral: true` (regenerated per turn), the
-/// resulting combined string is regenerated per turn too, byte-for-byte
-/// identical only when ALL contributors are stable. Taking only the first
-/// result's `ephemeral` flag meant a single non-ephemeral hook running before
-/// an ephemeral one (pure registration-order luck) would silently downgrade
-/// the merged result to `ephemeral: false` -- causing every downstream
-/// consumer that trusts `Message.metadata["ephemeral"]` (e.g. the Anthropic
-/// provider's conversation-region prompt-cache breakpoint placement) to lose
-/// the ephemeral signal for the ENTIRE combined injection, not just the
-/// stable part. See amplifier_module_provider_anthropic's
-/// `_count_trailing_ephemeral_messages` / `_apply_conversation_cache_control`.
+/// Keeps the ordered list lossless and projects the legacy scalar fields from
+/// every item: bodies are joined with `"\n\n"`, the first role wins, and both
+/// boolean flags use OR semantics.
 fn merge_inject_context_results(results: &[HookResult]) -> HookResult {
     if results.is_empty() {
         return HookResult::default();
     }
 
-    if results.len() == 1 {
-        return results[0].clone();
+    let context_injections: Vec<ContextInjection> = results
+        .iter()
+        .flat_map(|result| {
+            if result.context_injections.is_empty() {
+                result
+                    .context_injection
+                    .as_ref()
+                    .map(|content| {
+                        vec![ContextInjection {
+                            content: content.clone(),
+                            role: result.context_injection_role.clone(),
+                            ephemeral: result.ephemeral,
+                            append_to_last_tool_result: result.append_to_last_tool_result,
+                            hook_name: "unknown".to_string(),
+                            event: String::new(),
+                        }]
+                    })
+                    .unwrap_or_default()
+            } else {
+                result.context_injections.clone()
+            }
+        })
+        .collect();
+
+    if context_injections.is_empty() {
+        return HookResult::default();
     }
 
-    // Combine all injections
-    let combined_content: String = results
+    let combined_content = context_injections
         .iter()
-        .filter_map(|r| r.context_injection.as_deref())
+        .map(|injection| injection.content.as_str())
         .collect::<Vec<_>>()
         .join("\n\n");
-
-    // role/suppress_output: "first wins" -- harmless display-only settings.
     let first = &results[0];
+    let first_injection = &context_injections[0];
+
+    // A single handler may return multiple structured injections.  This is
+    // normalization, not aggregation: retain the handler's other result-level
+    // fields (including UI and approval metadata) while updating only the
+    // legacy injection projection.
+    if results.len() == 1 {
+        let mut result = first.clone();
+        result.action = HookAction::InjectContext;
+        result.context_injection = Some(combined_content);
+        result.context_injection_role = first_injection.role.clone();
+        result.ephemeral = context_injections
+            .iter()
+            .any(|injection| injection.ephemeral);
+        result.append_to_last_tool_result = context_injections
+            .iter()
+            .any(|injection| injection.append_to_last_tool_result);
+        result.context_injections = context_injections;
+        return result;
+    }
 
     HookResult {
         action: HookAction::InjectContext,
         context_injection: Some(combined_content),
-        context_injection_role: first.context_injection_role.clone(),
-        // OR semantics: ANY contributing result marking itself ephemeral
-        // makes the whole merged injection ephemeral (see doc comment above).
-        ephemeral: results.iter().any(|r| r.ephemeral),
+        context_injection_role: first_injection.role.clone(),
+        ephemeral: context_injections
+            .iter()
+            .any(|injection| injection.ephemeral),
         suppress_output: first.suppress_output,
-        append_to_last_tool_result: results.iter().any(|r| r.append_to_last_tool_result),
+        append_to_last_tool_result: context_injections
+            .iter()
+            .any(|injection| injection.append_to_last_tool_result),
+        context_injections,
         ..Default::default()
+    }
+}
+
+/// Bind injection provenance at the trusted registration boundary and promote
+/// legacy scalar injections into the structured carrier.
+fn normalize_inject_context_result(result: &mut HookResult, handler_name: &str, event: &str) {
+    if result.action != HookAction::InjectContext {
+        return;
+    }
+
+    if result.context_injections.is_empty() {
+        if let Some(content) = result.context_injection.clone() {
+            result.context_injections.push(ContextInjection {
+                content,
+                role: result.context_injection_role.clone(),
+                ephemeral: result.ephemeral,
+                append_to_last_tool_result: result.append_to_last_tool_result,
+                hook_name: handler_name.to_string(),
+                event: event.to_string(),
+            });
+        }
+    }
+
+    for injection in &mut result.context_injections {
+        injection.hook_name = handler_name.to_string();
+        injection.event = event.to_string();
     }
 }
 
@@ -828,6 +883,91 @@ mod tests {
         let injection = result.context_injection.unwrap();
         assert!(injection.contains("first injection"));
         assert!(injection.contains("second injection"));
+    }
+
+    #[tokio::test]
+    async fn single_structured_injection_result_preserves_non_injection_fields() {
+        use crate::models::{ApprovalDefault, ContextInjectionRole, UserMessageLevel};
+
+        let registry = HookRegistry::new();
+        let original_data = HashMap::from([("keep".to_string(), serde_json::json!(true))]);
+        let original_extensions =
+            HashMap::from([("future_field".to_string(), serde_json::json!("preserved"))]);
+        let handler = Arc::new(SimpleHandler(HookResult {
+            action: HookAction::InjectContext,
+            data: Some(original_data.clone()),
+            reason: Some("keep reason".into()),
+            // The scalar fields are intentionally stale: the list is canonical.
+            context_injection: Some("stale scalar".into()),
+            context_injection_role: ContextInjectionRole::System,
+            ephemeral: false,
+            approval_prompt: Some("keep approval".into()),
+            approval_options: Some(vec!["allow".into(), "deny".into()]),
+            approval_timeout: 42.0,
+            approval_default: ApprovalDefault::Allow,
+            suppress_output: true,
+            user_message: Some("Context injected".into()),
+            user_message_level: UserMessageLevel::Warning,
+            user_message_source: Some("status-context".into()),
+            append_to_last_tool_result: false,
+            context_injections: vec![
+                ContextInjection {
+                    content: "first".into(),
+                    role: ContextInjectionRole::User,
+                    ephemeral: false,
+                    append_to_last_tool_result: false,
+                    hook_name: "untrusted".into(),
+                    event: "untrusted".into(),
+                },
+                ContextInjection {
+                    content: "second".into(),
+                    role: ContextInjectionRole::Assistant,
+                    ephemeral: true,
+                    append_to_last_tool_result: true,
+                    hook_name: "untrusted".into(),
+                    event: "untrusted".into(),
+                },
+            ],
+            extensions: original_extensions.clone(),
+        }));
+        let _ = registry.register(
+            "test:structured",
+            handler,
+            0,
+            Some("structured-hook".into()),
+        );
+
+        let result = registry
+            .emit("test:structured", serde_json::json!({}))
+            .await;
+
+        assert_eq!(result.action, HookAction::InjectContext);
+        assert_eq!(result.context_injection.as_deref(), Some("first\n\nsecond"));
+        assert_eq!(result.context_injection_role, ContextInjectionRole::User);
+        assert!(result.ephemeral);
+        assert!(result.append_to_last_tool_result);
+        assert_eq!(result.context_injections.len(), 2);
+        assert_eq!(result.context_injections[0].hook_name, "structured-hook");
+        assert_eq!(result.context_injections[0].event, "test:structured");
+        assert_eq!(result.context_injections[1].hook_name, "structured-hook");
+        assert_eq!(result.context_injections[1].event, "test:structured");
+        assert_eq!(result.data, Some(original_data));
+        assert_eq!(result.reason.as_deref(), Some("keep reason"));
+        assert_eq!(result.approval_prompt.as_deref(), Some("keep approval"));
+        assert_eq!(
+            result.approval_options,
+            Some(vec!["allow".into(), "deny".into()])
+        );
+        assert_eq!(result.approval_timeout, 42.0);
+        assert_eq!(result.approval_default, ApprovalDefault::Allow);
+        assert!(result.suppress_output);
+        assert_eq!(result.user_message.as_deref(), Some("Context injected"));
+        assert_eq!(result.user_message_level, UserMessageLevel::Warning);
+        assert_eq!(
+            result.user_message_source.as_deref(),
+            Some("status-context")
+        );
+        assert_eq!(result.extensions, original_extensions);
     }
 
     // ---------------------------------------------------------------
@@ -1255,6 +1395,39 @@ mod tests {
             !merged.ephemeral,
             "merged result must not be ephemeral when no input is ephemeral"
         );
+    }
+
+    #[tokio::test]
+    async fn registered_mixed_legacy_injections_preserve_item_lifetime() {
+        let registry = HookRegistry::new();
+        let durable = Arc::new(SimpleHandler(HookResult {
+            action: HookAction::InjectContext,
+            context_injection: Some("durable".into()),
+            context_injection_role: crate::models::ContextInjectionRole::Assistant,
+            ephemeral: false,
+            ..Default::default()
+        }));
+        let temporary = Arc::new(SimpleHandler(HookResult {
+            action: HookAction::InjectContext,
+            context_injection: Some("temporary".into()),
+            context_injection_role: crate::models::ContextInjectionRole::User,
+            ephemeral: true,
+            ..Default::default()
+        }));
+
+        let _ = registry.register("test:mixed", durable, 0, Some("durable-hook".into()));
+        let _ = registry.register("test:mixed", temporary, 10, Some("temporary-hook".into()));
+
+        let result = registry.emit("test:mixed", serde_json::json!({})).await;
+        assert_eq!(result.context_injections.len(), 2);
+        assert_eq!(result.context_injections[0].content, "durable");
+        assert!(!result.context_injections[0].ephemeral);
+        assert_eq!(result.context_injections[0].hook_name, "durable-hook");
+        assert_eq!(result.context_injections[0].event, "test:mixed");
+        assert_eq!(result.context_injections[1].content, "temporary");
+        assert!(result.context_injections[1].ephemeral);
+        assert_eq!(result.context_injections[1].hook_name, "temporary-hook");
+        assert_eq!(result.context_injections[1].event, "test:mixed");
     }
 
     /// Verify that the `log` crate is available and usable from amplifier-core.

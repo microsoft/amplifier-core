@@ -8,6 +8,7 @@ on:
       - 'python/amplifier_core/_grpc_gen/**'
       - 'crates/amplifier-core/src/generated/**'
       - 'uv.lock'
+      - 'scripts/generate_grpc_stubs.py'
       - '.github/workflows/proto-check.yml'
   pull_request:
     branches: [main]
@@ -16,6 +17,7 @@ on:
       - 'python/amplifier_core/_grpc_gen/**'
       - 'crates/amplifier-core/src/generated/**'
       - 'uv.lock'
+      - 'scripts/generate_grpc_stubs.py'
       - '.github/workflows/proto-check.yml'
 
 jobs:

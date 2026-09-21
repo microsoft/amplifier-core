@@ -41,6 +41,14 @@ export interface JsAmplifierError {
  * See [`error_code_for_variant`] for the variant → code mapping.
  */
 export declare function amplifierErrorToJs(variant: string, message: string): JsAmplifierError
+export interface JsContextInjection {
+  content: string
+  role: ContextInjectionRole
+  ephemeral: boolean
+  appendToLastToolResult: boolean
+  hookName: string
+  event: string
+}
 export interface JsHookResult {
   action: HookAction
   reason?: string
@@ -54,6 +62,7 @@ export interface JsHookResult {
   approvalPrompt?: string
   approvalTimeout?: number
   approvalDefault?: ApprovalDefault
+  contextInjections?: Array<JsContextInjection>
 }
 /** Result from resolving a module path. */
 export interface JsModuleManifest {

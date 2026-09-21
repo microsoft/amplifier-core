@@ -74,6 +74,7 @@ from .message_models import ToolResultBlock
 from .message_models import ToolSpec
 from .message_models import Usage
 from .models import ConfigField
+from .models import ContextInjection
 from .models import HookResult
 from .models import ModelInfo
 from .models import ModuleInfo
@@ -115,6 +116,7 @@ __all__ = [
     "HookRegistry",
     "ToolCall",
     "ToolResult",
+    "ContextInjection",
     "HookResult",
     "ConfigField",
     "ModelInfo",

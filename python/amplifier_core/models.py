@@ -202,6 +202,17 @@ class ToolResult(BaseModel):
         )
 
 
+class ContextInjection(BaseModel):
+    """One ordered context injection emitted by a hook."""
+
+    content: str
+    role: Literal["system", "user", "assistant"] = "system"
+    ephemeral: bool = False
+    append_to_last_tool_result: bool = False
+    hook_name: str = "unknown"
+    event: str = ""
+
+
 class HookResult(BaseModel):
     """
     Result from hook execution with enhanced capabilities.
@@ -399,6 +410,13 @@ class HookResult(BaseModel):
             "instead of creating a new message. Use for contextual reminders that relate to the "
             "tool that just executed. Falls back to new message if last message isn't a tool result. "
             "Only applicable when action='inject_context' and ephemeral=True."
+        ),
+    )
+    context_injections: list[ContextInjection] = Field(
+        default_factory=list,
+        description=(
+            "Ordered, lossless hook context injections. The hook registry projects "
+            "the legacy scalar context fields from these items for compatibility."
         ),
     )
 

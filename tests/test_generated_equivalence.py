@@ -36,7 +36,7 @@ class TestToolResultEquivalence:
 
 
 class TestHookResultEquivalence:
-    """Proto HookResult has all 15 fields matching native HookResult."""
+    """Proto HookResult has all 16 fields matching native HookResult."""
 
     def test_proto_hook_result_has_all_fields(self):
         hr = pb2.HookResult()
@@ -56,15 +56,37 @@ class TestHookResultEquivalence:
             "user_message_level",
             "user_message_source",
             "append_to_last_tool_result",
+            "context_injections",
         ]
-        for field in expected_fields:
-            assert hasattr(hr, field), f"HookResult missing field: {field}"
+        assert [field.name for field in hr.DESCRIPTOR.fields] == expected_fields
 
     def test_proto_hook_result_field_count(self):
-        """HookResult must have exactly 15 fields."""
+        """HookResult must have exactly 16 append-only fields."""
         hr = pb2.HookResult()
-        fields = [f.name for f in hr.DESCRIPTOR.fields]
-        assert len(fields) == 15, f"Expected 15 fields, got {len(fields)}: {fields}"
+        expected_numbers = {
+            "action": 1,
+            "data_json": 2,
+            "reason": 3,
+            "context_injection": 4,
+            "context_injection_role": 5,
+            "ephemeral": 6,
+            "approval_prompt": 7,
+            "approval_options": 8,
+            "approval_timeout": 9,
+            "approval_default": 10,
+            "suppress_output": 11,
+            "user_message": 12,
+            "user_message_level": 13,
+            "user_message_source": 14,
+            "append_to_last_tool_result": 15,
+            "context_injections": 16,
+        }
+        assert {field.name: field.number for field in hr.DESCRIPTOR.fields} == expected_numbers
+
+        injections = hr.DESCRIPTOR.fields_by_name["context_injections"]
+        assert injections.is_repeated
+        assert injections.type == injections.TYPE_MESSAGE
+        assert injections.message_type.full_name == pb2.ContextInjection.DESCRIPTOR.full_name
 
 
 class TestHookActionEnumEquivalence:

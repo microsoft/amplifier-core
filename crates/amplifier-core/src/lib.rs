@@ -51,9 +51,9 @@ pub use errors::{AmplifierError, ContextError, HookError, ProviderError, Session
 // Core data models
 pub use models::{
     ApprovalDefault, ApprovalRequest, ApprovalResponse, ConfigField, ConfigFieldType,
-    ContextInjectionRole, HookAction, HookResult, ModelInfo, ModuleInfo, ModuleType, ProviderInfo,
-    SessionState, SessionStatus, ToolResult, ToolResultContent, ToolResultContentError,
-    UserMessageLevel,
+    ContextInjection, ContextInjectionRole, HookAction, HookResult, ModelInfo, ModuleInfo,
+    ModuleType, ProviderInfo, SessionState, SessionStatus, ToolResult, ToolResultContent,
+    ToolResultContentError, UserMessageLevel,
 };
 
 // Chat protocol models
