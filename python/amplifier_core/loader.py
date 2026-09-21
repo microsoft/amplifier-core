@@ -42,7 +42,34 @@ TYPE_TO_MOUNT_POINT = {
 class ModuleValidationError(Exception):
     """Raised when a module fails validation at load time."""
 
-    pass
+    def __init__(self, message: str, *, reason_code: str = "validation_failed"):
+        super().__init__(message)
+        self.reason_code = reason_code
+
+
+class _ModuleDiscoveryError(ValueError):
+    def __init__(self, message: str, *, reason_code: str):
+        super().__init__(message)
+        self.reason_code = reason_code
+
+
+MODULE_FAILURE_REASONS = frozenset({
+    "invalid_package_layout", "missing_source", "invalid_entry_point",
+    "invalid_module_metadata", "validation_failed", "unknown",
+})
+
+
+def module_failure_reason(error: BaseException) -> str:
+    """Return a bounded category without parsing or copying exception text."""
+    from .module_sources import ModuleNotFoundError as SourceNotFoundError
+
+    if isinstance(error, SourceNotFoundError):
+        return "missing_source"
+    if isinstance(error, (ModuleValidationError, _ModuleDiscoveryError)):
+        code = error.reason_code
+        if isinstance(code, str) and code in MODULE_FAILURE_REASONS:
+            return code
+    return "unknown"
 
 
 class ModuleLoader:
@@ -236,8 +263,9 @@ class ModuleLoader:
                     mount_closure = await self._load_direct(module_id, config)
                     if mount_closure:
                         return mount_closure
-                    raise ValueError(
-                        f"Module '{module_id}' not found via entry points or filesystem"
+                    raise _ModuleDiscoveryError(
+                        f"Module '{module_id}' not found via entry points or filesystem",
+                        reason_code="missing_source",
                     )
 
                 # Try async resolution first (supports lazy activation)
@@ -352,8 +380,9 @@ class ModuleLoader:
 
                 return mount_with_config_fs
 
-            raise ValueError(
-                f"Module '{module_id}' found at {module_path} but failed to load"
+            raise _ModuleDiscoveryError(
+                f"Module '{module_id}' found at {module_path} but failed to load",
+                reason_code="invalid_entry_point",
             )
 
         except Exception as e:
@@ -541,11 +570,12 @@ class ModuleLoader:
 
                     if module_type:
                         # Derive mount point from type (kernel mechanism)
-                        mount_point = TYPE_TO_MOUNT_POINT.get(module_type)
+                        mount_point = TYPE_TO_MOUNT_POINT.get(module_type) if isinstance(module_type, str) else None
                         if not mount_point:
                             raise ModuleValidationError(
                                 f"Module '{module_id}' has unknown type '{module_type}'. "
-                                f"Valid types: {list(TYPE_TO_MOUNT_POINT.keys())}"
+                                f"Valid types: {list(TYPE_TO_MOUNT_POINT.keys())}",
+                                reason_code="invalid_module_metadata",
                             )
 
                         logger.debug(
@@ -558,6 +588,8 @@ class ModuleLoader:
                     if added:
                         sys.path.remove(path_str)
 
+        except ModuleValidationError:
+            raise
         except Exception as e:
             logger.debug(f"Could not inspect module '{module_id}': {e}")
 
@@ -650,7 +682,8 @@ class ModuleLoader:
         package_path = self._find_package_dir(module_id, module_path)
         if package_path is None:
             raise ModuleValidationError(
-                f"Module '{module_id}' has no valid Python package at {module_path}"
+                f"Module '{module_id}' has no valid Python package at {module_path}",
+                reason_code="invalid_package_layout" if module_path.exists() else "missing_source",
             )
 
         # Run validation
@@ -659,8 +692,13 @@ class ModuleLoader:
 
         if not result.passed:
             error_details = "; ".join(f"{e.name}: {e.message}" for e in result.errors)
+            reason = "invalid_entry_point" if any(
+                check.name in {"mount_exists", "mount_signature", "on_session_ready_async"}
+                for check in result.errors
+            ) else "validation_failed"
             raise ModuleValidationError(
-                f"Module '{module_id}' failed validation: {result.summary()}. Errors: {error_details}"
+                f"Module '{module_id}' failed validation: {result.summary()}. Errors: {error_details}",
+                reason_code=reason,
             )
 
         logger.info(f"[module:validated] {module_id} - {result.summary()}")

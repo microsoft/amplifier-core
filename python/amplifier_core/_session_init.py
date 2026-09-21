@@ -32,6 +32,7 @@ async def _emit_module_load_failed(
     failure must never suppress the original WARNING log.
     """
     from .events import MODULE_LOAD_FAILED
+    from .loader import module_failure_reason
 
     try:
         await coordinator.hooks.emit(
@@ -40,6 +41,7 @@ async def _emit_module_load_failed(
                 "module_type": module_type,
                 "module_id": module_id,
                 "error": _safe_exception_str(error),
+                "reason_code": module_failure_reason(error),
             },
         )
     except Exception:
