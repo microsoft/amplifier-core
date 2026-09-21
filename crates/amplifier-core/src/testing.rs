@@ -82,6 +82,7 @@ impl Tool for EchoTool {
                 success: true,
                 output: Some(input),
                 error: None,
+                content: None,
             })
         })
     }
@@ -169,6 +170,7 @@ impl Tool for FakeTool {
                     success: true,
                     output: Some(input),
                     error: None,
+                    content: None,
                 }
             } else {
                 responses.remove(0)
@@ -571,11 +573,13 @@ mod tests {
                     success: true,
                     output: Some(serde_json::json!("first")),
                     error: None,
+                    content: None,
                 },
                 crate::models::ToolResult {
                     success: false,
                     output: None,
                     error: None,
+                    content: None,
                 },
             ],
         );

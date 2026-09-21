@@ -209,45 +209,77 @@ async def test_emit_carries_request_id_onto_the_error_path():
 async def test_concurrent_calls_get_distinct_ids_and_pair_correctly():
     """The case FIFO gets wrong.
 
-    Interleaving is forced to reproduce the measured trace (agent request,
-    summarizer request, summarizer response, agent response) where positional
-    pairing charges each response to the other caller.
+    Both request callbacks enter and suspend before either can resume. This
+    deterministically proves concurrent in-flight calls without relying on
+    task scheduling order.
     """
     registry = HookRegistry()
     seen = []
-    for event in ("llm:request", "llm:response"):
-        registry.register(event, _recorder(seen), name=f"cap-{event}")
+    request_ids_before_await = {}
+    request_ids_after_await = {}
+    callback_trace = []
+    all_request_callbacks_entered = asyncio.Event()
+    release_request_callbacks = asyncio.Event()
 
-    summarizer_requested = asyncio.Event()
-    summarizer_responded = asyncio.Event()
+    async def capture(event, data):
+        payload = dict(data)
+        caller = payload["caller"]
+        if event == "llm:request":
+            request_ids_before_await[caller] = payload[REQUEST_ID_FIELD]
+            callback_trace.append(("request-start", caller))
+            if len(request_ids_before_await) == 2:
+                all_request_callbacks_entered.set()
+            await release_request_callbacks.wait()
+            request_ids_after_await[caller] = payload[REQUEST_ID_FIELD]
+            callback_trace.append(("request-end", caller))
+        seen.append((event, payload))
+        return HookResult(action="continue")
+
+    for event in ("llm:request", "llm:response"):
+        registry.register(event, capture, name=f"cap-{event}")
 
     async def agent_call():
         await registry.emit("llm:request", {"caller": "agent"})
-        await summarizer_responded.wait()
         await registry.emit("llm:response", {"caller": "agent"})
 
     async def summarizer_call():
-        await summarizer_requested.wait()
         await registry.emit("llm:request", {"caller": "summarizer"})
         await registry.emit("llm:response", {"caller": "summarizer"})
-        summarizer_responded.set()
 
     async def run():
         task_agent = asyncio.create_task(agent_call())
         task_summarizer = asyncio.create_task(summarizer_call())
-        await asyncio.sleep(0)
-        summarizer_requested.set()
-        await asyncio.gather(task_agent, task_summarizer)
+        try:
+            await asyncio.wait_for(all_request_callbacks_entered.wait(), timeout=10)
+        except TimeoutError:
+            release_request_callbacks.set()
+            await asyncio.gather(task_agent, task_summarizer, return_exceptions=True)
+            pytest.fail(
+                "Concurrent emits did not enter both request callbacks before either resumed"
+            )
+        release_request_callbacks.set()
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(task_agent, task_summarizer),
+                timeout=10,
+            )
+        except TimeoutError:
+            pytest.fail("Concurrent emits did not complete after callbacks were released")
 
     await run()
 
-    order = [(event, payload["caller"]) for event, payload in seen]
-    assert order == [
-        ("llm:request", "agent"),
-        ("llm:request", "summarizer"),
-        ("llm:response", "summarizer"),
-        ("llm:response", "agent"),
-    ], "expected the interleaving that defeats positional pairing"
+    assert {caller for phase, caller in callback_trace if phase == "request-start"} == {
+        "agent",
+        "summarizer",
+    }
+    first_end = next(
+        index
+        for index, (phase, _) in enumerate(callback_trace)
+        if phase == "request-end"
+    )
+    assert all(phase == "request-start" for phase, _ in callback_trace[:first_end])
+    assert set(request_ids_before_await) == {"agent", "summarizer"}
+    assert request_ids_before_await == request_ids_after_await
 
     by_caller = {}
     for event, payload in seen:
@@ -259,13 +291,6 @@ async def test_concurrent_calls_get_distinct_ids_and_pair_correctly():
     assert agent["llm:request"] == agent["llm:response"]
     assert summarizer["llm:request"] == summarizer["llm:response"]
     assert agent["llm:request"] != summarizer["llm:request"]
-
-    # And the positional pairing this replaces would have crossed them:
-    # FIFO joins the first request to the first response, which here belong
-    # to different callers.
-    requests = [p[REQUEST_ID_FIELD] for e, p in seen if e == "llm:request"]
-    responses = [p[REQUEST_ID_FIELD] for e, p in seen if e == "llm:response"]
-    assert requests[0] != responses[0], "expected FIFO to mis-pair this trace"
 
 
 @pytest.mark.asyncio

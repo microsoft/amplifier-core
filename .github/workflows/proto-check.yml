@@ -7,19 +7,27 @@ on:
       - 'proto/**'
       - 'python/amplifier_core/_grpc_gen/**'
       - 'crates/amplifier-core/src/generated/**'
+      - 'uv.lock'
+      - 'scripts/generate_grpc_stubs.py'
+      - '.github/workflows/proto-check.yml'
   pull_request:
     branches: [main]
     paths:
       - 'proto/**'
       - 'python/amplifier_core/_grpc_gen/**'
       - 'crates/amplifier-core/src/generated/**'
+      - 'uv.lock'
+      - 'scripts/generate_grpc_stubs.py'
+      - '.github/workflows/proto-check.yml'
 
 jobs:
   proto-sync:
     name: Verify Python stubs match proto
     runs-on: ubuntu-latest
+    env:
+      PROTO_CHECK_DIR: /tmp/proto_check
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install protoc
         run: |
@@ -27,46 +35,71 @@ jobs:
           sudo apt-get install -y protobuf-compiler
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
 
-      - name: Install grpcio-tools
-        run: pip install grpcio-tools
+      - name: Install locked protobuf generator and runtimes
+        run: |
+          python - <<'PY'
+          import subprocess
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          packages = tomllib.loads(Path("uv.lock").read_text())["package"]
+          versions = {package["name"]: package["version"] for package in packages}
+          names = ("grpcio", "grpcio-tools", "protobuf", "setuptools")
+          subprocess.check_call([
+              sys.executable, "-m", "pip", "install",
+              *(f"{name}=={versions[name]}" for name in names),
+          ])
+          PY
 
       - name: Regenerate Python stubs
         run: |
-          mkdir -p /tmp/proto_check
+          mkdir -p "$PROTO_CHECK_DIR"
           python -m grpc_tools.protoc \
             -Iproto \
-            --python_out=/tmp/proto_check \
-            --grpc_python_out=/tmp/proto_check \
+            --python_out="$PROTO_CHECK_DIR" \
+            --grpc_python_out="$PROTO_CHECK_DIR" \
             proto/amplifier_module.proto
 
       - name: Compare with committed stubs
         run: |
-          # Check that key message classes exist in regenerated output
-          python -c "
-          import importlib.util, sys
-          spec = importlib.util.spec_from_file_location('pb2', '/tmp/proto_check/amplifier_module_pb2.py')
-          mod = importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(mod)
-          required = ['ChatRequest', 'ChatResponse', 'ToolResult', 'HookResult', 'ModuleInfo']
-          missing = [t for t in required if not hasattr(mod, t)]
-          if missing:
-              print(f'FAIL: Missing types in regenerated stubs: {missing}')
-              sys.exit(1)
-          print('PASS: Regenerated stubs contain all required types')
-          "
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          generated = Path(os.environ["PROTO_CHECK_DIR"])
+          mismatches = []
+          for directory in (Path("proto"), Path("python/amplifier_core/_grpc_gen")):
+              for filename in ("amplifier_module_pb2.py", "amplifier_module_pb2_grpc.py"):
+                  expected = (generated / filename).read_bytes()
+                  if directory.name == "_grpc_gen" and filename.endswith("_grpc.py"):
+                      # The packaged service stub uses its sibling schema module.
+                      expected = expected.replace(
+                          b"import amplifier_module_pb2 as amplifier__module__pb2",
+                          b"from . import amplifier_module_pb2 as amplifier__module__pb2",
+                      )
+                  committed = directory / filename
+                  if committed.read_bytes() != expected:
+                      mismatches.append(str(committed))
+          if mismatches:
+              raise SystemExit("FAIL: regenerate committed stubs: " + ", ".join(mismatches))
+          print("PASS: all four committed Python stubs match the locked generator")
+          PY
 
   rust-build:
     name: Rust build and test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
 
       - name: Install protoc
         run: |

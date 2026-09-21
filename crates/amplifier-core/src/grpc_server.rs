@@ -227,29 +227,11 @@ impl KernelService for KernelServiceImpl {
         // Execute the tool
         match tool.execute(input).await {
             Ok(result) => {
-                let output_json = result
-                    .output
-                    .map(|v| {
-                        serde_json::to_string(&v).unwrap_or_else(|e| {
-                            log::warn!("Failed to serialize tool result output to JSON: {e}");
-                            String::new()
-                        })
-                    })
-                    .unwrap_or_default();
-                let error_json = result
-                    .error
-                    .map(|e| {
-                        serde_json::to_string(&e).unwrap_or_else(|ser_err| {
-                            log::warn!("Failed to serialize tool result error to JSON: {ser_err}");
-                            String::new()
-                        })
-                    })
-                    .unwrap_or_default();
-                Ok(Response::new(amplifier_module::ToolResult {
-                    success: result.success,
-                    output_json,
-                    error_json,
-                }))
+                let response = result.try_into().map_err(|error| {
+                    log::warn!("Invalid canonical ToolResult content for {tool_name}: {error}");
+                    Status::internal("Invalid tool result content")
+                })?;
+                Ok(Response::new(response))
             }
             Err(e) => {
                 log::error!("Tool execution failed for {tool_name}: {e}");
@@ -544,6 +526,102 @@ impl KernelService for KernelServiceImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use std::future::Future;
+    use std::pin::Pin;
+
+    struct CostProvider {
+        cost_usd: Option<String>,
+    }
+
+    impl CostProvider {
+        fn new(cost_usd: Option<&str>) -> Self {
+            Self {
+                cost_usd: cost_usd.map(String::from),
+            }
+        }
+    }
+
+    impl crate::traits::Provider for CostProvider {
+        fn name(&self) -> &str {
+            "cost-provider"
+        }
+
+        fn get_info(&self) -> crate::models::ProviderInfo {
+            crate::models::ProviderInfo {
+                id: self.name().into(),
+                display_name: "Cost Provider".into(),
+                credential_env_vars: Vec::new(),
+                capabilities: Vec::new(),
+                defaults: HashMap::new(),
+                config_fields: Vec::new(),
+            }
+        }
+
+        fn list_models(
+            &self,
+        ) -> Pin<
+            Box<
+                dyn Future<
+                        Output = Result<
+                            Vec<crate::models::ModelInfo>,
+                            crate::errors::ProviderError,
+                        >,
+                    > + Send
+                    + '_,
+            >,
+        > {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+
+        fn complete(
+            &self,
+            _request: crate::messages::ChatRequest,
+        ) -> Pin<
+            Box<
+                dyn Future<
+                        Output = Result<
+                            crate::messages::ChatResponse,
+                            crate::errors::ProviderError,
+                        >,
+                    > + Send
+                    + '_,
+            >,
+        > {
+            let cost_usd = self.cost_usd.clone();
+            Box::pin(async move {
+                Ok(crate::messages::ChatResponse {
+                    content: vec![crate::messages::ContentBlock::Text {
+                        text: "response with provider-reported cost".into(),
+                        visibility: None,
+                        extensions: HashMap::new(),
+                    }],
+                    tool_calls: None,
+                    usage: Some(crate::messages::Usage {
+                        input_tokens: 10,
+                        output_tokens: 5,
+                        total_tokens: 15,
+                        reasoning_tokens: None,
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                        cost_usd,
+                        extensions: HashMap::new(),
+                    }),
+                    degradation: None,
+                    finish_reason: Some("stop".into()),
+                    metadata: None,
+                    extensions: HashMap::new(),
+                })
+            })
+        }
+
+        fn parse_tool_calls(
+            &self,
+            response: &crate::messages::ChatResponse,
+        ) -> Vec<crate::messages::ToolCall> {
+            response.tool_calls.clone().unwrap_or_default()
+        }
+    }
 
     #[test]
     fn kernel_service_impl_compiles() {
@@ -1376,6 +1454,104 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn generated_grpc_client_preserves_provider_reported_cost_for_unary_and_streaming() {
+        use crate::generated::amplifier_module::kernel_service_client::KernelServiceClient;
+        use crate::generated::amplifier_module::kernel_service_server::KernelServiceServer;
+        use tokio::sync::oneshot;
+        use tokio_stream::wrappers::TcpListenerStream;
+        use tonic::transport::Server;
+
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.mount_provider(
+            "with-cost",
+            Arc::new(CostProvider::new(Some("0.000000000123456789"))),
+        );
+        coord.mount_provider("without-cost", Arc::new(CostProvider::new(None)));
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test server must bind");
+        let address = listener
+            .local_addr()
+            .expect("test server must have an address");
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            Server::builder()
+                .add_service(KernelServiceServer::new(KernelServiceImpl::new(coord)))
+                .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+        });
+
+        let mut client = KernelServiceClient::connect(format!("http://{address}"))
+            .await
+            .expect("generated client must connect to test server");
+        let request = amplifier_module::CompleteWithProviderRequest {
+            provider_name: "with-cost".into(),
+            request: Some(make_chat_request("ping")),
+        };
+
+        let unary = client
+            .complete_with_provider(request.clone())
+            .await
+            .expect("unary RPC must succeed")
+            .into_inner();
+        assert_eq!(
+            unary.usage.and_then(|usage| usage.cost_usd),
+            Some("0.000000000123456789".into())
+        );
+
+        let mut stream = client
+            .complete_with_provider_streaming(request)
+            .await
+            .expect("one-shot streaming RPC must succeed")
+            .into_inner();
+        let streamed = stream
+            .message()
+            .await
+            .expect("stream must not fail")
+            .expect("stream must contain one response");
+        assert_eq!(
+            streamed.usage.and_then(|usage| usage.cost_usd),
+            Some("0.000000000123456789".into())
+        );
+        assert!(
+            stream
+                .message()
+                .await
+                .expect("stream must not fail")
+                .is_none(),
+            "one-shot streaming RPC must end after one response"
+        );
+
+        let absent_cost = client
+            .complete_with_provider(amplifier_module::CompleteWithProviderRequest {
+                provider_name: "without-cost".into(),
+                request: Some(make_chat_request("ping")),
+            })
+            .await
+            .expect("unary RPC without cost must succeed")
+            .into_inner();
+        assert!(
+            absent_cost
+                .usage
+                .expect("provider returned usage")
+                .cost_usd
+                .is_none(),
+            "None cost must remain absent in protobuf"
+        );
+
+        shutdown_tx
+            .send(())
+            .expect("test server must still accept shutdown");
+        server
+            .await
+            .expect("test server task must not panic")
+            .expect("test server must shut down cleanly");
+    }
+
+    #[tokio::test]
     async fn complete_with_provider_not_found_returns_not_found_status() {
         let coord = Arc::new(Coordinator::new(Default::default()));
         let service = KernelServiceImpl::new(coord);
@@ -1525,6 +1701,82 @@ mod tests {
     // -----------------------------------------------------------------------
     // H-07: JSON payload size limits
     // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn execute_tool_transports_canonical_rich_content() {
+        struct RichTool;
+
+        impl crate::traits::Tool for RichTool {
+            fn name(&self) -> &str {
+                "rich-tool"
+            }
+
+            fn description(&self) -> &str {
+                "Returns canonical rich content"
+            }
+
+            fn get_spec(&self) -> crate::messages::ToolSpec {
+                crate::messages::ToolSpec {
+                    name: self.name().to_string(),
+                    parameters: std::collections::HashMap::new(),
+                    description: Some(self.description().to_string()),
+                    extensions: std::collections::HashMap::new(),
+                }
+            }
+
+            fn execute(
+                &self,
+                _input: serde_json::Value,
+            ) -> std::pin::Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<crate::models::ToolResult, crate::errors::ToolError>,
+                        > + Send
+                        + '_,
+                >,
+            > {
+                Box::pin(async {
+                    Ok(crate::models::ToolResult {
+                        success: true,
+                        output: None,
+                        error: None,
+                        content: crate::models::ToolResult::normalize_content(Some(vec![
+                            serde_json::json!({"type": "text", "text": "details"}),
+                            serde_json::json!({
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/png",
+                                    "data": "AA=="
+                                }
+                            }),
+                        ]))
+                        .unwrap(),
+                    })
+                })
+            }
+        }
+
+        let coord = Arc::new(Coordinator::new(Default::default()));
+        coord.mount_tool("rich-tool", Arc::new(RichTool));
+        let service = KernelServiceImpl::new(coord);
+        let response = service
+            .execute_tool(Request::new(amplifier_module::ExecuteToolRequest {
+                tool_name: "rich-tool".to_string(),
+                input_json: "{}".to_string(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+
+        assert_eq!(response.content_blocks.len(), 2);
+        let image = match response.content_blocks[1].block.as_ref().unwrap() {
+            amplifier_module::content_block::Block::ImageBlock(image) => image,
+            _ => panic!("expected image block"),
+        };
+        assert_eq!(image.data, vec![0]);
+        assert!(image.source_json.is_empty());
+    }
 
     #[tokio::test]
     async fn execute_tool_rejects_oversized_input_json() {

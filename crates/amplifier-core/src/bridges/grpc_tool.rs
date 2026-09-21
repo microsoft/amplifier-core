@@ -28,6 +28,7 @@ use tonic::transport::Channel;
 use crate::errors::ToolError;
 use crate::generated::amplifier_module;
 use crate::generated::amplifier_module::tool_service_client::ToolServiceClient;
+use crate::generated::conversions::proto_tool_result_content_to_native;
 use crate::messages;
 use crate::models::ToolResult;
 use crate::traits::Tool;
@@ -156,11 +157,22 @@ impl Tool for GrpcToolBridge {
                     Value::String(resp.error),
                 )]))
             };
+            let content =
+                proto_tool_result_content_to_native(resp.content_blocks).map_err(|error| {
+                    log::warn!(
+                        "gRPC tool '{}' returned invalid ToolResult content: {error}",
+                        self.name
+                    );
+                    ToolError::Other {
+                        message: "invalid tool result content from gRPC tool".to_string(),
+                    }
+                })?;
 
             Ok(ToolResult {
                 success: resp.success,
                 output,
                 error,
+                content,
             })
         })
     }

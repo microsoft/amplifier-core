@@ -42,6 +42,7 @@ mod tests {
             success: true,
             output_json: r#"{"value": 42}"#.into(),
             error_json: String::new(),
+            content_blocks: vec![],
         };
         assert!(result.success);
         assert_eq!(result.output_json, r#"{"value": 42}"#);
@@ -52,6 +53,7 @@ mod tests {
             success: false,
             output_json: String::new(),
             error_json: r#"{"code":"NOT_FOUND"}"#.into(),
+            content_blocks: vec![],
         };
         assert!(!err_result.success);
         assert!(err_result.output_json.is_empty());
@@ -59,7 +61,7 @@ mod tests {
     }
 
     #[test]
-    fn proto_hook_result_has_all_15_fields() {
+    fn proto_hook_result_has_all_16_fields() {
         let result = HookResult {
             action: HookAction::Modify as i32,
             data_json: r#"{"modified": true}"#.into(),
@@ -76,6 +78,7 @@ mod tests {
             user_message_level: UserMessageLevel::Warning as i32,
             user_message_source: "content-filter".into(),
             append_to_last_tool_result: true,
+            context_injections: vec![],
         };
         assert_eq!(result.action, HookAction::Modify as i32);
         assert_eq!(result.data_json, r#"{"modified": true}"#);
@@ -176,6 +179,7 @@ mod tests {
             reasoning_tokens: Some(20),
             cache_read_tokens: Some(30),
             cache_creation_tokens: Some(10),
+            cost_usd: Some("0.000000000123456789".into()),
         };
         assert_eq!(usage.prompt_tokens, 100);
         assert_eq!(usage.completion_tokens, 50);
@@ -183,6 +187,7 @@ mod tests {
         assert_eq!(usage.reasoning_tokens, Some(20));
         assert_eq!(usage.cache_read_tokens, Some(30));
         assert_eq!(usage.cache_creation_tokens, Some(10));
+        assert_eq!(usage.cost_usd.as_deref(), Some("0.000000000123456789"));
     }
 
     #[test]
@@ -194,6 +199,8 @@ mod tests {
             max_output_tokens: 4096,
             capabilities: vec!["vision".into(), "tools".into(), "streaming".into()],
             defaults_json: r#"{"temperature":0.7}"#.into(),
+            pricing_json:
+                r#"{"input_per_million":15.0,"output_per_million":75.0,"currency":"USD"}"#.into(),
         };
         assert_eq!(info.id, "claude-3-opus");
         assert_eq!(info.display_name, "Claude 3 Opus");
@@ -201,6 +208,10 @@ mod tests {
         assert_eq!(info.max_output_tokens, 4096);
         assert_eq!(info.capabilities.len(), 3);
         assert_eq!(info.defaults_json, r#"{"temperature":0.7}"#);
+        assert_eq!(
+            info.pricing_json,
+            r#"{"input_per_million":15.0,"output_per_million":75.0,"currency":"USD"}"#
+        );
     }
 
     #[test]

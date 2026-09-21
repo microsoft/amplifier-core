@@ -44,6 +44,8 @@ pub(crate) struct PySession {
     cached_session_id: String,
     /// Cached parent_id.
     cached_parent_id: Option<String>,
+    /// Cached `session.metadata` (CP-SM passthrough), `None` when unconfigured.
+    cached_session_metadata: Option<Value>,
 }
 
 #[pymethods]
@@ -112,6 +114,12 @@ impl PySession {
         let json_str: String = json_dumps_safe(py, config.as_any())?;
         let value: Value = serde_json::from_str(&json_str)
             .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Invalid config JSON: {e}")))?;
+        // CP-SM (docs/specs/CONTRIBUTION_CHANNELS.md): cache `session.metadata` here,
+        // alongside session_id/parent_id, so the lifecycle emit below can include it
+        // without re-entering Python. Read before `value` is moved into SessionConfig.
+        let cached_session_metadata =
+            amplifier_core::session::session_metadata_passthrough(value.get("session"));
+
         let session_config = amplifier_core::SessionConfig::from_value(value)
             .map_err(|e| PyErr::new::<PyValueError, _>(format!("Invalid session config: {e}")))?;
 
@@ -180,6 +188,7 @@ impl PySession {
             is_resumed,
             cached_session_id: actual_session_id,
             cached_parent_id: actual_parent_id,
+            cached_session_metadata,
         })
     }
 
@@ -386,10 +395,16 @@ impl PySession {
             let hook_registry = hooks.extract::<PyRef<PyHookRegistry>>()?;
             hook_registry.inner.clone()
         };
-        let pre_event_data = serde_json::json!({
+        let mut pre_event_data = serde_json::json!({
             "session_id": self.cached_session_id,
             "parent_id": self.cached_parent_id,
         });
+        // CP-SM passthrough (docs/specs/CONTRIBUTION_CHANNELS.md), matching the
+        // pure-Python kernel. Unconfigured or empty metadata leaves the payload
+        // exactly as it was before this change.
+        if let Some(metadata) = &self.cached_session_metadata {
+            pre_event_data["metadata"] = metadata.clone();
+        }
 
         // Clone references for the async block
         let coordinator = self.coordinator.clone_ref(py);

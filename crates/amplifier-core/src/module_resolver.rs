@@ -1625,7 +1625,7 @@ artifact = "module.wasm"
         std::fs::write(&wasm_file, &wasm_bytes).expect("write wasm");
 
         // This is the actual sha256 of echo-tool.wasm.
-        let correct_hash = "114d733baedeec912b8da160adbc863ae14519b88f776d0d3c19f8446e73afb7";
+        let correct_hash = "9b82c883832bec6b73fe3b4af31f65ed63f744a2081c5483895f6d3d62b3dd73";
 
         let manifest = ModuleManifest {
             transport: Transport::Wasm,

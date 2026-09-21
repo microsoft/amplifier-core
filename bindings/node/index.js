@@ -310,19 +310,19 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { hello, HookAction, SessionState, ContextInjectionRole, ApprovalDefault, UserMessageLevel, JsCancellationToken, JsHookRegistry, JsCoordinator, JsAmplifierSession, JsToolBridge, amplifierErrorToJs, resolveModule, loadWasmFromPath } = nativeBinding
+const { JsCancellationToken, JsCoordinator, HookAction, SessionState, ContextInjectionRole, ApprovalDefault, UserMessageLevel, amplifierErrorToJs, JsHookRegistry, resolveModule, loadWasmFromPath, JsAmplifierSession, JsToolBridge, hello } = nativeBinding
 
-module.exports.hello = hello
+module.exports.JsCancellationToken = JsCancellationToken
+module.exports.JsCoordinator = JsCoordinator
 module.exports.HookAction = HookAction
 module.exports.SessionState = SessionState
 module.exports.ContextInjectionRole = ContextInjectionRole
 module.exports.ApprovalDefault = ApprovalDefault
 module.exports.UserMessageLevel = UserMessageLevel
-module.exports.JsCancellationToken = JsCancellationToken
-module.exports.JsHookRegistry = JsHookRegistry
-module.exports.JsCoordinator = JsCoordinator
-module.exports.JsAmplifierSession = JsAmplifierSession
-module.exports.JsToolBridge = JsToolBridge
 module.exports.amplifierErrorToJs = amplifierErrorToJs
+module.exports.JsHookRegistry = JsHookRegistry
 module.exports.resolveModule = resolveModule
 module.exports.loadWasmFromPath = loadWasmFromPath
+module.exports.JsAmplifierSession = JsAmplifierSession
+module.exports.JsToolBridge = JsToolBridge
+module.exports.hello = hello

@@ -352,6 +352,10 @@ if [[ "$SMOKE_EXIT_CODE" -eq 124 ]]; then
     fail "Smoke test TIMED OUT after ${TIMEOUT_SECONDS}s — increase SMOKE_TIMEOUT or investigate"
 fi
 
+if [[ "$SMOKE_EXIT_CODE" -ne 0 ]]; then
+    fail "Smoke test FAILED — amplifier exited with status ${SMOKE_EXIT_CODE}"
+fi
+
 # If we got here: no exceptions, no tool failures, no timeout
 echo ""
 pass "========================================================"

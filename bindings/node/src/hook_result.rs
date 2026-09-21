@@ -2,9 +2,19 @@
 // Structs — exported as TypeScript interfaces via #[napi(object)]
 // ---------------------------------------------------------------------------
 
-use amplifier_core::models::HookResult;
+use amplifier_core::models::{ContextInjection, HookResult};
 
 use crate::enums::{ApprovalDefault, ContextInjectionRole, HookAction, UserMessageLevel};
+
+#[napi(object)]
+pub struct JsContextInjection {
+    pub content: String,
+    pub role: ContextInjectionRole,
+    pub ephemeral: bool,
+    pub append_to_last_tool_result: bool,
+    pub hook_name: String,
+    pub event: String,
+}
 
 #[napi(object)]
 pub struct JsHookResult {
@@ -20,6 +30,7 @@ pub struct JsHookResult {
     pub approval_prompt: Option<String>,
     pub approval_timeout: Option<f64>,
     pub approval_default: Option<ApprovalDefault>,
+    pub context_injections: Option<Vec<JsContextInjection>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -40,5 +51,23 @@ pub(crate) fn hook_result_to_js(result: HookResult) -> JsHookResult {
         approval_prompt: result.approval_prompt,
         approval_timeout: Some(result.approval_timeout),
         approval_default: Some(result.approval_default.into()),
+        context_injections: Some(
+            result
+                .context_injections
+                .into_iter()
+                .map(context_injection_to_js)
+                .collect(),
+        ),
+    }
+}
+
+fn context_injection_to_js(injection: ContextInjection) -> JsContextInjection {
+    JsContextInjection {
+        content: injection.content,
+        role: injection.role.into(),
+        ephemeral: injection.ephemeral,
+        append_to_last_tool_result: injection.append_to_last_tool_result,
+        hook_name: injection.hook_name,
+        event: injection.event,
     }
 }

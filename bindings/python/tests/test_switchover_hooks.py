@@ -167,3 +167,48 @@ async def test_async_handler_uses_callers_event_loop():
         "Handler ran on a different event loop — "
         "this means asyncio.run() was used instead of into_future()"
     )
+
+
+def test_async_handler_registered_outside_event_loop_uses_emitting_loop():
+    """An async handler registered synchronously can deny from asyncio.run()."""
+    import asyncio
+
+    registry = RustHookRegistry()
+
+    async def async_handler(event, data):
+        await asyncio.sleep(0)
+        return {"action": "deny", "reason": "async denial"}
+
+    registry.register("test:async-hook", async_handler, 0, name="outside-loop")
+
+    async def emit():
+        return await registry.emit("test:async-hook", {})
+
+    result = asyncio.run(emit())
+    assert result.action == "deny"
+    assert result.reason == "async denial"
+
+
+@pytest.mark.asyncio
+async def test_async_handler_uses_emitting_contextvars_not_registration_context():
+    """The current emitting task's contextvars win over registration context."""
+    import asyncio
+    import contextvars
+
+    context_value = contextvars.ContextVar("hook_context_value")
+    registry = RustHookRegistry()
+    context_value.set("A")
+
+    async def async_handler(event, data):
+        await asyncio.sleep(0)
+        return {
+            "action": "deny",
+            "reason": f"context={context_value.get()}",
+        }
+
+    registry.register("test:async-hook", async_handler, 0, name="context-aware")
+    context_value.set("B")
+
+    result = await registry.emit("test:async-hook", {})
+    assert result.action == "deny"
+    assert result.reason == "context=B"

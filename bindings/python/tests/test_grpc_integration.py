@@ -35,6 +35,16 @@ async def mock_tool_server():
                 success=True,
                 output=json.dumps(output).encode("utf-8"),
                 content_type="application/json",
+                content_blocks=[
+                    amplifier_module_pb2.ContentBlock(
+                        text_block=amplifier_module_pb2.TextBlock(text="echo result")
+                    ),
+                    amplifier_module_pb2.ContentBlock(
+                        image_block=amplifier_module_pb2.ImageBlock(
+                            media_type="image/png", data=b"\x00"
+                        )
+                    ),
+                ],
             )
 
     server = grpc_aio.server()
@@ -76,6 +86,13 @@ async def test_grpc_tool_bridge_full_roundtrip(mock_tool_server):
     result = await bridge.execute(message="hello world")
     assert result["success"] is True
     assert result["output"]["echoed"] == "hello world"
+    assert result["content"] == [
+        {"type": "text", "text": "echo result"},
+        {
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/png", "data": "AA=="},
+        },
+    ]
 
     # Cleanup
     await bridge.cleanup()

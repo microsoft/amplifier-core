@@ -38,6 +38,61 @@ impl ToolService for EchoToolService {
                 output: req.input,
                 content_type: req.content_type,
                 error: String::new(),
+                content_blocks: vec![
+                    amplifier_module::ContentBlock {
+                        block: Some(amplifier_module::content_block::Block::TextBlock(
+                            amplifier_module::TextBlock {
+                                text: "echo result".to_string(),
+                            },
+                        )),
+                        visibility: 0,
+                    },
+                    amplifier_module::ContentBlock {
+                        block: Some(amplifier_module::content_block::Block::ImageBlock(
+                            amplifier_module::ImageBlock {
+                                media_type: "image/png".to_string(),
+                                data: vec![0],
+                                source_json: String::new(),
+                            },
+                        )),
+                        visibility: 0,
+                    },
+                ],
+            },
+        ))
+    }
+}
+
+/// A ToolService response with an invalid rich-content oneof.
+struct InvalidContentToolService;
+
+#[tonic::async_trait]
+impl ToolService for InvalidContentToolService {
+    async fn get_spec(
+        &self,
+        _request: tonic::Request<amplifier_module::Empty>,
+    ) -> Result<tonic::Response<amplifier_module::ToolSpec>, tonic::Status> {
+        Ok(tonic::Response::new(amplifier_module::ToolSpec {
+            name: "invalid-content".to_string(),
+            description: "Returns malformed rich content".to_string(),
+            parameters_json: "{}".to_string(),
+        }))
+    }
+
+    async fn execute(
+        &self,
+        _request: tonic::Request<amplifier_module::ToolExecuteRequest>,
+    ) -> Result<tonic::Response<amplifier_module::ToolExecuteResponse>, tonic::Status> {
+        Ok(tonic::Response::new(
+            amplifier_module::ToolExecuteResponse {
+                success: true,
+                output: b"null".to_vec(),
+                content_type: "application/json".to_string(),
+                error: String::new(),
+                content_blocks: vec![amplifier_module::ContentBlock {
+                    block: None,
+                    visibility: 0,
+                }],
             },
         ))
     }
@@ -88,6 +143,7 @@ impl ToolService for InvalidParamsToolService {
                 output: b"{}".to_vec(),
                 content_type: "application/json".to_string(),
                 error: String::new(),
+                content_blocks: vec![],
             },
         ))
     }
@@ -123,6 +179,7 @@ impl ToolService for BinaryOutputToolService {
                 output: vec![0xFF, 0xFE, 0x00, 0x01], // not valid JSON
                 content_type: "application/json".to_string(),
                 error: String::new(),
+                content_blocks: vec![],
             },
         ))
     }
@@ -158,6 +215,7 @@ impl ToolService for NonJsonContentTypeToolService {
                 output: b"{\"result\": 42}".to_vec(),
                 content_type: "text/plain".to_string(),
                 error: String::new(),
+                content_blocks: vec![],
             },
         ))
     }
@@ -180,7 +238,36 @@ async fn grpc_tool_round_trip() -> Result<(), Box<dyn std::error::Error + Send +
 
     assert!(result.success);
     assert_eq!(result.output, Some(input));
+    assert_eq!(
+        serde_json::to_value(result.content).unwrap(),
+        serde_json::json!([
+            {"type": "text", "text": "echo result"},
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": "AA=="
+                }
+            }
+        ])
+    );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn grpc_tool_rejects_malformed_rich_content(
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let endpoint = spawn_tool_server(ToolServiceServer::new(InvalidContentToolService)).await;
+    let bridge = GrpcToolBridge::connect(&endpoint).await?;
+
+    let error = bridge
+        .execute(serde_json::json!({}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert_eq!(error, "invalid tool result content from gRPC tool");
     Ok(())
 }
 

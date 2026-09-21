@@ -33,7 +33,7 @@ pub use enums::{
     ApprovalDefault, ContextInjectionRole, HookAction, SessionState, UserMessageLevel,
 };
 pub use errors::{amplifier_error_to_js, JsAmplifierError};
-pub use hook_result::JsHookResult;
+pub use hook_result::{JsContextInjection, JsHookResult};
 pub use hooks::JsHookRegistry;
 pub use module_resolver::{load_wasm_from_path, resolve_module, JsModuleManifest};
 pub use session::JsAmplifierSession;

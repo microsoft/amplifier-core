@@ -6,7 +6,7 @@ extension module. Submodule paths (e.g. `from amplifier_core.session import
 AmplifierSession`) still give the pure-Python implementations.
 """
 
-__version__ = "1.6.1"
+__version__ = "2.0.0"
 
 # --- Rust-backed primary types (THE SWITCHOVER) ---
 # These four were previously imported from their Python submodules.
@@ -74,9 +74,11 @@ from .message_models import ToolResultBlock
 from .message_models import ToolSpec
 from .message_models import Usage
 from .models import ConfigField
+from .models import ContextInjection
 from .models import HookResult
 from .models import ModelInfo
 from .models import ModuleInfo
+from .models import Pricing
 from .models import ProviderInfo
 from .models import SessionStatus
 from .models import ToolResult
@@ -114,10 +116,12 @@ __all__ = [
     "HookRegistry",
     "ToolCall",
     "ToolResult",
+    "ContextInjection",
     "HookResult",
     "ConfigField",
     "ModelInfo",
     "ModuleInfo",
+    "Pricing",
     "ProviderInfo",
     "SessionStatus",
     "ApprovalRequest",

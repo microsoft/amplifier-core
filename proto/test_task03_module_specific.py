@@ -114,7 +114,7 @@ def test_user_message_level_enum():
 # ---------------------------------------------------------------------------
 
 def test_tool_result_message():
-    """ToolResult message with 3 fields: success, output_json, error_json."""
+    """ToolResult message with rich content alongside legacy fields."""
     content = read_proto()
     assert "message ToolResult" in content, "Missing message ToolResult"
     m = re.search(r'message ToolResult\s*\{([^}]+)\}', content)
@@ -123,6 +123,9 @@ def test_tool_result_message():
     assert field_present(body, "bool success"), "ToolResult missing field: success"
     assert field_present(body, "string output_json"), "ToolResult missing field: output_json"
     assert field_present(body, "string error_json"), "ToolResult missing field: error_json"
+    assert field_present(body, "repeated ContentBlock content_blocks"), (
+        "ToolResult missing field: content_blocks"
+    )
 
 
 def test_hook_result_message_15_fields():

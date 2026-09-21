@@ -100,6 +100,7 @@ class ModuleLoader:
             search_paths: Optional list of filesystem paths for direct discovery
         """
         self._loaded_modules: dict[str, Any] = {}
+        self._loaded_module_paths: dict[str, Path] = {}
         self._module_info: dict[str, ModuleInfo] = {}
         self._search_paths = search_paths
         self._coordinator = coordinator
@@ -231,17 +232,43 @@ class ModuleLoader:
         if module_id in self._loaded_modules:
             logger.debug(f"Module '{module_id}' already loaded, creating fresh closure")
             raw_fn = self._loaded_modules[module_id]
+            cached_source_path = self._loaded_module_paths.get(module_id)
+            source_resolver = None
+            if self._coordinator:
+                with contextlib.suppress(ValueError):
+                    source_resolver = self._coordinator.get("module-source-resolver")
+            if cached_source_path is not None and self._coordinator:
+                if source_resolver is not None:
+                    if hasattr(source_resolver, "async_resolve"):
+                        source = await source_resolver.async_resolve(
+                            module_id,
+                            source_hint=source_hint,
+                            profile_hint=source_hint,
+                        )
+                    else:
+                        source = source_resolver.resolve(
+                            module_id,
+                            source_hint=source_hint,
+                            profile_hint=source_hint,
+                        )
+                    requested_source_path = source.resolve().resolve()
+                    if requested_source_path != cached_source_path:
+                        raise ImportError(
+                            f"Refusing to load '{module_id}' from {requested_source_path}: "
+                            f"it is already loaded from {cached_source_path}"
+                        )
 
-            async def mount_with_config_cached(
-                coordinator: ModuleCoordinator, fn=raw_fn
-            ):
-                return await fn(coordinator, config or {})
+            if source_resolver is None or cached_source_path is not None:
+                async def mount_with_config_cached(
+                    coordinator: ModuleCoordinator, fn=raw_fn
+                ):
+                    return await fn(coordinator, config or {})
 
-            # B1: propagate __on_session_ready__ to fresh closure
-            if on_sr := getattr(raw_fn, "__on_session_ready__", None):
-                setattr(mount_with_config_cached, "__on_session_ready__", on_sr)
+                # B1: propagate __on_session_ready__ to fresh closure
+                if on_sr := getattr(raw_fn, "__on_session_ready__", None):
+                    setattr(mount_with_config_cached, "__on_session_ready__", on_sr)
 
-            return mount_with_config_cached
+                return mount_with_config_cached
 
         try:
             # Resolve module source
@@ -332,7 +359,9 @@ class ModuleLoader:
                         )
 
                 # Validate module before loading (Python modules only at this point)
-                await self._validate_module(module_id, module_path, config=config)
+                package_path = await self._validate_module(
+                    module_id, module_path, config=config
+                )
 
             except Exception as resolve_error:
                 # Import here to avoid circular dependency
@@ -348,26 +377,13 @@ class ModuleLoader:
                         return mount_fn
                 raise resolve_error
 
-            # Try to load via entry point first
-            raw_fn = self._load_entry_point(module_id)
+            # Source resolution selected and validated this filesystem package.
+            # Do not let an installed entry point for the same module id mount a
+            # different source after validation.
+            raw_fn = self._load_filesystem(module_id, module_name=package_path.name)
             if raw_fn:
                 self._loaded_modules[module_id] = raw_fn
-
-                async def mount_with_config_ep(
-                    coordinator: ModuleCoordinator, fn=raw_fn
-                ):
-                    return await fn(coordinator, config or {})
-
-                # B1: propagate __on_session_ready__ to closure
-                if on_sr := getattr(raw_fn, "__on_session_ready__", None):
-                    setattr(mount_with_config_ep, "__on_session_ready__", on_sr)
-
-                return mount_with_config_ep
-
-            # Try filesystem loading
-            raw_fn = self._load_filesystem(module_id)
-            if raw_fn:
-                self._loaded_modules[module_id] = raw_fn
+                self._loaded_module_paths[module_id] = module_path.resolve()
 
                 async def mount_with_config_fs(
                     coordinator: ModuleCoordinator, fn=raw_fn
@@ -486,7 +502,9 @@ class ModuleLoader:
 
         return None
 
-    def _load_filesystem(self, module_id: str) -> Callable | None:
+    def _load_filesystem(
+        self, module_id: str, module_name: str | None = None
+    ) -> Callable | None:
         """Resolve module from filesystem and return the raw mount function.
 
         Returns the raw (un-configured) mount function so callers can cache it
@@ -494,7 +512,7 @@ class ModuleLoader:
         """
         try:
             # Try to import the module
-            module_name = f"amplifier_module_{module_id.replace('-', '_')}"
+            module_name = module_name or f"amplifier_module_{module_id.replace('-', '_')}"
             module = importlib.import_module(module_name)
 
             # Detect on_session_ready lifecycle hook if present.
@@ -553,7 +571,7 @@ class ModuleLoader:
             package_path = self._find_package_dir(module_id, module_path)
             if package_path:
                 # Import the module temporarily
-                module_name = f"amplifier_module_{module_id.replace('-', '_')}"
+                module_name = package_path.name
 
                 # Add to sys.path temporarily for import
                 path_str = str(module_path)
@@ -635,7 +653,7 @@ class ModuleLoader:
 
     async def _validate_module(
         self, module_id: str, module_path: Path, config: dict[str, Any] | None = None
-    ) -> None:
+    ) -> Path:
         """
         Validate a module before loading.
 
@@ -675,7 +693,7 @@ class ModuleLoader:
             logger.warning(
                 f"Unknown module type '{module_type}' for '{module_id}', skipping validation"
             )
-            return
+            return module_path
 
         # Find the actual Python package directory within the module root
         # Module structure: amplifier-module-xyz/ contains amplifier_module_xyz/
@@ -702,6 +720,7 @@ class ModuleLoader:
             )
 
         logger.info(f"[module:validated] {module_id} - {result.summary()}")
+        return package_path
 
     def _find_package_dir(self, module_id: str, module_path: Path) -> Path | None:
         """

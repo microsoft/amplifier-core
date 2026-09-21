@@ -1,4 +1,4 @@
-//! Bidirectional `From` conversions between hand-written Rust types and
+//! Bidirectional conversions between hand-written Rust types and
 //! proto-generated types, enabling zero-copy-style mapping across the gRPC
 //! boundary.
 
@@ -26,9 +26,11 @@ fn from_json_or_default<T: serde::de::DeserializeOwned + Default>(json: &str, la
 // ToolResult conversions
 // ---------------------------------------------------------------------------
 
-impl From<crate::models::ToolResult> for super::amplifier_module::ToolResult {
-    fn from(native: crate::models::ToolResult) -> Self {
-        Self {
+impl TryFrom<crate::models::ToolResult> for super::amplifier_module::ToolResult {
+    type Error = crate::models::ToolResultContentError;
+
+    fn try_from(native: crate::models::ToolResult) -> Result<Self, Self::Error> {
+        Ok(Self {
             success: native.success,
             output_json: native
                 .output
@@ -38,13 +40,16 @@ impl From<crate::models::ToolResult> for super::amplifier_module::ToolResult {
                 .error
                 .map(|e| to_json_or_warn(&e, "ToolResult error"))
                 .unwrap_or_default(),
-        }
+            content_blocks: native_tool_result_content_to_proto(native.content)?,
+        })
     }
 }
 
-impl From<super::amplifier_module::ToolResult> for crate::models::ToolResult {
-    fn from(proto: super::amplifier_module::ToolResult) -> Self {
-        Self {
+impl TryFrom<super::amplifier_module::ToolResult> for crate::models::ToolResult {
+    type Error = crate::models::ToolResultContentError;
+
+    fn try_from(proto: super::amplifier_module::ToolResult) -> Result<Self, Self::Error> {
+        Ok(Self {
             success: proto.success,
             output: if proto.output_json.is_empty() {
                 None
@@ -66,7 +71,8 @@ impl From<super::amplifier_module::ToolResult> for crate::models::ToolResult {
                     })
                     .ok()
             },
-        }
+            content: proto_tool_result_content_to_native(proto.content_blocks)?,
+        })
     }
 }
 
@@ -95,6 +101,11 @@ impl From<crate::models::ModelInfo> for super::amplifier_module::ModelInfo {
             }),
             capabilities: native.capabilities,
             defaults_json: to_json_or_warn(&native.defaults, "ModelInfo defaults"),
+            pricing_json: native
+                .pricing
+                .as_ref()
+                .map(|p| to_json_or_warn(p, "ModelInfo pricing"))
+                .unwrap_or_default(),
         }
     }
 }
@@ -111,6 +122,19 @@ impl From<super::amplifier_module::ModelInfo> for crate::models::ModelInfo {
                 Default::default()
             } else {
                 from_json_or_default(&proto.defaults_json, "ModelInfo defaults_json")
+            },
+            pricing: if proto.pricing_json.is_empty() {
+                None
+            } else {
+                match serde_json::from_str::<crate::models::Pricing>(&proto.pricing_json) {
+                    Ok(p) => Some(p),
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to parse ModelInfo pricing_json: {e} — pricing unavailable"
+                        );
+                        None
+                    }
+                }
             },
         }
     }
@@ -168,6 +192,7 @@ impl From<crate::messages::Usage> for super::amplifier_module::Usage {
                     i32::MAX
                 })
             }),
+            cost_usd: native.cost_usd,
         }
     }
 }
@@ -181,6 +206,7 @@ impl From<super::amplifier_module::Usage> for crate::messages::Usage {
             reasoning_tokens: proto.reasoning_tokens.map(i64::from),
             cache_read_tokens: proto.cache_read_tokens.map(i64::from),
             cache_write_tokens: proto.cache_creation_tokens.map(i64::from),
+            cost_usd: proto.cost_usd,
             extensions: HashMap::new(),
         }
     }
@@ -256,6 +282,88 @@ fn proto_visibility_to_native(vis: i32) -> Option<crate::messages::Visibility> {
 // ---------------------------------------------------------------------------
 // ContentBlock conversion helpers (private)
 // ---------------------------------------------------------------------------
+
+/// Convert canonical ToolResult blocks without using the generic Message image
+/// representation, which redundantly stores base64 data in `source_json`.
+pub(crate) fn native_tool_result_content_to_proto(
+    content: Option<crate::models::ToolResultContent>,
+) -> Result<Vec<super::amplifier_module::ContentBlock>, crate::models::ToolResultContentError> {
+    use super::amplifier_module::content_block::Block;
+    use crate::messages::ContentBlock;
+    use base64::Engine;
+
+    content
+        .iter()
+        .flat_map(crate::models::ToolResultContent::iter)
+        .map(|block| match block {
+            ContentBlock::Text { text, .. } => Ok(super::amplifier_module::ContentBlock {
+                block: Some(Block::TextBlock(super::amplifier_module::TextBlock {
+                    text: text.clone(),
+                })),
+                visibility: 0,
+            }),
+            ContentBlock::Image { source, .. } => {
+                let media_type = source
+                    .get("media_type")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or(crate::models::ToolResultContentError::InvalidImageMediaType)?;
+                let data = source
+                    .get("data")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or(crate::models::ToolResultContentError::InvalidImageData)?;
+                let data = base64::engine::general_purpose::STANDARD
+                    .decode(data)
+                    .map_err(|_| crate::models::ToolResultContentError::InvalidImageData)?;
+                Ok(super::amplifier_module::ContentBlock {
+                    block: Some(Block::ImageBlock(super::amplifier_module::ImageBlock {
+                        media_type: media_type.to_string(),
+                        data,
+                        source_json: String::new(),
+                    })),
+                    visibility: 0,
+                })
+            }
+            _ => Err(crate::models::ToolResultContentError::InvalidContent),
+        })
+        .collect()
+}
+
+/// Decode ToolResult-only protobuf blocks and validate them through the
+/// canonical ToolResult ingress path.
+pub(crate) fn proto_tool_result_content_to_native(
+    content: Vec<super::amplifier_module::ContentBlock>,
+) -> Result<Option<crate::models::ToolResultContent>, crate::models::ToolResultContentError> {
+    use super::amplifier_module::content_block::Block;
+    use base64::Engine;
+
+    let raw_content = content
+        .into_iter()
+        .map(|block| {
+            if block.visibility != 0 {
+                return Err(crate::models::ToolResultContentError::InvalidContent);
+            }
+            match block.block {
+                Some(Block::TextBlock(text)) => Ok(serde_json::json!({
+                "type": "text",
+                "text": text.text,
+                })),
+                Some(Block::ImageBlock(image)) if image.source_json.is_empty() => {
+                    Ok(serde_json::json!({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image.media_type,
+                        "data": base64::engine::general_purpose::STANDARD.encode(image.data),
+                    }
+                    }))
+                }
+                _ => Err(crate::models::ToolResultContentError::InvalidContent),
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    crate::models::ToolResult::normalize_content(Some(raw_content))
+}
 
 fn native_content_block_to_proto(
     block: crate::messages::ContentBlock,
@@ -602,6 +710,27 @@ pub fn native_hook_result_to_proto(
         .map(|d| to_json_or_warn(d, "HookResult data"))
         .unwrap_or_default();
 
+    let context_injections = result
+        .context_injections
+        .iter()
+        .map(|injection| amplifier_module::ContextInjection {
+            content: injection.content.clone(),
+            role: match injection.role {
+                ContextInjectionRole::System => {
+                    amplifier_module::ContextInjectionRole::System as i32
+                }
+                ContextInjectionRole::User => amplifier_module::ContextInjectionRole::User as i32,
+                ContextInjectionRole::Assistant => {
+                    amplifier_module::ContextInjectionRole::Assistant as i32
+                }
+            },
+            ephemeral: injection.ephemeral,
+            append_to_last_tool_result: injection.append_to_last_tool_result,
+            hook_name: injection.hook_name.clone(),
+            event: injection.event.clone(),
+        })
+        .collect();
+
     amplifier_module::HookResult {
         action,
         data_json,
@@ -618,6 +747,7 @@ pub fn native_hook_result_to_proto(
         user_message_level,
         user_message_source: result.user_message_source.clone().unwrap_or_default(),
         append_to_last_tool_result: result.append_to_last_tool_result,
+        context_injections,
     }
 }
 
@@ -999,9 +1129,28 @@ mod tests {
             success: true,
             output: Some(serde_json::json!({"key": "value"})),
             error: None,
+            content: crate::models::ToolResult::normalize_content(Some(vec![
+                serde_json::json!({"type": "text", "text": "details"}),
+                serde_json::json!({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "AA=="
+                    }
+                }),
+            ]))
+            .unwrap(),
         };
-        let proto: super::super::amplifier_module::ToolResult = original.clone().into();
-        let restored: crate::models::ToolResult = proto.into();
+        let proto: super::super::amplifier_module::ToolResult =
+            original.clone().try_into().unwrap();
+        let image = match proto.content_blocks[1].block.as_ref().unwrap() {
+            super::super::amplifier_module::content_block::Block::ImageBlock(image) => image,
+            _ => panic!("expected image block"),
+        };
+        assert_eq!(image.data, vec![0]);
+        assert!(image.source_json.is_empty());
+        let restored: crate::models::ToolResult = proto.try_into().unwrap();
         assert_eq!(original, restored);
     }
 
@@ -1014,10 +1163,52 @@ mod tests {
                 "message".to_string(),
                 serde_json::json!("something failed"),
             )])),
+            content: None,
         };
-        let proto: super::super::amplifier_module::ToolResult = original.clone().into();
-        let restored: crate::models::ToolResult = proto.into();
+        let proto: super::super::amplifier_module::ToolResult =
+            original.clone().try_into().unwrap();
+        let restored: crate::models::ToolResult = proto.try_into().unwrap();
         assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn tool_result_proto_rejects_malformed_rich_content_without_dropping_it() {
+        let proto = super::super::amplifier_module::ToolResult {
+            success: true,
+            output_json: String::new(),
+            error_json: String::new(),
+            content_blocks: vec![super::super::amplifier_module::ContentBlock {
+                block: None,
+                visibility: 0,
+            }],
+        };
+
+        assert_eq!(
+            crate::models::ToolResult::try_from(proto),
+            Err(crate::models::ToolResultContentError::InvalidContent)
+        );
+
+        let noncanonical = super::super::amplifier_module::ToolResult {
+            success: true,
+            output_json: String::new(),
+            error_json: String::new(),
+            content_blocks: vec![super::super::amplifier_module::ContentBlock {
+                block: Some(
+                    super::super::amplifier_module::content_block::Block::ImageBlock(
+                        super::super::amplifier_module::ImageBlock {
+                            media_type: "image/png".to_string(),
+                            data: vec![0],
+                            source_json: "unexpected".to_string(),
+                        },
+                    ),
+                ),
+                visibility: 1,
+            }],
+        };
+        assert_eq!(
+            crate::models::ToolResult::try_from(noncanonical),
+            Err(crate::models::ToolResultContentError::InvalidContent)
+        );
     }
 
     #[test]
@@ -1029,10 +1220,54 @@ mod tests {
             max_output_tokens: 8192,
             capabilities: vec!["tools".into(), "vision".into()],
             defaults: HashMap::from([("temperature".to_string(), serde_json::json!(0.7))]),
+            pricing: Some(crate::models::Pricing {
+                input_per_million: 30.0,
+                output_per_million: 60.0,
+                cache_read_per_million: None,
+                cache_write_per_million: None,
+                currency: "USD".into(),
+            }),
         };
         let proto: super::super::amplifier_module::ModelInfo = original.clone().into();
         let restored: crate::models::ModelInfo = proto.into();
         assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn model_info_pricing_none_roundtrips_to_empty_json() {
+        let original = crate::models::ModelInfo {
+            id: "local-model".into(),
+            display_name: "Local Model".into(),
+            context_window: 8192,
+            max_output_tokens: 4096,
+            capabilities: vec![],
+            defaults: HashMap::new(),
+            pricing: None,
+        };
+        let proto: super::super::amplifier_module::ModelInfo = original.clone().into();
+        assert!(proto.pricing_json.is_empty());
+        let restored: crate::models::ModelInfo = proto.into();
+        assert_eq!(original, restored);
+        assert!(restored.pricing.is_none());
+    }
+
+    #[test]
+    fn model_info_pricing_invalid_json_becomes_none() {
+        let mut proto = super::super::amplifier_module::ModelInfo {
+            id: "broken-model".into(),
+            display_name: "Broken".into(),
+            context_window: 1000,
+            max_output_tokens: 100,
+            capabilities: vec![],
+            defaults_json: String::new(),
+            pricing_json: "not-valid-json".into(),
+        };
+        let restored: crate::models::ModelInfo = proto.clone().into();
+        assert!(restored.pricing.is_none());
+
+        proto.pricing_json = String::new();
+        let restored_empty: crate::models::ModelInfo = proto.into();
+        assert!(restored_empty.pricing.is_none());
     }
 
     #[test]
@@ -1044,9 +1279,11 @@ mod tests {
             reasoning_tokens: Some(20),
             cache_read_tokens: Some(10),
             cache_write_tokens: None, // 0 in proto, None when restored
+            cost_usd: Some("0.000000000123456789".into()),
             extensions: HashMap::new(),
         };
         let proto: super::super::amplifier_module::Usage = original.clone().into();
+        assert_eq!(proto.cost_usd.as_deref(), Some("0.000000000123456789"));
         let restored: crate::messages::Usage = proto.into();
         assert_eq!(original.input_tokens, restored.input_tokens);
         assert_eq!(original.output_tokens, restored.output_tokens);
@@ -1055,6 +1292,7 @@ mod tests {
         assert_eq!(original.cache_read_tokens, restored.cache_read_tokens);
         // cache_write_tokens: None → None (optional proto preserves None)
         assert_eq!(restored.cache_write_tokens, None);
+        assert_eq!(restored.cost_usd.as_deref(), Some("0.000000000123456789"));
         // extensions are lost in proto roundtrip (proto has no extensions field)
         assert!(restored.extensions.is_empty());
     }
@@ -1068,9 +1306,11 @@ mod tests {
             reasoning_tokens: Some(50),
             cache_read_tokens: Some(30),
             cache_write_tokens: Some(20),
+            cost_usd: None,
             extensions: HashMap::new(),
         };
         let proto: super::super::amplifier_module::Usage = original.clone().into();
+        assert!(proto.cost_usd.is_none());
         let restored: crate::messages::Usage = proto.into();
         assert_eq!(original.input_tokens, restored.input_tokens);
         assert_eq!(original.output_tokens, restored.output_tokens);
@@ -1078,6 +1318,7 @@ mod tests {
         assert_eq!(original.reasoning_tokens, restored.reasoning_tokens);
         assert_eq!(original.cache_read_tokens, restored.cache_read_tokens);
         assert_eq!(original.cache_write_tokens, restored.cache_write_tokens);
+        assert!(restored.cost_usd.is_none());
     }
 
     /// Verify that `Some(0)` survives roundtrip now that proto uses `optional` fields.
@@ -1090,9 +1331,11 @@ mod tests {
             reasoning_tokens: Some(0),
             cache_read_tokens: Some(0),
             cache_write_tokens: Some(0),
+            cost_usd: Some("0".into()),
             extensions: HashMap::new(),
         };
         let proto: super::super::amplifier_module::Usage = original.clone().into();
+        assert_eq!(proto.cost_usd.as_deref(), Some("0"));
         let restored: crate::messages::Usage = proto.into();
         assert_eq!(
             restored.reasoning_tokens,
@@ -1109,6 +1352,7 @@ mod tests {
             Some(0),
             "Some(0) cache_write_tokens must survive roundtrip"
         );
+        assert_eq!(restored.cost_usd.as_deref(), Some("0"));
     }
 
     // -- E-3: ModelInfo i64→i32 overflow clamps to i32::MAX --
@@ -1122,6 +1366,7 @@ mod tests {
             max_output_tokens: 100,
             capabilities: vec![],
             defaults: HashMap::new(),
+            pricing: None,
         };
         let proto: super::super::amplifier_module::ModelInfo = original.into();
         assert_eq!(proto.context_window, i32::MAX);
@@ -1136,6 +1381,7 @@ mod tests {
             max_output_tokens: i64::from(i32::MAX) + 500,
             capabilities: vec![],
             defaults: HashMap::new(),
+            pricing: None,
         };
         let proto: super::super::amplifier_module::ModelInfo = original.into();
         assert_eq!(proto.max_output_tokens, i32::MAX);
@@ -1152,6 +1398,7 @@ mod tests {
             reasoning_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            cost_usd: None,
             extensions: HashMap::new(),
         };
         let proto: super::super::amplifier_module::Usage = original.into();
@@ -1167,6 +1414,7 @@ mod tests {
             reasoning_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            cost_usd: None,
             extensions: HashMap::new(),
         };
         let proto: super::super::amplifier_module::Usage = original.into();
@@ -1182,6 +1430,7 @@ mod tests {
             reasoning_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            cost_usd: None,
             extensions: HashMap::new(),
         };
         let proto: super::super::amplifier_module::Usage = original.into();
@@ -1868,6 +2117,7 @@ mod tests {
                 reasoning_tokens: Some(50),
                 cache_read_tokens: Some(20),
                 cache_write_tokens: None,
+                cost_usd: None,
                 extensions: HashMap::new(),
             }),
             degradation: Some(Degradation {
@@ -2289,7 +2539,8 @@ mod tests {
     fn hook_result_roundtrip_via_bridge_reverse() {
         use crate::bridges::grpc_hook::GrpcHookBridge;
         use crate::models::{
-            ApprovalDefault, ContextInjectionRole, HookAction, HookResult, UserMessageLevel,
+            ApprovalDefault, ContextInjection, ContextInjectionRole, HookAction, HookResult,
+            UserMessageLevel,
         };
 
         let original = HookResult {
@@ -2308,6 +2559,14 @@ mod tests {
             user_message_level: UserMessageLevel::Warning,
             user_message_source: Some("approval-hook".to_string()),
             append_to_last_tool_result: false,
+            context_injections: vec![ContextInjection {
+                content: "ordered injection".to_string(),
+                role: ContextInjectionRole::Assistant,
+                ephemeral: true,
+                append_to_last_tool_result: true,
+                hook_name: "registered-hook".to_string(),
+                event: "tool:post".to_string(),
+            }],
             extensions: HashMap::new(),
         };
 
@@ -2334,6 +2593,7 @@ mod tests {
             restored.append_to_last_tool_result,
             original.append_to_last_tool_result
         );
+        assert_eq!(restored.context_injections, original.context_injections);
     }
 
     #[test]

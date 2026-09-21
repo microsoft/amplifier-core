@@ -9,6 +9,10 @@ interface kernel-service {
     /// Execute a tool by name (ExecuteToolRequest proto, serialized as bytes).
     /// Returns serialized result on success.
     execute-tool: func(request: list<u8>) -> result<list<u8>, string>;
+
+    /// Emit a hook event (EmitHookRequest proto, serialized as bytes).
+    /// Returns serialized HookResult on success.
+    emit-hook: func(request: list<u8>) -> result<list<u8>, string>;
 }
 
 /// Orchestrator interface — high-level agent-loop execution.

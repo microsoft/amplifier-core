@@ -1,3 +1,4 @@
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -20,10 +21,122 @@ pub struct ToolResult {
     pub output: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<HashMap<String, Value>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_tool_result_content",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub content: Option<ToolResultContent>,
 }
 
 fn default_true() -> bool {
     true
+}
+
+/// A non-empty collection of canonical ToolResult text/base64-image blocks.
+///
+/// The storage is private so a WASM guest cannot create an empty collection or
+/// bypass the ToolResult-only validation rules with arbitrary JSON values.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct ToolResultContent(Vec<Value>);
+
+impl ToolResultContent {
+    /// Strictly validate and canonicalize guest content.
+    ///
+    /// `None` and an empty array retain the legacy no-content representation.
+    pub fn normalize(content: Option<Vec<Value>>) -> Result<Option<Self>, &'static str> {
+        let Some(content) = content else {
+            return Ok(None);
+        };
+        if content.is_empty() {
+            return Ok(None);
+        }
+
+        let mut normalized = Vec::with_capacity(content.len());
+        for block in content {
+            let object = block.as_object().ok_or("invalid tool result content")?;
+            match object.get("type").and_then(Value::as_str) {
+                Some("text") => {
+                    let text = object
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .ok_or("invalid tool result content")?;
+                    normalized.push(serde_json::json!({"type": "text", "text": text}));
+                }
+                Some("image") => {
+                    let source = object
+                        .get("source")
+                        .and_then(Value::as_object)
+                        .ok_or("invalid tool result image source")?;
+                    if source.get("type").and_then(Value::as_str) != Some("base64") {
+                        return Err("invalid tool result image source");
+                    }
+                    let media_type = source
+                        .get("media_type")
+                        .and_then(Value::as_str)
+                        .ok_or("invalid tool result image media type")?;
+                    if !valid_image_media_type(media_type) {
+                        return Err("invalid tool result image media type");
+                    }
+                    let data = source
+                        .get("data")
+                        .and_then(Value::as_str)
+                        .filter(|data| !data.is_empty())
+                        .ok_or("invalid tool result image data")?;
+                    let decoded = base64::engine::general_purpose::STANDARD
+                        .decode(data)
+                        .map_err(|_| "invalid tool result image data")?;
+                    if base64::engine::general_purpose::STANDARD.encode(decoded) != data {
+                        return Err("invalid tool result image data");
+                    }
+                    normalized.push(serde_json::json!({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": data,
+                        }
+                    }));
+                }
+                _ => return Err("invalid tool result content"),
+            }
+        }
+        Ok(Some(Self(normalized)))
+    }
+}
+
+fn deserialize_tool_result_content<'de, D>(
+    deserializer: D,
+) -> Result<Option<ToolResultContent>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw_content = Option::<Value>::deserialize(deserializer)?;
+    let raw_content = match raw_content {
+        None => None,
+        Some(Value::Array(content)) => Some(content),
+        Some(_) => return Err(serde::de::Error::custom("invalid tool result content")),
+    };
+    ToolResultContent::normalize(raw_content).map_err(serde::de::Error::custom)
+}
+
+fn valid_image_media_type(media_type: &str) -> bool {
+    let Some(subtype) = media_type.strip_prefix("image/") else {
+        return false;
+    };
+    let mut chars = subtype.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_alphanumeric()
+        && chars.all(|character| {
+            character.is_ascii_alphanumeric()
+                || matches!(
+                    character,
+                    '!' | '#' | '$' | '&' | '^' | '_' | '.' | '+' | '-'
+                )
+        })
 }
 
 impl Default for ToolResult {
@@ -32,6 +145,7 @@ impl Default for ToolResult {
             success: true,
             output: None,
             error: None,
+            content: None,
         }
     }
 }
@@ -171,6 +285,27 @@ pub struct ProviderInfo {
     pub defaults: HashMap<String, Value>,
 }
 
+/// Per-model pricing information.
+///
+/// Rates are per million tokens, in the specified currency. Mirrors
+/// `amplifier_core::models::Pricing` on the native side (this crate has no
+/// dependency on `amplifier-core`, so the struct is duplicated here).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Pricing {
+    pub input_per_million: f64,
+    pub output_per_million: f64,
+    #[serde(default)]
+    pub cache_read_per_million: Option<f64>,
+    #[serde(default)]
+    pub cache_write_per_million: Option<f64>,
+    #[serde(default = "default_currency")]
+    pub currency: String,
+}
+
+fn default_currency() -> String {
+    "USD".to_string()
+}
+
 /// Metadata about a specific model.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelInfo {
@@ -180,6 +315,10 @@ pub struct ModelInfo {
     pub max_output_tokens: i64,
     pub capabilities: Vec<String>,
     pub defaults: HashMap<String, Value>,
+    /// Per-model pricing information. None when pricing is not available
+    /// (e.g., local providers like ollama, self-hosted backends like vllm).
+    #[serde(default)]
+    pub pricing: Option<Pricing>,
 }
 
 /// Request for an LLM chat completion.
@@ -196,12 +335,30 @@ pub struct ChatRequest {
     pub extra: HashMap<String, Value>,
 }
 
+/// Token usage information reported by an LLM provider.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Usage {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub total_tokens: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write_tokens: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<String>,
+}
+
 /// Response from an LLM chat completion.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChatResponse {
     pub content: Vec<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finish_reason: Option<String>,
     #[serde(flatten)]
@@ -253,6 +410,7 @@ mod tests {
         assert!(result.success);
         assert!(result.output.is_none());
         assert!(result.error.is_none());
+        assert!(result.content.is_none());
     }
 
     #[test]
@@ -265,6 +423,11 @@ mod tests {
                 m.insert("code".to_string(), json!(404));
                 m
             }),
+            content: ToolResultContent::normalize(Some(vec![json!({
+                "type": "text",
+                "text": "details"
+            })]))
+            .unwrap(),
         };
         let json_str = serde_json::to_string(&result).unwrap();
         let deserialized: ToolResult = serde_json::from_str(&json_str).unwrap();
@@ -272,6 +435,45 @@ mod tests {
         assert_eq!(deserialized.output, Some(json!("hello")));
         let err = deserialized.error.as_ref().unwrap();
         assert_eq!(err.get("code"), Some(&json!(404)));
+        assert_eq!(
+            serde_json::to_value(deserialized.content).unwrap(),
+            json!([{"type": "text", "text": "details"}])
+        );
+    }
+
+    #[test]
+    fn test_tool_result_empty_content_omits_key() {
+        let result: ToolResult = serde_json::from_value(json!({"content": []})).unwrap();
+        assert!(result.content.is_none());
+        assert_eq!(
+            serde_json::to_value(result).unwrap(),
+            json!({"success": true})
+        );
+    }
+
+    #[test]
+    fn test_tool_result_media_type_matches_core_contract() {
+        assert!(ToolResultContent::normalize(Some(vec![json!({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/a_b",
+                "data": "AA=="
+            }
+        })]))
+        .is_ok());
+    }
+
+    #[test]
+    fn test_tool_result_rejects_invalid_content_without_echoing_it() {
+        let error = serde_json::from_value::<ToolResult>(json!({
+            "content": [{"type": "thinking", "thinking": "WASM-GUEST-SECRET"}]
+        }))
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("invalid tool result content"));
+        assert!(!error.contains("WASM-GUEST-SECRET"));
     }
 
     // --- HookAction tests ---
@@ -473,9 +675,17 @@ mod tests {
             max_output_tokens: 4096,
             capabilities: vec!["chat".to_string(), "tools".to_string()],
             defaults: HashMap::new(),
+            pricing: Some(Pricing {
+                input_per_million: 30.0,
+                output_per_million: 60.0,
+                cache_read_per_million: None,
+                cache_write_per_million: None,
+                currency: "USD".to_string(),
+            }),
         };
         assert_eq!(info.context_window, 128000);
         assert_eq!(info.max_output_tokens, 4096);
+        assert_eq!(info.pricing.as_ref().unwrap().input_per_million, 30.0);
     }
 
     // --- ChatRequest tests ---
@@ -513,6 +723,15 @@ mod tests {
         let resp = ChatResponse {
             content: vec![json!({"type": "text", "text": "Hello!"})],
             tool_calls: None,
+            usage: Some(Usage {
+                input_tokens: 10,
+                output_tokens: 5,
+                total_tokens: 15,
+                reasoning_tokens: None,
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+                cost_usd: Some("0.000000000123456789".to_string()),
+            }),
             finish_reason: Some("stop".to_string()),
             extra: HashMap::new(),
         };
@@ -521,8 +740,41 @@ mod tests {
         assert_eq!(deserialized.content.len(), 1);
         assert_eq!(deserialized.content[0]["text"], json!("Hello!"));
         assert!(deserialized.tool_calls.is_none());
+        assert_eq!(
+            deserialized
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.cost_usd.as_deref()),
+            Some("0.000000000123456789")
+        );
         assert_eq!(deserialized.finish_reason, Some("stop".to_string()));
         assert!(deserialized.extra.is_empty());
+    }
+
+    #[test]
+    fn test_usage_cost_usd_none_is_omitted_and_zero_is_preserved() {
+        let absent = Usage {
+            input_tokens: 10,
+            output_tokens: 5,
+            total_tokens: 15,
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            cost_usd: None,
+        };
+        assert!(serde_json::to_value(&absent)
+            .unwrap()
+            .get("cost_usd")
+            .is_none());
+
+        let present_zero = Usage {
+            cost_usd: Some("0".to_string()),
+            ..absent
+        };
+        let serialized = serde_json::to_value(&present_zero).unwrap();
+        assert_eq!(serialized["cost_usd"], "0");
+        let restored: Usage = serde_json::from_value(serialized).unwrap();
+        assert_eq!(restored.cost_usd.as_deref(), Some("0"));
     }
 
     // --- PartialEq roundtrip tests ---
@@ -551,6 +803,11 @@ mod tests {
                 m.insert("code".to_string(), json!(404));
                 m
             }),
+            content: ToolResultContent::normalize(Some(vec![json!({
+                "type": "text",
+                "text": "details"
+            })]))
+            .unwrap(),
         };
         let json_str = serde_json::to_string(&original).unwrap();
         let deserialized: ToolResult = serde_json::from_str(&json_str).unwrap();
@@ -638,6 +895,13 @@ mod tests {
             max_output_tokens: 4096,
             capabilities: vec!["chat".to_string(), "tools".to_string()],
             defaults: HashMap::new(),
+            pricing: Some(Pricing {
+                input_per_million: 30.0,
+                output_per_million: 60.0,
+                cache_read_per_million: Some(15.0),
+                cache_write_per_million: Some(37.5),
+                currency: "USD".to_string(),
+            }),
         };
         let json_str = serde_json::to_string(&original).unwrap();
         let deserialized: ModelInfo = serde_json::from_str(&json_str).unwrap();

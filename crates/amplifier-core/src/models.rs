@@ -6,8 +6,11 @@
 
 use std::collections::HashMap;
 
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use crate::messages::ContentBlock;
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -106,6 +109,40 @@ pub enum SessionState {
 // Structs
 // ---------------------------------------------------------------------------
 
+/// One independently processed context injection from a hook.
+///
+/// The registry binds `hook_name` and `event` from the registered handler that
+/// emitted this item. Consumers must not rely on handler-provided provenance.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextInjection {
+    /// Text to inject into the agent's conversation context.
+    pub content: String,
+
+    /// Role for the injected message in conversation.
+    #[serde(default)]
+    pub role: ContextInjectionRole,
+
+    /// Whether this injection is request-only rather than durable history.
+    #[serde(default)]
+    pub ephemeral: bool,
+
+    /// Carrier for post-tool-result placement; interpreted by the loop layer.
+    #[serde(default)]
+    pub append_to_last_tool_result: bool,
+
+    /// Registered handler name, bound by the hook registry.
+    #[serde(default = "default_unknown_hook_name")]
+    pub hook_name: String,
+
+    /// Event that emitted the injection, bound by the hook registry.
+    #[serde(default)]
+    pub event: String,
+}
+
+fn default_unknown_hook_name() -> String {
+    "unknown".to_string()
+}
+
 /// Result from hook execution with enhanced capabilities.
 ///
 /// Hooks can observe, block, modify operations, inject context to the agent,
@@ -187,6 +224,13 @@ pub struct HookResult {
     #[serde(default)]
     pub append_to_last_tool_result: bool,
 
+    /// Ordered, lossless context injection items.
+    ///
+    /// The legacy scalar context fields remain for backwards compatibility and
+    /// are projected from this list by the hook registry.
+    #[serde(default)]
+    pub context_injections: Vec<ContextInjection>,
+
     /// Extension fields for forward-compatibility.
     /// Captures any unknown JSON keys during deserialization.
     #[serde(flatten)]
@@ -215,6 +259,7 @@ impl Default for HookResult {
             user_message_level: UserMessageLevel::default(),
             user_message_source: None,
             append_to_last_tool_result: false,
+            context_injections: Vec::new(),
             extensions: HashMap::new(),
         }
     }
@@ -234,6 +279,14 @@ pub struct ToolResult {
     /// Error details if failed.
     #[serde(default)]
     pub error: Option<HashMap<String, Value>>,
+
+    /// Canonical rich tool-result content.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_tool_result_content",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub content: Option<ToolResultContent>,
 }
 
 fn default_true() -> bool {
@@ -246,8 +299,57 @@ impl Default for ToolResult {
             success: true,
             output: None,
             error: None,
+            content: None,
         }
     }
+}
+
+/// A fixed, input-safe error returned when rich tool-result content is invalid.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ToolResultContentError {
+    #[error("invalid tool result content")]
+    InvalidContent,
+    #[error("invalid tool result image source")]
+    InvalidImageSource,
+    #[error("invalid tool result image media type")]
+    InvalidImageMediaType,
+    #[error("invalid tool result image data")]
+    InvalidImageData,
+}
+
+/// A non-empty, ordered collection of canonical ToolResult content blocks.
+///
+/// The wrapped vector is deliberately private: only [`ToolResult::normalize_content`]
+/// may create this type, so generic message blocks, URL images, extensions, and
+/// empty collections cannot cross the ToolResult boundary.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct ToolResultContent(Vec<ContentBlock>);
+
+impl ToolResultContent {
+    /// Iterate over the canonical blocks without exposing mutable or owned storage.
+    pub fn iter(&self) -> impl Iterator<Item = &ContentBlock> {
+        self.0.iter()
+    }
+}
+
+/// Deserialize ToolResult content through its strict canonicalization boundary.
+///
+/// Decode as a JSON value first so type errors cannot include untrusted image data
+/// in the error returned to callers.
+fn deserialize_tool_result_content<'de, D>(
+    deserializer: D,
+) -> Result<Option<ToolResultContent>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw_content = Option::<Value>::deserialize(deserializer)?;
+    let raw_content = match raw_content {
+        None => None,
+        Some(Value::Array(content)) => Some(content),
+        Some(_) => return Err(serde::de::Error::custom("invalid tool result content")),
+    };
+    ToolResult::normalize_content(raw_content).map_err(serde::de::Error::custom)
 }
 
 impl ToolResult {
@@ -263,9 +365,130 @@ impl ToolResult {
             success,
             output,
             error,
+            content: None,
         };
         result.auto_populate_output();
         result
+    }
+
+    /// Strictly validate and canonicalize untrusted rich tool-result content.
+    ///
+    /// Only text and base64 image blocks are accepted. Unknown block/source
+    /// fields are deliberately dropped at this boundary.
+    pub fn normalize_content(
+        content: Option<Vec<Value>>,
+    ) -> Result<Option<ToolResultContent>, ToolResultContentError> {
+        let Some(content) = content else {
+            return Ok(None);
+        };
+        if content.is_empty() {
+            return Ok(None);
+        }
+
+        let mut normalized = Vec::with_capacity(content.len());
+        for block in content {
+            let object = block
+                .as_object()
+                .ok_or(ToolResultContentError::InvalidContent)?;
+            let block_type = object
+                .get("type")
+                .and_then(Value::as_str)
+                .ok_or(ToolResultContentError::InvalidContent)?;
+
+            match block_type {
+                "text" => {
+                    let text = object
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .ok_or(ToolResultContentError::InvalidContent)?;
+                    normalized.push(ContentBlock::Text {
+                        text: text.to_string(),
+                        visibility: None,
+                        extensions: HashMap::new(),
+                    });
+                }
+                "image" => {
+                    let source = object
+                        .get("source")
+                        .and_then(Value::as_object)
+                        .ok_or(ToolResultContentError::InvalidImageSource)?;
+                    if source.get("type").and_then(Value::as_str) != Some("base64") {
+                        return Err(ToolResultContentError::InvalidImageSource);
+                    }
+                    let media_type = source
+                        .get("media_type")
+                        .and_then(Value::as_str)
+                        .ok_or(ToolResultContentError::InvalidImageMediaType)?;
+                    if !valid_image_media_type(media_type) {
+                        return Err(ToolResultContentError::InvalidImageMediaType);
+                    }
+                    let data = source
+                        .get("data")
+                        .and_then(Value::as_str)
+                        .ok_or(ToolResultContentError::InvalidImageData)?;
+                    if data.is_empty() {
+                        return Err(ToolResultContentError::InvalidImageData);
+                    }
+                    let decoded = base64::engine::general_purpose::STANDARD
+                        .decode(data)
+                        .map_err(|_| ToolResultContentError::InvalidImageData)?;
+                    if base64::engine::general_purpose::STANDARD.encode(decoded) != data {
+                        return Err(ToolResultContentError::InvalidImageData);
+                    }
+                    normalized.push(ContentBlock::Image {
+                        source: HashMap::from([
+                            ("type".to_string(), Value::String("base64".to_string())),
+                            (
+                                "media_type".to_string(),
+                                Value::String(media_type.to_string()),
+                            ),
+                            ("data".to_string(), Value::String(data.to_string())),
+                        ]),
+                        visibility: None,
+                        extensions: HashMap::new(),
+                    });
+                }
+                _ => return Err(ToolResultContentError::InvalidContent),
+            }
+        }
+
+        Ok(Some(ToolResultContent(normalized)))
+    }
+
+    /// Produce an image-safe representation for hook event payloads.
+    pub fn safe_hook_presentation(&self) -> Value {
+        let mut result = serde_json::Map::new();
+        result.insert("success".to_string(), Value::Bool(self.success));
+        result.insert(
+            "output".to_string(),
+            self.output.clone().unwrap_or(Value::Null),
+        );
+        result.insert(
+            "error".to_string(),
+            self.error
+                .as_ref()
+                .and_then(|error| serde_json::to_value(error).ok())
+                .unwrap_or(Value::Null),
+        );
+
+        if let Some(content) = &self.content {
+            let safe_content: Vec<Value> = content
+                .iter()
+                .filter_map(|block| match block {
+                    ContentBlock::Text { text, .. } => {
+                        Some(serde_json::json!({"type": "text", "text": text}))
+                    }
+                    ContentBlock::Image { .. } => Some(serde_json::json!({
+                        "type": "text",
+                        "text": "[Image omitted from tool event; original retained for model request if unmodified.]"
+                    })),
+                    _ => None,
+                })
+                .collect();
+            result.insert("content".to_string(), Value::Array(safe_content));
+        }
+
+        Value::Object(result)
     }
 
     /// Auto-populate output from error message when tools forget to set it.
@@ -278,6 +501,24 @@ impl ToolResult {
             }
         }
     }
+}
+
+fn valid_image_media_type(media_type: &str) -> bool {
+    let Some(subtype) = media_type.strip_prefix("image/") else {
+        return false;
+    };
+    let mut chars = subtype.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_alphanumeric()
+        && chars.all(|character| {
+            character.is_ascii_alphanumeric()
+                || matches!(
+                    character,
+                    '!' | '#' | '$' | '&' | '^' | '_' | '.' | '+' | '-'
+                )
+        })
 }
 
 /// Model metadata for provider models.
@@ -304,6 +545,11 @@ pub struct ModelInfo {
     /// Model-specific default config values (e.g., temperature, max_tokens).
     #[serde(default)]
     pub defaults: HashMap<String, Value>,
+
+    /// Per-model pricing information. None when pricing is not available
+    /// (e.g., local providers like ollama, self-hosted backends like vllm).
+    #[serde(default)]
+    pub pricing: Option<Pricing>,
 }
 
 /// A configuration field that a provider needs, with prompt metadata.
@@ -350,6 +596,36 @@ pub struct ConfigField {
     /// If true, this field is shown after model selection.
     #[serde(default)]
     pub requires_model: bool,
+}
+
+/// Per-model pricing information.
+///
+/// Rates are per million tokens, in the specified currency. Surfaced via
+/// `/v1/models` so HTTP-bridge applications (e.g., amplifier-app-opencode)
+/// can display cost estimates without maintaining their own pricing tables.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Pricing {
+    /// Cost per million input tokens.
+    pub input_per_million: f64,
+
+    /// Cost per million output tokens.
+    pub output_per_million: f64,
+
+    /// Cost per million cache-read input tokens (None if not supported).
+    #[serde(default)]
+    pub cache_read_per_million: Option<f64>,
+
+    /// Cost per million cache-write input tokens (None if not supported).
+    #[serde(default)]
+    pub cache_write_per_million: Option<f64>,
+
+    /// ISO 4217 currency code.
+    #[serde(default = "default_currency")]
+    pub currency: String,
+}
+
+fn default_currency() -> String {
+    "USD".to_string()
 }
 
 /// Provider metadata.
@@ -560,6 +836,23 @@ mod tests {
         assert!(result.context_injection.is_none());
         assert_eq!(result.context_injection_role, ContextInjectionRole::System);
         assert!(!result.ephemeral);
+        assert!(result.context_injections.is_empty());
+    }
+
+    #[test]
+    fn context_injection_serialization_roundtrip() {
+        let injection = ContextInjection {
+            content: "temporary reminder".into(),
+            role: ContextInjectionRole::User,
+            ephemeral: true,
+            append_to_last_tool_result: true,
+            hook_name: "registered-hook".into(),
+            event: "tool:post".into(),
+        };
+
+        let json = serde_json::to_string(&injection).unwrap();
+        let restored: ContextInjection = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, injection);
     }
 
     #[test]
@@ -655,6 +948,7 @@ mod tests {
         assert!(result.success);
         assert!(result.output.is_none());
         assert!(result.error.is_none());
+        assert!(result.content.is_none());
     }
 
     #[test]
@@ -663,6 +957,7 @@ mod tests {
             success: true,
             output: Some(json!({"key": "value"})),
             error: None,
+            content: None,
         };
         let json_str = serde_json::to_string(&result).unwrap();
         let deserialized: ToolResult = serde_json::from_str(&json_str).unwrap();
@@ -678,12 +973,138 @@ mod tests {
                 "message".to_string(),
                 json!("command failed"),
             )])),
+            content: None,
         };
         assert!(!result.success);
         assert_eq!(
             result.error.as_ref().unwrap().get("message"),
             Some(&json!("command failed"))
         );
+    }
+
+    #[test]
+    fn tool_result_content_normalization_is_canonical_and_strict() {
+        let content = ToolResult::normalize_content(Some(vec![
+            json!({"type": "text", "text": "details", "visibility": "user", "extra": true}),
+            json!({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": "AA==",
+                    "ignored": true
+                },
+                "ignored": true
+            }),
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&content).unwrap(),
+            json!([
+                {"type": "text", "text": "details"},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "AA=="
+                    }
+                }
+            ])
+        );
+        assert_eq!(
+            ToolResult::normalize_content(Some(vec![json!({
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": "AA"}
+            })])),
+            Err(ToolResultContentError::InvalidImageData)
+        );
+    }
+
+    #[test]
+    fn tool_result_deserialization_normalizes_content_without_input_echo() {
+        let valid: ToolResult = serde_json::from_value(json!({
+            "content": [
+                {"type": "text", "text": "details", "visibility": "user"},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "AA==",
+                        "ignored": true
+                    },
+                    "ignored": true
+                }
+            ]
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(valid.content).unwrap(),
+            json!([
+                {"type": "text", "text": "details"},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "AA=="
+                    }
+                }
+            ])
+        );
+
+        let empty: ToolResult = serde_json::from_value(json!({"content": []})).unwrap();
+        assert!(empty.content.is_none());
+        assert_eq!(
+            serde_json::to_value(empty).unwrap(),
+            json!({"success": true, "output": null, "error": null})
+        );
+
+        for content in [
+            json!([{"type": "thinking", "thinking": "private-bytes"}]),
+            json!("private-bytes"),
+        ] {
+            let error = serde_json::from_value::<ToolResult>(json!({"content": content}))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("invalid tool result content"));
+            assert!(!error.contains("private-bytes"));
+        }
+    }
+
+    #[test]
+    fn tool_result_safe_hook_presentation_omits_image_bytes() {
+        let result = ToolResult {
+            success: true,
+            output: Some(json!({"status": "ok"})),
+            error: None,
+            content: ToolResult::normalize_content(Some(vec![
+                json!({"type": "text", "text": "details"}),
+                json!({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "AA=="
+                    }
+                }),
+            ]))
+            .unwrap(),
+        };
+        let safe = result.safe_hook_presentation();
+        assert_eq!(
+            safe["content"],
+            json!([
+                {"type": "text", "text": "details"},
+                {
+                    "type": "text",
+                    "text": "[Image omitted from tool event; original retained for model request if unmodified.]"
+                }
+            ])
+        );
+        assert!(!safe.to_string().contains("AA=="));
     }
 
     // --- ToolResult auto-populate tests ---
@@ -727,6 +1148,7 @@ mod tests {
             max_output_tokens: 4096,
             capabilities: vec!["streaming".into()],
             defaults: Default::default(),
+            pricing: None,
         };
         assert_eq!(info.id, "gpt-4");
     }
@@ -740,6 +1162,13 @@ mod tests {
             max_output_tokens: 8192,
             capabilities: vec!["tools".into(), "vision".into(), "streaming".into()],
             defaults: HashMap::from([("temperature".into(), json!(0.7))]),
+            pricing: Some(Pricing {
+                input_per_million: 3.0,
+                output_per_million: 15.0,
+                cache_read_per_million: None,
+                cache_write_per_million: None,
+                currency: "USD".into(),
+            }),
         };
         let json_str = serde_json::to_string(&info).unwrap();
         let deserialized: ModelInfo = serde_json::from_str(&json_str).unwrap();

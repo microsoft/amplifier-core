@@ -9,6 +9,7 @@ Any language with gRPC support can implement a tool module.
 """
 
 import json
+import base64
 import logging
 from typing import Any
 
@@ -105,6 +106,43 @@ class GrpcToolBridge:
         logger.warning(f"Unknown content type '{content_type}', attempting JSON decode")
         return json.loads(output_bytes.decode("utf-8"))
 
+    def _deserialize_content_blocks(self, content_blocks: Any) -> list[dict[str, Any]] | None:
+        """Decode the ToolResult-specific protobuf representation."""
+        if not content_blocks:
+            return None
+
+        raw_content: list[dict[str, Any]] = []
+        for block in content_blocks:
+            if block.visibility != 0:
+                raise ValueError("invalid tool result content")
+            block_type = block.WhichOneof("block")
+            if block_type == "text_block":
+                raw_content.append({"type": "text", "text": block.text_block.text})
+            elif block_type == "image_block":
+                if block.image_block.source_json:
+                    raise ValueError("invalid tool result content")
+                raw_content.append(
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": block.image_block.media_type,
+                            "data": base64.b64encode(block.image_block.data).decode("ascii"),
+                        },
+                    }
+                )
+            else:
+                raise ValueError("invalid tool result content")
+
+        from amplifier_core.models import ToolResult
+
+        result = ToolResult(content=raw_content)
+        return (
+            [item.model_dump(exclude_none=True) for item in result.content]
+            if result.content is not None
+            else None
+        )
+
     async def execute(self, **kwargs: Any) -> dict[str, Any]:
         """Execute the tool via gRPC.
 
@@ -131,18 +169,32 @@ class GrpcToolBridge:
                 content_type=content_type,
             )
             response = await self._stub.Execute(request)
+            try:
+                content = self._deserialize_content_blocks(response.content_blocks)
+            except ValueError:
+                logger.warning(
+                    "gRPC tool '%s' returned invalid tool result content", self._name
+                )
+                return {
+                    "success": False,
+                    "output": None,
+                    "error": {"message": "invalid tool result content from gRPC tool"},
+                }
 
             if response.success:
                 output = self._deserialize_output(
                     response.output, response.content_type
                 )
-                return {"success": True, "output": output, "error": None}
+                result = {"success": True, "output": output, "error": None}
             else:
-                return {
+                result = {
                     "success": False,
                     "output": None,
                     "error": {"message": response.error},
                 }
+            if content is not None:
+                result["content"] = content
+            return result
 
         except Exception as e:
             logger.error(f"gRPC tool execution failed for '{self._name}': {e}")
@@ -195,8 +247,7 @@ async def load_grpc_module(
     except ImportError:
         raise ImportError(
             "gRPC proto stubs not generated. Run: "
-            "python -m grpc_tools.protoc -I proto --python_out=python/amplifier_core/_grpc_gen "
-            "--grpc_python_out=python/amplifier_core/_grpc_gen proto/amplifier_module.proto"
+            "python scripts/generate_grpc_stubs.py"
         )
 
     stub = amplifier_module_pb2_grpc.ToolServiceStub(channel)

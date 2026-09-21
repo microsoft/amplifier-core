@@ -3,7 +3,8 @@ Tests for thin hooks.py alias that re-exports Rust-backed HookRegistry.
 """
 
 import amplifier_core.hooks as hooks_module
-from amplifier_core.hooks import HookRegistry, HookResult
+from amplifier_core.hooks import ContextInjection, HookRegistry, HookResult
+from amplifier_core.models import ContextInjection as ModelContextInjection
 
 
 def test_import_hook_registry():
@@ -37,7 +38,8 @@ def test_hook_registry_instantiation():
 
 
 def test_all_exports():
-    """__all__ contains exactly HookRegistry and HookResult."""
+    """__all__ exposes every public hook result type."""
     all_exports = getattr(hooks_module, "__all__", None)
     assert all_exports is not None, "hooks module should define __all__"
-    assert set(all_exports) == {"HookRegistry", "HookResult"}
+    assert set(all_exports) == {"HookRegistry", "ContextInjection", "HookResult"}
+    assert ContextInjection is ModelContextInjection

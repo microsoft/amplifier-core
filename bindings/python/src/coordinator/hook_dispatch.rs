@@ -34,6 +34,16 @@ fn truncate_for_log(s: &str, max_chars: usize) -> String {
     }
 }
 
+struct PreparedInjection {
+    content: String,
+    role: String,
+    ephemeral: bool,
+    append_to_last_tool_result: bool,
+    hook_name: String,
+    event: String,
+    tokens: usize,
+}
+
 #[pymethods]
 impl PyCoordinator {
     /// Process a HookResult and route actions to appropriate subsystems.
@@ -117,6 +127,10 @@ impl PyCoordinator {
         };
         let approval_timeout: f64 = result.getattr("approval_timeout")?.extract()?;
         let approval_default: String = result.getattr("approval_default")?.extract()?;
+
+        if action == "inject_context" {
+            return self.process_context_injections(py, result, event, hook_name);
+        }
 
         // Read coordinator config
         let size_limit: Option<usize> = {
@@ -505,6 +519,296 @@ impl PyCoordinator {
 }
 
 impl PyCoordinator {
+    fn process_context_injections<'py>(
+        &mut self,
+        py: Python<'py>,
+        result: Bound<'py, PyAny>,
+        event: String,
+        hook_name: &str,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let scalar_content: Option<String> = {
+            let value = result.getattr("context_injection")?;
+            (!value.is_none()).then(|| value.extract()).transpose()?
+        };
+        let scalar_role: String = result.getattr("context_injection_role")?.extract()?;
+        let scalar_ephemeral: bool = result.getattr("ephemeral")?.extract()?;
+        let scalar_append: bool = result.getattr("append_to_last_tool_result")?.extract()?;
+        let suppress_output: bool = result.getattr("suppress_output")?.extract()?;
+        let user_message: Option<String> = {
+            let value = result.getattr("user_message")?;
+            (!value.is_none()).then(|| value.extract()).transpose()?
+        };
+        let user_message_level: String = result.getattr("user_message_level")?.extract()?;
+        let user_message_source: Option<String> = {
+            let value = result.getattr("user_message_source")?;
+            (!value.is_none()).then(|| value.extract()).transpose()?
+        };
+
+        let size_limit: Option<usize> = {
+            let value = self.get_injection_size_limit(py)?;
+            (!value.bind(py).is_none())
+                .then(|| value.extract(py))
+                .transpose()?
+        };
+        let budget: Option<usize> = {
+            let value = self.get_injection_budget_per_turn(py)?;
+            (!value.bind(py).is_none())
+                .then(|| value.extract(py))
+                .transpose()?
+        };
+
+        let items = result.getattr("context_injections")?;
+        let mut raw_items = Vec::new();
+        for item in items.try_iter()? {
+            let item = item?;
+            raw_items.push((
+                item.getattr("content")?.extract::<String>()?,
+                item.getattr("role")?.extract::<String>()?,
+                item.getattr("ephemeral")?.extract::<bool>()?,
+                item.getattr("append_to_last_tool_result")?
+                    .extract::<bool>()?,
+                item.getattr("hook_name")?.extract::<String>()?,
+                item.getattr("event")?.extract::<String>()?,
+            ));
+        }
+
+        // Scalar-only results predate the structured carrier. Normalize them
+        // here for direct callers that have not passed through HookRegistry.
+        if raw_items.is_empty() {
+            if let Some(content) = scalar_content {
+                raw_items.push((
+                    content,
+                    scalar_role,
+                    scalar_ephemeral,
+                    scalar_append,
+                    hook_name.to_string(),
+                    event.clone(),
+                ));
+            }
+        }
+
+        const CHARS_PER_TOKEN_ESTIMATE: usize = 4;
+        let sanitize = py
+            .import("amplifier_core.models")?
+            .getattr("_sanitize_for_llm")?;
+        let mut prepared = Vec::new();
+        for (content, role, ephemeral, append, item_hook_name, item_event) in raw_items {
+            let sanitized_content: String = sanitize
+                .call1((content,))?
+                .extract()
+                .map_err(|error| {
+                    log::error!(
+                        "SECURITY: Sanitization unavailable for hook '{}' — rejecting injection: {error}",
+                        item_hook_name
+                    );
+                    PyValueError::new_err(
+                        "Context injection rejected: content sanitization function unavailable",
+                    )
+                })?;
+            if sanitized_content.is_empty() {
+                continue;
+            }
+            let char_count = sanitized_content.chars().count();
+            if let Some(limit) = size_limit {
+                if char_count > limit {
+                    log::error!(
+                        "Hook injection too large: {} (chars={}, limit={})",
+                        item_hook_name,
+                        char_count,
+                        limit
+                    );
+                    return Err(PyValueError::new_err(format!(
+                        "Context injection exceeds {} characters",
+                        limit
+                    )));
+                }
+            }
+            prepared.push(PreparedInjection {
+                content: sanitized_content,
+                role,
+                ephemeral,
+                append_to_last_tool_result: append,
+                hook_name: item_hook_name,
+                event: item_event,
+                tokens: char_count / CHARS_PER_TOKEN_ESTIMATE,
+            });
+        }
+
+        // Every item is validated before the budget state is charged or any
+        // context write begins. Budget is still advisory, as it was for the
+        // legacy scalar path, but applies to the total item sequence.
+        let mut running_total = self.current_turn_injections;
+        for item in &prepared {
+            if let Some(limit) = budget {
+                if running_total + item.tokens > limit {
+                    log::warn!(
+                        "Warning: Hook injection budget exceeded \
+                         (hook={}, current={}, attempted={}, budget={})",
+                        item.hook_name,
+                        running_total,
+                        item.tokens,
+                        limit
+                    );
+                }
+            }
+            running_total += item.tokens;
+        }
+        self.current_turn_injections = running_total;
+
+        let context_obj: Py<PyAny> = {
+            let mount_points = self.mount_points.bind(py);
+            match mount_points.get_item("context")? {
+                Some(context) if !context.is_none() => context.unbind(),
+                _ => py.None(),
+            }
+        };
+        let has_context = {
+            let context = context_obj.bind(py);
+            !context.is_none() && context.hasattr("add_message")?
+        };
+
+        let now = if has_context && prepared.iter().any(|item| !item.ephemeral) {
+            let datetime = py.import("datetime")?;
+            let utc = datetime.getattr("timezone")?.getattr("utc")?;
+            Some(
+                datetime
+                    .getattr("datetime")?
+                    .call_method1("now", (utc,))?
+                    .call_method0("isoformat")?
+                    .unbind(),
+            )
+        } else {
+            None
+        };
+
+        let mut messages = Vec::new();
+        let mut residual = Vec::new();
+        for item in prepared {
+            log::info!(
+                "Hook context injection \
+                 (hook={}, event={}, chars={}, role={}, tokens={}, ephemeral={})",
+                item.hook_name,
+                item.event,
+                item.content.chars().count(),
+                item.role,
+                item.tokens,
+                item.ephemeral
+            );
+            if item.ephemeral {
+                residual.push(item);
+                continue;
+            }
+            if has_context {
+                let metadata = PyDict::new(py);
+                metadata.set_item("source", "hook")?;
+                metadata.set_item("hook_name", &item.hook_name)?;
+                metadata.set_item("event", &item.event)?;
+                metadata.set_item("timestamp", now.as_ref().unwrap().bind(py))?;
+                metadata.set_item("requested_role", &item.role)?;
+                metadata.set_item("ephemeral", false)?;
+                metadata.set_item("persisted", true)?;
+
+                let message = PyDict::new(py);
+                message.set_item("role", &item.role)?;
+                message.set_item("content", &item.content)?;
+                message.set_item("metadata", metadata)?;
+                messages.push(message.into_any().unbind());
+            }
+        }
+
+        if let Some(message) = user_message.filter(|message| !message.is_empty()) {
+            let source = user_message_source.as_deref().unwrap_or(hook_name);
+            let display = self.display_system_obj.bind(py);
+            if display.is_none() {
+                log::debug!(
+                    "Hook message ({}): {} (hook={})",
+                    user_message_level,
+                    truncate_for_log(&message, 200),
+                    source
+                );
+            } else if let Err(error) = display.call_method(
+                "show_message",
+                (&message, &user_message_level, format!("hook:{source}")),
+                None,
+            ) {
+                log::error!("Error calling display_system: {error}");
+            }
+        }
+        if suppress_output {
+            log::debug!("Hook '{}' requested output suppression", hook_name);
+        }
+
+        let result_py = result.unbind();
+        let hook_result_cls = py
+            .import("amplifier_core.models")?
+            .getattr("HookResult")?
+            .unbind();
+        wrap_future_as_coroutine(
+            py,
+            pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                let bridge = PyContextManagerBridge {
+                    py_obj: context_obj,
+                };
+                for message in messages {
+                    bridge.add_message(message).await?;
+                }
+                Self::make_residual_hook_result(&hook_result_cls, &result_py, &residual)
+            }),
+        )
+    }
+
+    fn make_residual_hook_result(
+        hook_result_cls: &Py<PyAny>,
+        original: &Py<PyAny>,
+        residual: &[PreparedInjection],
+    ) -> PyResult<Py<PyAny>> {
+        Python::try_attach(|py| -> PyResult<Py<PyAny>> {
+            let values = original.call_method0(py, "model_dump")?;
+            let updates = PyDict::new(py);
+            let injections = pyo3::types::PyList::empty(py);
+            for item in residual {
+                let injection = PyDict::new(py);
+                injection.set_item("content", &item.content)?;
+                injection.set_item("role", &item.role)?;
+                injection.set_item("ephemeral", item.ephemeral)?;
+                injection.set_item(
+                    "append_to_last_tool_result",
+                    item.append_to_last_tool_result,
+                )?;
+                injection.set_item("hook_name", &item.hook_name)?;
+                injection.set_item("event", &item.event)?;
+                injections.append(injection)?;
+            }
+            updates.set_item("context_injections", injections)?;
+            if residual.is_empty() {
+                updates.set_item("action", "continue")?;
+                updates.set_item("context_injection", py.None())?;
+                updates.set_item("context_injection_role", "system")?;
+                updates.set_item("ephemeral", false)?;
+                updates.set_item("append_to_last_tool_result", false)?;
+            } else {
+                updates.set_item("action", "inject_context")?;
+                updates.set_item(
+                    "context_injection",
+                    residual
+                        .iter()
+                        .map(|item| item.content.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n\n"),
+                )?;
+                updates.set_item("context_injection_role", &residual[0].role)?;
+                updates.set_item("ephemeral", true)?;
+                updates.set_item(
+                    "append_to_last_tool_result",
+                    residual.iter().any(|item| item.append_to_last_tool_result),
+                )?;
+            }
+            values.call_method1(py, "update", (updates,))?;
+            hook_result_cls.call_method1(py, "model_validate", (values,))
+        })
+        .ok_or_else(|| PyRuntimeError::new_err("Failed to create residual HookResult"))?
+    }
+
     /// Construct a HookResult Python object with the given action and optional reason.
     ///
     /// Centralises the `Python::try_attach` + `PyDict` + `hook_result_cls.call` pattern
