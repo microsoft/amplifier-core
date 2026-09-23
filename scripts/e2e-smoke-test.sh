@@ -7,7 +7,7 @@ set -euo pipefail
 #
 # Prerequisites:
 #   - Docker installed and running
-#   - ANTHROPIC_API_KEY set in environment (or in ~/.amplifier/keys.env)
+#   - Selected provider API key in environment (or in ~/.amplifier/keys.env)
 #   - maturin installed (pip install maturin)
 #
 # Usage:
@@ -20,6 +20,10 @@ set -euo pipefail
 #       --local-source /path/to/amplifier-foundation
 #
 # Environment variables:
+#   SMOKE_PROVIDER   anthropic (default) or openai
+#   SMOKE_MODEL      Optional model override (otherwise use provider default)
+#   SMOKE_BUNDLE     Optional bundle override (otherwise use CLI default)
+#   ANTHROPIC_BASE_URL / OPENAI_BASE_URL  Optional selected provider endpoint
 #   SMOKE_PROMPT     Override the default test prompt
 #   SMOKE_TIMEOUT    Override the timeout in seconds (default: 360)
 
@@ -31,6 +35,11 @@ SKIP_BUILD=false
 SMOKE_PROMPT="${SMOKE_PROMPT:-Ask recipe author to run one of its example recipes}"
 TIMEOUT_SECONDS="${SMOKE_TIMEOUT:-360}"
 LOCAL_SOURCES=()
+SMOKE_PROVIDER="${SMOKE_PROVIDER:-anthropic}"
+SMOKE_MODEL="${SMOKE_MODEL:-}"
+# Default to Foundation so the recipe-author agent is available in the
+# maintained smoke path; callers can override this with SMOKE_BUNDLE.
+SMOKE_BUNDLE="${SMOKE_BUNDLE:-foundation}"
 
 # Colors (defined early so fail() works during arg parsing)
 RED='\033[0;31m'
@@ -73,7 +82,11 @@ while [[ $# -gt 0 ]]; do
             echo "     --local-source ../amplifier-bundle-modes/modules/hooks-mode"
             echo ""
             echo "Environment variables:"
-            echo "  ANTHROPIC_API_KEY  Required (or set in ~/.amplifier/keys.env)"
+            echo "  SMOKE_PROVIDER    anthropic (default) or openai"
+            echo "  SMOKE_MODEL       Optional model override"
+            echo "  SMOKE_BUNDLE      Optional bundle override"
+            echo "  Selected provider API key required (environment or ~/.amplifier/keys.env)"
+            echo "  ANTHROPIC_BASE_URL / OPENAI_BASE_URL  Optional selected provider endpoint"
             echo "  SMOKE_PROMPT       Test prompt (default: 'Ask recipe author to run one of its example recipes')"
             echo "  SMOKE_TIMEOUT      Timeout in seconds (default: 360)"
             exit 0
@@ -92,8 +105,20 @@ trap cleanup EXIT
 # Step 0: Resolve API keys
 # ---------------------------------------------------------------------------
 
-# If ANTHROPIC_API_KEY is not set, try to load from ~/.amplifier/keys.env
-if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+# Select the credential family before falling back to the existing keys file.
+case "$SMOKE_PROVIDER" in
+    anthropic)
+        PROVIDER_KEY_ENV=ANTHROPIC_API_KEY
+        PROVIDER_BASE_URL_ENV=ANTHROPIC_BASE_URL
+        ;;
+    openai)
+        PROVIDER_KEY_ENV=OPENAI_API_KEY
+        PROVIDER_BASE_URL_ENV=OPENAI_BASE_URL
+        ;;
+    *) fail "SMOKE_PROVIDER must be anthropic or openai" ;;
+esac
+
+if [[ -z "${!PROVIDER_KEY_ENV:-}" ]]; then
     KEYS_ENV="$HOME/.amplifier/keys.env"
     if [[ -f "$KEYS_ENV" ]]; then
         log "Loading API keys from $KEYS_ENV..."
@@ -104,7 +129,13 @@ if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
     fi
 fi
 
-[[ -z "${ANTHROPIC_API_KEY:-}" ]] && fail "ANTHROPIC_API_KEY not set. Set it in your environment or in ~/.amplifier/keys.env"
+[[ -z "${!PROVIDER_KEY_ENV:-}" ]] && fail "$PROVIDER_KEY_ENV not set. Set it in your environment or in ~/.amplifier/keys.env"
+# Pass names, not values, in Docker argv. Only the selected family reaches
+# noninteractive CLI auto-init, which otherwise prefers ambient Anthropic keys.
+PROVIDER_ENV_ARGS=(-e "$PROVIDER_KEY_ENV")
+if [[ -n "${!PROVIDER_BASE_URL_ENV:-}" ]]; then
+    PROVIDER_ENV_ARGS+=(-e "$PROVIDER_BASE_URL_ENV")
+fi
 command -v docker &>/dev/null || fail "Docker not installed or not in PATH"
 
 # ---------------------------------------------------------------------------
@@ -187,9 +218,7 @@ log "Pristine-import preflight passed."
 
 log "Creating isolated Docker container..."
 docker run -d --name "$CONTAINER_NAME" \
-    -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
-    -e OPENAI_API_KEY="${OPENAI_API_KEY:-}" \
-    -e AZURE_OPENAI_API_KEY="${AZURE_OPENAI_API_KEY:-}" \
+    "${PROVIDER_ENV_ARGS[@]}" \
     python:3.12-slim \
     sleep 3600 \
     || fail "Container creation failed"
@@ -306,13 +335,19 @@ log " Timeout: ${TIMEOUT_SECONDS}s"
 log "============================================================"
 echo ""
 
-# Foundation provides the recipe-author agent required by the default prompt.
-# Run the smoke test; capture output even if timeout exits non-zero.
+# Run the smoke test; capture output even if timeout exits non-zero
 SMOKE_EXIT_CODE=0
-SMOKE_OUTPUT=$(docker exec "$CONTAINER_NAME" bash -c "
-    export PATH=/root/.local/bin:\$PATH
-    timeout $TIMEOUT_SECONDS amplifier run --bundle foundation '$SMOKE_PROMPT' 2>&1
-" 2>&1) || SMOKE_EXIT_CODE=$?
+SMOKE_OUTPUT=$(docker exec "$CONTAINER_NAME" bash -c '
+    export PATH=/root/.local/bin:$PATH
+    smoke_args=(--provider "$2")
+    if [[ -n "$3" ]]; then
+        smoke_args+=(--model "$3")
+    fi
+    if [[ -n "$5" ]]; then
+        smoke_args+=(--bundle "$5")
+    fi
+    timeout "$1" amplifier run "${smoke_args[@]}" -- "$4" 2>&1
+' smoke-run "$TIMEOUT_SECONDS" "$SMOKE_PROVIDER" "$SMOKE_MODEL" "$SMOKE_PROMPT" "$SMOKE_BUNDLE" 2>&1) || SMOKE_EXIT_CODE=$?
 
 # ---------------------------------------------------------------------------
 # Step 8: Evaluate results
