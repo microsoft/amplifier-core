@@ -34,6 +34,10 @@ use crate::hooks::PyHookRegistry;
 pub(crate) struct PySession {
     /// Rust kernel session (for session_id, parent_id, initialized flag).
     inner: Arc<tokio::sync::Mutex<amplifier_core::Session>>,
+    /// Serialize the entire end-event/drain sequence. The boolean records an
+    /// attempted terminal event for the current initialized lifetime, including
+    /// a cleanup whose waiter is cancelled during that event.
+    cleanup_state: Arc<tokio::sync::Mutex<bool>>,
     /// The PyCoordinator instance owned by this session.
     coordinator: Py<PyAny>,
     /// Original config dict (Python dict).
@@ -183,6 +187,7 @@ impl PySession {
 
         Ok(Self {
             inner: Arc::new(tokio::sync::Mutex::new(session)),
+            cleanup_state: Arc::new(tokio::sync::Mutex::new(false)),
             coordinator: coord_any,
             config: config.clone().unbind(),
             is_resumed,
@@ -275,7 +280,7 @@ impl PySession {
         }
 
         // Step 2: Extract what we need before entering the async block
-        let (coro_py, inner) = {
+        let (coro_py, inner, cleanup_state) = {
             let this = slf.borrow();
             let helper = py.import("amplifier_core._session_init")?;
             let init_fn = helper.getattr("initialize_session")?;
@@ -288,7 +293,7 @@ impl PySession {
             // Convert to an owned Py<PyAny> so it's 'static + Send
             let coro_py: Py<PyAny> = coro.unbind();
             let inner = this.inner.clone();
-            (coro_py, inner)
+            (coro_py, inner, this.cleanup_state.clone())
         };
 
         // Step 3: Patch the coordinator's session back-reference to point to
@@ -326,8 +331,10 @@ impl PySession {
 
                 // Step 5: Mark session as initialized in Rust kernel
                 {
+                    let mut end_emitted = cleanup_state.lock().await;
                     let session = inner.lock().await;
                     session.set_initialized();
+                    *end_emitted = false;
                 }
 
                 Ok(())
@@ -554,14 +561,17 @@ impl PySession {
     /// Clean up session resources.
     ///
     /// Rust controls the full cleanup lifecycle:
-    /// 1. Call all registered cleanup functions (reverse order, error-tolerant)
-    /// 2. Emit `session:end` event via hooks
+    /// 1. Await `session:end` once for the initialized lifetime, while hooks are live
+    /// 2. Call all registered cleanup functions (reverse order, error-tolerant)
     /// 3. Reset the initialized flag
+    /// Concurrent cleanup waits for this entire sequence. Uninitialized and
+    /// repeated cleanup still release resources but do not emit another end.
     ///
     /// Errors in cleanup functions and event emission are logged but never
     /// propagate — cleanup must always complete.
     fn cleanup<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner.clone();
+        let cleanup_state = self.cleanup_state.clone();
 
         // Grab references we need inside the async block
         let session_id = self.cached_session_id.clone();
@@ -601,8 +611,20 @@ impl PySession {
         wrap_future_as_coroutine(
             py,
             pyo3_async_runtimes::tokio::future_into_py(py, async move {
+                // Keep module cleanup behind the awaited terminal event even
+                // when another caller concurrently requests cleanup.
+                let mut end_emitted = cleanup_state.lock().await;
+                let initialized = inner.lock().await.is_initialized();
+                if initialized && !*end_emitted {
+                    // Claim before awaiting so a cancelled waiter cannot cause
+                    // a subsequent cleanup to emit the terminal event twice.
+                    *end_emitted = true;
+                    let end_data = serde_json::json!({ "session_id": session_id });
+                    hooks_inner_for_end.emit("session:end", end_data).await;
+                }
+
                 // ----------------------------------------------------------
-                // Step 1: Call all cleanup functions in reverse order
+                // Step 2: Call all cleanup functions in reverse order
                 // Matches Python main's coordinator.cleanup() pattern:
                 //   if callable(fn):
                 //     if iscoroutinefunction(fn): await fn()
@@ -673,15 +695,6 @@ impl PySession {
                         }
                     }
                 }
-
-                // ----------------------------------------------------------
-                // Step 2: Emit session:end event (best-effort)
-                // Direct Rust emit — avoids Future/coroutine mismatch when going
-                // through the Python PyO3 bridge (future_into_py returns a Future,
-                // but into_future() expects a native coroutine).
-                // ----------------------------------------------------------
-                let end_data = serde_json::json!({ "session_id": session_id });
-                hooks_inner_for_end.emit("session:end", end_data).await;
 
                 // ----------------------------------------------------------
                 // Step 3: Reset the initialized flag
