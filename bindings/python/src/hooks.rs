@@ -13,6 +13,13 @@ use serde_json::Value;
 use crate::bridges::PyHookHandlerBridge;
 use crate::helpers::{json_dumps_safe, try_model_dump, wrap_future_as_coroutine};
 
+struct Registration {
+    id: uuid::Uuid,
+    unregister: Box<dyn Fn() + Send + Sync>,
+}
+
+type Registrations = Arc<std::sync::Mutex<HashMap<String, Vec<Registration>>>>;
+
 // ---------------------------------------------------------------------------
 // PyUnregisterFn — callable returned by PyHookRegistry.register()
 // ---------------------------------------------------------------------------
@@ -24,18 +31,35 @@ use crate::helpers::{json_dumps_safe, try_model_dump, wrap_future_as_coroutine};
 /// a callable that unregisters the handler when invoked.
 #[pyclass(name = "RustUnregisterFn")]
 pub(crate) struct PyUnregisterFn {
-    #[allow(clippy::type_complexity)]
-    unregister_fns: Arc<std::sync::Mutex<HashMap<String, Box<dyn Fn() + Send + Sync>>>>,
+    unregister_fns: Registrations,
     name: String,
+    registration_id: uuid::Uuid,
 }
 
 #[pymethods]
 impl PyUnregisterFn {
     fn __call__(&self) -> PyResult<()> {
-        if let Ok(mut fns) = self.unregister_fns.lock() {
-            if let Some(unreg) = fns.remove(&self.name) {
-                unreg();
+        let registration = {
+            let mut fns = self
+                .unregister_fns
+                .lock()
+                .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Lock poisoned: {e}")))?;
+            let mut owned = None;
+            if let Some(registrations) = fns.get_mut(&self.name) {
+                if let Some(index) = registrations
+                    .iter()
+                    .position(|r| r.id == self.registration_id)
+                {
+                    owned = Some(registrations.remove(index));
+                }
+                if registrations.is_empty() {
+                    fns.remove(&self.name);
+                }
             }
+            owned
+        };
+        if let Some(registration) = registration {
+            (registration.unregister)();
         }
         Ok(())
     }
@@ -56,9 +80,8 @@ impl PyUnregisterFn {
 #[pyclass(name = "RustHookRegistry")]
 pub(crate) struct PyHookRegistry {
     pub(crate) inner: Arc<amplifier_core::HookRegistry>,
-    /// Stored unregister closures keyed by handler name.
-    #[allow(clippy::type_complexity)]
-    unregister_fns: Arc<std::sync::Mutex<HashMap<String, Box<dyn Fn() + Send + Sync>>>>,
+    /// Names are labels, not identities: retain each registration's own closure.
+    unregister_fns: Registrations,
 }
 
 impl PyHookRegistry {
@@ -118,10 +141,16 @@ impl PyHookRegistry {
             self.inner
                 .register(event, bridge, priority, Some(handler_name.clone()));
 
+        let registration_id = uuid::Uuid::new_v4();
         self.unregister_fns
             .lock()
             .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Lock poisoned: {e}")))?
-            .insert(handler_name.clone(), unregister_fn);
+            .entry(handler_name.clone())
+            .or_default()
+            .push(Registration {
+                id: registration_id,
+                unregister: unregister_fn,
+            });
 
         // Return a callable that unregisters this handler when invoked.
         // Matches the Python HookRegistry.register() contract.
@@ -130,6 +159,7 @@ impl PyHookRegistry {
             PyUnregisterFn {
                 unregister_fns: self.unregister_fns.clone(),
                 name: handler_name,
+                registration_id,
             },
         )?;
         Ok(callable.into_any())
@@ -189,15 +219,22 @@ impl PyHookRegistry {
         )
     }
 
-    /// Unregister a handler by name.
+    /// Unregister the most recent remaining registration with this name.
+    /// Returned callables still own their exact registration independently.
     fn unregister(&self, name: &str) -> PyResult<()> {
-        let mut fns = self
-            .unregister_fns
-            .lock()
-            .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Lock poisoned: {e}")))?;
-
-        if let Some(unreg) = fns.remove(name) {
-            unreg();
+        let registration = {
+            let mut fns = self
+                .unregister_fns
+                .lock()
+                .map_err(|e| PyErr::new::<PyRuntimeError, _>(format!("Lock poisoned: {e}")))?;
+            let latest = fns.get_mut(name).and_then(Vec::pop);
+            if fns.get(name).is_some_and(Vec::is_empty) {
+                fns.remove(name);
+            }
+            latest
+        };
+        if let Some(registration) = registration {
+            (registration.unregister)();
         }
         Ok(())
     }
