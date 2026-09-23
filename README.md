@@ -87,11 +87,21 @@ The kernel provides **capabilities** without **decisions**:
 
 ### For consumers
 
+The current PyPI release is `1.6.1`. Version `2.0.1` is a **proposed**
+security release, not a published release. Do not treat this repository state
+as a released or qualified binary.
+
+After a release is qualified and its official release note names it, install
+the exact version as a binary-only dependency:
+
 ```bash
-pip install amplifier-core
+python -m pip install --only-binary=:all: amplifier-core==<qualified-release>
 ```
 
-This installs a pre-built wheel with the Rust kernel included. No Rust toolchain required.
+Verify the official release's automated evidence archive and `SHA256SUMS`
+before adoption. Follow [Native artifact qualification](docs/NATIVE_ARTIFACTS.md)
+to match the installed extension and wheel to its build receipt. Do not rebuild
+native Core as part of every application release when a qualified wheel exists.
 
 For complete Amplifier installation and usage:
 **-> https://github.com/microsoft/amplifier**
@@ -122,7 +132,26 @@ python scripts/generate_grpc_stubs.py
 
 See [docs/RUST_CORE_TESTING.md](docs/RUST_CORE_TESTING.md) for the full development setup guide.
 
-**Build dependencies**: Rust 1.70+, maturin
+**Build dependencies**: current stable Rust and maturin, using the locked
+dependencies. The resolved graph currently has a Wasmtime-driven Rust floor of
+at least 1.92 (PyO3 alone has a 1.83 floor); the project's actual MSRV has not
+been independently validated. This is guidance, not a new minimum-Rust CI
+requirement.
+
+## Proposed native-artifact security release
+
+Proposed version `2.0.1` updates PyO3 to `0.29.2`,
+`pyo3-async-runtimes` to `0.29.0`, and `pyo3-log` to `0.13.4`, outside the
+affected ranges for GHSA-36hh-v3qg-5jq4, GHSA-chgr-c6px-7xpp,
+RustSec-2026-0176, and RustSec-2026-0177.
+
+The binding keeps `abi3-py311`, `multiple-pymethods`, and
+`generate-import-lib` (deprecated in PyO3 0.29 in favor of `raw-dylib`) and
+requires Windows qualification rather than a linkage behavior change. This
+security work is separate from lifecycle PR #114, which also proposes `2.0.1`;
+release sequencing and the lifecycle follow-up version are owner decisions.
+See [Native Artifact Qualification](docs/NATIVE_ARTIFACTS.md) for status,
+evidence, and adoption requirements.
 
 ## Core Concepts
 
@@ -248,6 +277,7 @@ For complete module development guide:
 - [Module Source Protocol](docs/MODULE_SOURCE_PROTOCOL.md) - Custom module loading
 - [Rust Core Testing](docs/RUST_CORE_TESTING.md) - Development setup and testing guide
 - [Rust Core Limitations](docs/RUST_CORE_LIMITATIONS.md) - Known limitations
+- [Native Artifact Qualification](docs/NATIVE_ARTIFACTS.md) - proposed security-release evidence and consumer verification
 
 **Philosophy**:
 
