@@ -193,10 +193,12 @@ class TestBuildWheelsWorkflow:
     def test_build_wheels_matrix_covers_all_os(self):
         wf = self._load()
         matrix = wf["jobs"]["build-wheels"]["strategy"]["matrix"]
-        os_list = matrix["os"]
-        assert "ubuntu-latest" in os_list
-        assert "macos-latest" in os_list
-        assert "windows-latest" in os_list
+        includes = matrix["include"]
+        os_list = {entry["os"] for entry in includes}
+        assert "ubuntu-24.04" in os_list
+        assert "macos-15" in os_list
+        assert "windows-2025" in os_list
+        assert all("artifact" in entry and "target" in entry for entry in includes)
 
     def test_build_wheels_uses_maturin_action(self):
         wf = self._load()
@@ -233,11 +235,14 @@ class TestBuildWheelsWorkflow:
         wf = self._load()
         assert "publish" in wf["jobs"]
 
-    def test_publish_needs_build_jobs(self):
+    def test_release_evidence_needs_all_build_jobs_before_publish(self):
         wf = self._load()
-        needs = wf["jobs"]["publish"]["needs"]
+        needs = wf["jobs"]["release-evidence"]["needs"]
         assert "build-wheels" in needs
         assert "build-linux-aarch64" in needs
+        assert "build-macos-x86_64" in needs
+        assert "build-windows-arm64" in needs
+        assert "release-evidence" in wf["jobs"]["publish"]["needs"]
 
     def test_publish_only_on_tag(self):
         wf = self._load()
@@ -249,6 +254,42 @@ class TestBuildWheelsWorkflow:
         steps = wf["jobs"]["publish"]["steps"]
         uses_list = [s.get("uses", "") for s in steps]
         assert any("pypi-publish" in u for u in uses_list)
+
+    def test_qualification_matrix_has_all_native_python_combinations(self):
+        wf = self._load()
+        includes = wf["jobs"]["qualify-wheels"]["strategy"]["matrix"]["include"]
+        combinations = {(item["artifact"], str(item["python-version"])) for item in includes}
+        artifacts = {
+            "wheels-ubuntu-latest", "wheels-linux-aarch64", "wheels-macos-latest",
+            "wheels-macos-x86_64", "wheels-windows-latest", "wheels-windows-arm64",
+        }
+        assert len(includes) == 18
+        assert combinations == {(artifact, version) for artifact in artifacts for version in ("3.11", "3.12", "3.13")}
+
+    def test_release_evidence_preserves_unmerged_six_and_eighteen_artifacts(self):
+        wf = self._load()
+        job = wf["jobs"]["release-evidence"]
+        assert "qualify-wheels" in job["needs"]
+        downloads = [step for step in job["steps"] if "download-artifact" in step.get("uses", "")]
+        assert [step["with"]["pattern"] for step in downloads] == ["wheels-*", "qualification-*"]
+        assert all("merge-multiple" not in step["with"] for step in downloads)
+        run = next(step["run"] for step in job["steps"] if step.get("name") == "Validate evidence and create archive")
+        assert "six build targets" in run
+        assert "18 required cells" in run
+        assert 'receipt.get("source_sha") != source_sha' in run
+        assert 'receipt.get("wheel", {}).get("sha256") != wheel_sha' in run
+        assert 'report.get("source_sha") != source_sha' in run
+        assert 'report.get("passed") is not True' in run
+
+    def test_tag_publication_is_gated_on_evidence_and_pypi(self):
+        wf = self._load()
+        assert "release-evidence" in wf["jobs"]["publish"]["needs"]
+        assert "qualify-wheels" in wf["jobs"]["publish"]["needs"]
+        assert "refs/tags/v" in wf["jobs"]["release-evidence"]["steps"][-1]["if"]
+        final = wf["jobs"]["publish-release"]
+        assert "publish" in final["needs"]
+        assert "release-evidence" in final["needs"]
+        assert "refs/tags/v" in final["if"]
 
 
 class TestNodeBindingsCIWorkflow:

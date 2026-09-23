@@ -44,6 +44,32 @@ pub(crate) struct PyHookHandlerBridge {
 unsafe impl Send for PyHookHandlerBridge {}
 unsafe impl Sync for PyHookHandlerBridge {}
 
+/// into_future_with_locals does not cancel its Python task when the Rust
+/// receiver is dropped. Keep exact ownership so cancellation cannot orphan a
+/// hook callback or affect an unrelated task on the same event loop.
+struct OwnedHookTask {
+    owner: Py<PyAny>,
+    event_loop: Py<PyAny>,
+    cancel_on_drop: bool,
+}
+
+impl Drop for OwnedHookTask {
+    fn drop(&mut self) {
+        if self.cancel_on_drop {
+            let result = Python::try_attach(|py| -> PyResult<()> {
+                let cancel = self.owner.bind(py).getattr("cancel")?;
+                self.event_loop
+                    .bind(py)
+                    .call_method1("call_soon_threadsafe", (cancel,))?;
+                Ok(())
+            });
+            if let Some(Err(error)) = result {
+                log::warn!("Could not cancel owned Python hook task: {error}");
+            }
+        }
+    }
+}
+
 impl HookHandler for PyHookHandlerBridge {
     fn handle(
         &self,
@@ -100,7 +126,7 @@ impl HookHandler for PyHookHandlerBridge {
             // fall back to the registration loop when a native callback (such as
             // a blocking WASM host import) has lost Tokio task-local state.
             let py_result = if is_coro {
-                let future = Python::try_attach(|py| {
+                let (future, mut task) = Python::try_attach(|py| -> PyResult<_> {
                     let locals = pyo3_async_runtimes::tokio::get_current_locals(py)
                         .ok()
                         .or_else(|| self.fallback_locals.clone())
@@ -109,10 +135,31 @@ impl HookHandler for PyHookHandlerBridge {
                                 "No running Python event loop available for coroutine conversion",
                             )
                         })?;
-                    pyo3_async_runtimes::into_future_with_locals(
-                        &locals,
-                        py_result_or_coro.into_bound(py),
-                    )
+                    let owner = py
+                        .import("amplifier_core._async_compat")?
+                        .getattr("_OwnedHookTask")?
+                        .call1((py_result_or_coro.bind(py),))?;
+                    let runner = owner.call_method0("run")?;
+                    let future =
+                        match pyo3_async_runtimes::into_future_with_locals(&locals, runner.clone())
+                        {
+                            Ok(future) => future,
+                            Err(error) => {
+                                // Scheduling failed (for example, the loop closed).
+                                // Neither coroutine was adopted by a Python task.
+                                let _ = runner.call_method0("close");
+                                let _ = owner.call_method0("cancel");
+                                return Err(error);
+                            }
+                        };
+                    Ok((
+                        future,
+                        OwnedHookTask {
+                            owner: owner.unbind(),
+                            event_loop: locals.event_loop(py).unbind(),
+                            cancel_on_drop: true,
+                        },
+                    ))
                 })
                 .ok_or_else(|| HookError::HandlerFailed {
                     message: "Failed to attach to Python runtime for coroutine conversion"
@@ -127,7 +174,9 @@ impl HookHandler for PyHookHandlerBridge {
                 // Await OUTSIDE the GIL — drives the Python coroutine on the
                 // current task's loop, or its registration loop after native
                 // re-entry has lost task-local state.
-                future.await.map_err(|e| HookError::HandlerFailed {
+                let result = future.await;
+                task.cancel_on_drop = false;
+                result.map_err(|e| HookError::HandlerFailed {
                     message: format!("Python async handler error: {e}"),
                     handler_name: None,
                 })?

@@ -12,97 +12,313 @@ jobs:
     timeout-minutes: 60
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-24.04
+            artifact: wheels-ubuntu-latest
+            target: linux-x64
+            architecture: x64
+          - os: macos-15
+            artifact: wheels-macos-latest
+            target: macos-arm64
+            architecture: arm64
+          - os: windows-2025
+            artifact: wheels-windows-latest
+            target: windows-x64
+            architecture: x64
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target"
           cache-on-failure: true
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
+          architecture: ${{ matrix.architecture }}
+          check-latest: false
+          freethreaded: false
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
-          args: --profile dist --out dist --interpreter python3.11
+          args: --locked --profile dist --out dist --interpreter python3.11
           manylinux: auto
+      - name: Record wheel provenance
+        run: python scripts/qualify_native_wheel.py record --wheel-dir dist --output dist/build.json --source-sha "${{ github.sha }}" --target "${{ matrix.target }}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: wheels-${{ matrix.os }}
-          path: dist/*.whl
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/*.whl
+            dist/build.json
 
   build-linux-aarch64:
     name: Build wheels (Linux aarch64)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target"
           cache-on-failure: true
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
+          architecture: arm64
+          check-latest: false
+          freethreaded: false
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: aarch64-unknown-linux-gnu
-          args: --profile dist --out dist --interpreter python3.11
+          args: --locked --profile dist --out dist --interpreter python3.11
           manylinux: auto
+      - name: Record wheel provenance
+        run: python scripts/qualify_native_wheel.py record --wheel-dir dist --output dist/build.json --source-sha "${{ github.sha }}" --target linux-arm64
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wheels-linux-aarch64
-          path: dist/*.whl
+          path: |
+            dist/*.whl
+            dist/build.json
 
   build-macos-x86_64:
     name: Build wheels (macOS x86_64)
-    runs-on: macos-latest
+    runs-on: macos-15-intel
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target"
           cache-on-failure: true
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
+          architecture: x64
+          check-latest: false
+          freethreaded: false
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: x86_64-apple-darwin
-          args: --profile dist --out dist
+          args: --locked --profile dist --out dist --interpreter python3.11
+      - name: Record wheel provenance
+        run: python scripts/qualify_native_wheel.py record --wheel-dir dist --output dist/build.json --source-sha "${{ github.sha }}" --target macos-x64
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wheels-macos-x86_64
-          path: dist/*.whl
+          path: |
+            dist/*.whl
+            dist/build.json
 
   build-windows-arm64:
     name: Build wheels (Windows arm64)
-    runs-on: windows-latest
+    runs-on: windows-11-arm
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ". -> target"
           cache-on-failure: true
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
+          architecture: arm64
+          check-latest: false
+          freethreaded: false
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: aarch64-pc-windows-msvc
-          args: --profile dist --out dist
+          args: --locked --profile dist --out dist --interpreter python3.11
+      - name: Record wheel provenance
+        run: python scripts/qualify_native_wheel.py record --wheel-dir dist --output dist/build.json --source-sha "${{ github.sha }}" --target windows-arm64
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wheels-windows-arm64
-          path: dist/*.whl
+          path: |
+            dist/*.whl
+            dist/build.json
+
+  qualify-wheels:
+    name: Qualify ${{ matrix.artifact }} on Python ${{ matrix.python-version }}
+    needs: [build-wheels, build-linux-aarch64, build-macos-x86_64, build-windows-arm64]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { artifact: wheels-ubuntu-latest, os: ubuntu-24.04, architecture: x64, target: linux-x64, python-version: '3.11' }
+          - { artifact: wheels-ubuntu-latest, os: ubuntu-24.04, architecture: x64, target: linux-x64, python-version: '3.12' }
+          - { artifact: wheels-ubuntu-latest, os: ubuntu-24.04, architecture: x64, target: linux-x64, python-version: '3.13' }
+          - { artifact: wheels-linux-aarch64, os: ubuntu-24.04-arm, architecture: arm64, target: linux-arm64, python-version: '3.11' }
+          - { artifact: wheels-linux-aarch64, os: ubuntu-24.04-arm, architecture: arm64, target: linux-arm64, python-version: '3.12' }
+          - { artifact: wheels-linux-aarch64, os: ubuntu-24.04-arm, architecture: arm64, target: linux-arm64, python-version: '3.13' }
+          - { artifact: wheels-macos-latest, os: macos-15, architecture: arm64, target: macos-arm64, python-version: '3.11' }
+          - { artifact: wheels-macos-latest, os: macos-15, architecture: arm64, target: macos-arm64, python-version: '3.12' }
+          - { artifact: wheels-macos-latest, os: macos-15, architecture: arm64, target: macos-arm64, python-version: '3.13' }
+          - { artifact: wheels-macos-x86_64, os: macos-15-intel, architecture: x64, target: macos-x64, python-version: '3.11' }
+          - { artifact: wheels-macos-x86_64, os: macos-15-intel, architecture: x64, target: macos-x64, python-version: '3.12' }
+          - { artifact: wheels-macos-x86_64, os: macos-15-intel, architecture: x64, target: macos-x64, python-version: '3.13' }
+          - { artifact: wheels-windows-latest, os: windows-2025, architecture: x64, target: windows-x64, python-version: '3.11' }
+          - { artifact: wheels-windows-latest, os: windows-2025, architecture: x64, target: windows-x64, python-version: '3.12' }
+          - { artifact: wheels-windows-latest, os: windows-2025, architecture: x64, target: windows-x64, python-version: '3.13' }
+          - { artifact: wheels-windows-arm64, os: windows-11-arm, architecture: arm64, target: windows-arm64, python-version: '3.11' }
+          - { artifact: wheels-windows-arm64, os: windows-11-arm, architecture: arm64, target: windows-arm64, python-version: '3.12' }
+          - { artifact: wheels-windows-arm64, os: windows-11-arm, architecture: arm64, target: windows-arm64, python-version: '3.13' }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          architecture: ${{ matrix.architecture }}
+          check-latest: false
+          freethreaded: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ matrix.artifact }}
+          path: artifacts
+      - name: Create fresh virtual environment, install wheel, and verify
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+          import sys
+          import tempfile
+          from pathlib import Path
+
+          venv_dir = Path(tempfile.mkdtemp(
+              prefix="amplifier-core-qualification-",
+              dir=os.environ["RUNNER_TEMP"],
+          ))
+          subprocess.check_call([sys.executable, "-m", "venv", str(venv_dir)])
+          venv_python = venv_dir / (
+              "Scripts/python.exe" if os.name == "nt" else "bin/python"
+          )
+          wheels = list(Path("artifacts").glob("*.whl"))
+          if len(wheels) != 1:
+              raise SystemExit(f"expected one downloaded wheel, found {len(wheels)}")
+          subprocess.check_call([str(venv_python), "-m", "pip", "install", str(wheels[0])])
+          subprocess.check_call([
+              str(venv_python), "-I", str(Path.cwd() / "scripts/qualify_native_wheel.py"), "verify",
+              "--artifact-dir", "artifacts",
+              "--source-sha", "${{ github.sha }}",
+              "--output", "qualification-report.json",
+          ])
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: qualification-${{ matrix.artifact }}-py${{ matrix.python-version }}
+          path: qualification-report.json
+
+  release-evidence:
+    name: Validate and preserve release evidence
+    runs-on: ubuntu-24.04
+    needs: [build-wheels, build-linux-aarch64, build-macos-x86_64, build-windows-arm64, qualify-wheels]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: 'wheels-*'
+          path: evidence/wheels
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: 'qualification-*'
+          path: evidence/qualification
+      - name: Validate evidence and create archive
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import shutil
+          from pathlib import Path
+
+          source_sha = os.environ["GITHUB_SHA"]
+          wheel_artifacts = {
+              "wheels-ubuntu-latest", "wheels-linux-aarch64", "wheels-macos-latest",
+              "wheels-macos-x86_64", "wheels-windows-latest", "wheels-windows-arm64",
+          }
+          versions = ("3.11", "3.12", "3.13")
+          expected_reports = {
+              f"qualification-{artifact}-py{version}"
+              for artifact in wheel_artifacts for version in versions
+          }
+          wheels_root = Path("evidence/wheels")
+          reports_root = Path("evidence/qualification")
+          if {path.name for path in wheels_root.iterdir()} != wheel_artifacts:
+              raise SystemExit("wheel receipt artifact set is not exactly the six build targets")
+          if {path.name for path in reports_root.iterdir()} != expected_reports:
+              raise SystemExit("qualification artifact set is not exactly the 18 required cells")
+          receipts = {}
+          checksums = []
+          for artifact in wheel_artifacts:
+              artifact_dir = wheels_root / artifact
+              wheels = list(artifact_dir.glob("*.whl"))
+              receipts_files = list(artifact_dir.glob("build.json"))
+              if len(wheels) != 1 or len(receipts_files) != 1:
+                  raise SystemExit(f"{artifact} must preserve one wheel and one build receipt")
+              receipt = json.loads(receipts_files[0].read_text())
+              if receipt.get("source_sha") != source_sha:
+                  raise SystemExit(f"{artifact} receipt source SHA mismatch")
+              wheel_sha = hashlib.sha256(wheels[0].read_bytes()).hexdigest()
+              if receipt.get("wheel", {}).get("sha256") != wheel_sha:
+                  raise SystemExit(f"{artifact} wheel SHA mismatch")
+              receipts[receipt["target"]["label"]] = wheel_sha
+              checksums.extend((wheels[0], receipts_files[0]))
+          if len(receipts) != 6:
+              raise SystemExit("build receipts do not identify six unique native targets")
+          for artifact in expected_reports:
+              reports = list((reports_root / artifact).rglob("qualification-report.json"))
+              if len(reports) != 1:
+                  raise SystemExit(f"{artifact} must preserve one qualification report")
+              report = json.loads(reports[0].read_text())
+              if report.get("source_sha") != source_sha or report.get("passed") is not True:
+                  raise SystemExit(f"{artifact} is not a passing report for this source")
+              target = report.get("target", {}).get("label")
+              if receipts.get(target) != report.get("wheel", {}).get("sha256"):
+                  raise SystemExit(f"{artifact} wheel does not match its build receipt")
+              checksums.append(reports[0])
+          lines = [
+              f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.as_posix()}"
+              for path in sorted(checksums)
+          ]
+          Path("SHA256SUMS").write_text("\n".join(lines) + "\n")
+          archive = f"release-evidence-{source_sha}"
+          shutil.make_archive(archive, "zip", root_dir=".", base_dir="evidence")
+          with Path(f"{archive}.zip").open("rb") as handle:
+              archive_sha = hashlib.sha256(handle.read()).hexdigest()
+          with Path("SHA256SUMS").open("a") as handle:
+              handle.write(f"{archive_sha}  {archive}.zip\n")
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-evidence-${{ github.sha }}
+          path: |
+            release-evidence-*.zip
+            SHA256SUMS
+      - name: Attach evidence to a draft GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" --json isDraft --jq .isDraft 2>/dev/null | grep -qx true; then
+            :
+          elif gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "refusing to modify an already-published release" >&2
+            exit 1
+          else
+            gh release create "${GITHUB_REF_NAME}" --verify-tag --draft --title "${GITHUB_REF_NAME}"
+          fi
+          gh release upload "${GITHUB_REF_NAME}" release-evidence-*.zip SHA256SUMS --clobber
 
   publish:
     name: Publish to PyPI
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [build-wheels, build-linux-aarch64, build-macos-x86_64, build-windows-arm64]
+    needs: [release-evidence, qualify-wheels]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       id-token: write
@@ -112,4 +328,33 @@ jobs:
           pattern: 'wheels-*'
           merge-multiple: true
           path: dist/
+      - name: Select wheels for publication
+        run: |
+          python - <<'PY'
+          import shutil
+          from pathlib import Path
+
+          publish_dir = Path("publish-dist")
+          publish_dir.mkdir()
+          for wheel in Path("dist").glob("*.whl"):
+              shutil.copy2(wheel, publish_dir / wheel.name)
+          if len(list(publish_dir.glob("*.whl"))) != 6:
+              raise SystemExit("expected six qualified wheels for publication")
+          PY
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          packages-dir: publish-dist/
+
+  publish-release:
+    name: Publish GitHub release
+    runs-on: ubuntu-24.04
+    needs: [publish, release-evidence]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the evidence-bearing release after PyPI succeeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release edit "${GITHUB_REF_NAME}" --draft=false

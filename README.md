@@ -87,11 +87,22 @@ The kernel provides **capabilities** without **decisions**:
 
 ### For consumers
 
+Core `2.0.1` combines the patched PyO3 dependency family, lifecycle contract
+work, and updated Actions pins. It is available only when the exact version is
+on PyPI, a non-draft GitHub release is published, and that release includes
+the matching qualification receipt. Branch and pull-request artifacts are not
+published release artifacts.
+
+Install an available, qualified version as a binary-only dependency:
+
 ```bash
-pip install amplifier-core
+python -m pip install --only-binary=:all: amplifier-core==<qualified-release>
 ```
 
-This installs a pre-built wheel with the Rust kernel included. No Rust toolchain required.
+Verify the official release's automated evidence archive and `SHA256SUMS`
+before adoption. Follow [Native artifact qualification](docs/NATIVE_ARTIFACTS.md)
+to match the installed extension and wheel to its build receipt. Do not rebuild
+native Core as part of every application release when a qualified wheel exists.
 
 For complete Amplifier installation and usage:
 **-> https://github.com/microsoft/amplifier**
@@ -122,7 +133,33 @@ python scripts/generate_grpc_stubs.py
 
 See [docs/RUST_CORE_TESTING.md](docs/RUST_CORE_TESTING.md) for the full development setup guide.
 
-**Build dependencies**: Rust 1.70+, maturin
+**Build dependencies**: current stable Rust and maturin, using the locked
+dependencies. The resolved graph currently has a Wasmtime-driven Rust floor of
+at least 1.92 (PyO3 alone has a 1.83 floor); the project's actual MSRV has not
+been independently validated. This is guidance, not a new minimum-Rust CI
+requirement.
+
+## Core 2.0.1 native-artifact and lifecycle release
+
+Version `2.0.1` updates PyO3 to `0.29.2`,
+`pyo3-async-runtimes` to `0.29.0`, and `pyo3-log` to `0.13.4`, outside the
+affected ranges for GHSA-36hh-v3qg-5jq4, GHSA-chgr-c6px-7xpp,
+RustSec-2026-0176, and RustSec-2026-0177.
+
+The binding keeps `abi3-py311`, `multiple-pymethods`, and
+the deprecated `generate-import-lib` feature for compatibility; Windows
+qualification is required before any future linkage migration to `raw-dylib`.
+The lifecycle work from [PR #114](https://github.com/microsoft/amplifier-core/pull/114)
+and the PyO3 remediation from
+[PR #115](https://github.com/microsoft/amplifier-core/pull/115) retain their
+separate attribution while shipping together in `2.0.1`.
+
+The Rust-backed Python session attempts `session:end` at most once per
+initialized lifetime; cancellation can interrupt delivery, and the host owns
+cleanup completion. See [CONTRACTS.md](CONTRACTS.md) for the authoritative
+lifecycle and registration-ownership contracts. See
+[Native Artifact Qualification](docs/NATIVE_ARTIFACTS.md) for evidence and
+adoption requirements.
 
 ## Core Concepts
 
@@ -248,6 +285,7 @@ For complete module development guide:
 - [Module Source Protocol](docs/MODULE_SOURCE_PROTOCOL.md) - Custom module loading
 - [Rust Core Testing](docs/RUST_CORE_TESTING.md) - Development setup and testing guide
 - [Rust Core Limitations](docs/RUST_CORE_LIMITATIONS.md) - Known limitations
+- [Native Artifact Qualification](docs/NATIVE_ARTIFACTS.md) - release evidence and consumer verification
 
 **Philosophy**:
 
