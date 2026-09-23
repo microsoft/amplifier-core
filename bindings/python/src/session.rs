@@ -34,9 +34,10 @@ use crate::hooks::PyHookRegistry;
 pub(crate) struct PySession {
     /// Rust kernel session (for session_id, parent_id, initialized flag).
     inner: Arc<tokio::sync::Mutex<amplifier_core::Session>>,
-    /// Serialize the entire end-event/drain sequence. The boolean records an
-    /// attempted terminal event for the current initialized lifetime, including
-    /// a cleanup whose waiter is cancelled during that event.
+    /// Records whether cleanup has claimed `session:end` for the current
+    /// initialized lifetime. The claim happens before awaiting handlers. If
+    /// cancellation occurs while the claimed terminal dispatch is in progress,
+    /// a later cleanup does not replay it.
     cleanup_state: Arc<tokio::sync::Mutex<bool>>,
     /// The PyCoordinator instance owned by this session.
     coordinator: Py<PyAny>,
@@ -561,14 +562,25 @@ impl PySession {
     /// Clean up session resources.
     ///
     /// Rust controls the full cleanup lifecycle:
-    /// 1. Await `session:end` once for the initialized lifetime, while hooks are live
+    /// 1. Claim then await `session:end` once for the initialized lifetime,
+    ///    while hooks are live
     /// 2. Call all registered cleanup functions (reverse order, error-tolerant)
     /// 3. Reset the initialized flag
-    /// Concurrent cleanup waits for this entire sequence. Uninitialized and
-    /// repeated cleanup still release resources but do not emit another end.
+    /// Concurrent cleanup waits for this entire sequence absent cancellation.
+    /// Uninitialized and repeated cleanup still release resources but do not
+    /// emit another end.
+    /// Cancellation while the claimed terminal dispatch is in progress may
+    /// abort it; handlers not yet reached are not replayed by a later cleanup.
+    /// Cancellation during resource callbacks may interrupt remaining teardown
+    /// without allowing a second terminal attempt. The caller or host retaining
+    /// and awaiting the cleanup task owns any deadline or abandonment decision;
+    /// waiter cancellation does not guarantee callbacks drain.
+    /// Handler cancellation is requested asynchronously, so an immediate retry
+    /// may run resource callbacks before a prior terminal handler observes
+    /// cancellation; this path has no handler-drain or ordering guarantee.
     ///
     /// Errors in cleanup functions and event emission are logged but never
-    /// propagate — cleanup must always complete.
+    /// propagate. Error-tolerant cleanup is not cancellation-proof.
     fn cleanup<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let inner = self.inner.clone();
         let cleanup_state = self.cleanup_state.clone();

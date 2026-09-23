@@ -112,7 +112,7 @@ async def test_cancelled_end_attempt_is_not_replayed_and_python_handler_exits(se
     entered, release, exited = asyncio.Event(), asyncio.Event(), asyncio.Event()
     calls = []
 
-    async def end(event, data):
+    async def blocking_end(event, data):
         calls.append("end:entered")
         entered.set()
         try:
@@ -121,7 +121,15 @@ async def test_cancelled_end_attempt_is_not_replayed_and_python_handler_exits(se
             calls.append("end:exited")
             exited.set()
 
-    session.coordinator.hooks.register("session:end", end, name="telemetry")
+    async def later_end(event, data):
+        calls.append("end:later")
+
+    session.coordinator.hooks.register(
+        "session:end", blocking_end, priority=10, name="blocking-telemetry"
+    )
+    session.coordinator.hooks.register(
+        "session:end", later_end, priority=20, name="later-telemetry"
+    )
     session.coordinator.register_cleanup(lambda: calls.append("close"))
     first = asyncio.create_task(session.cleanup())
     try:
@@ -129,15 +137,21 @@ async def test_cancelled_end_attempt_is_not_replayed_and_python_handler_exits(se
         first.cancel()
         with pytest.raises(asyncio.CancelledError):
             await first
+        assert "close" not in calls
+        await session.cleanup()
         await asyncio.wait_for(exited.wait(), timeout=2)
-        await asyncio.wait_for(session.cleanup(), timeout=2)
-        assert calls == ["end:entered", "end:exited", "close"]
+        assert calls.count("end:entered") == 1
+        assert calls.count("end:exited") == 1
+        assert calls.count("close") == 1
+        assert "end:later" not in calls
         assert not session.initialized
     finally:
         release.set()
         if not first.done():
             first.cancel()
         await asyncio.gather(first, return_exceptions=True)
+        if entered.is_set() and not exited.is_set():
+            await asyncio.wait_for(exited.wait(), timeout=2)
 
 
 @pytest.mark.asyncio

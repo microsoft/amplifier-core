@@ -27,7 +27,9 @@ class TestAsyncMethodsReturnCoroutines:
         assert inspect.iscoroutine(result), (
             f"emit() should return a coroutine, got {type(result).__name__}"
         )
-        result.close()  # cleanup
+        # The Rust future starts before this Python wrapper is awaited, so drain it
+        # before pytest tears down the event loop.
+        await result
 
     @pytest.mark.asyncio
     async def test_hook_registry_emit_and_collect_returns_coroutine(self):
@@ -36,7 +38,9 @@ class TestAsyncMethodsReturnCoroutines:
         assert inspect.iscoroutine(result), (
             f"emit_and_collect() should return a coroutine, got {type(result).__name__}"
         )
-        result.close()
+        # The Rust future starts before this Python wrapper is awaited, so drain it
+        # before pytest tears down the event loop.
+        await result
 
     @pytest.mark.asyncio
     async def test_emit_works_with_create_task(self):

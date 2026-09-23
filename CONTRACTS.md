@@ -235,6 +235,29 @@ but do not prevent the remaining callables from running.
 Source reference: `bindings/python/src/coordinator/mod.rs::cleanup()` and
 `bindings/python/src/coordinator/capabilities.rs::register_cleanup()`.
 
+### Rust-backed Python Session Cleanup
+
+For the PyO3 `RustSession`, `cleanup()` claims and then awaits `session:end` at most
+once per successfully initialized lifetime, before registered resource callbacks run.
+A successful later `initialize()` resets that claim. Cancellation while a claimed
+terminal dispatch is in progress may abort it: handlers not yet reached may never
+receive the event, and a later cleanup does not replay it. Cancellation during
+resource callbacks may interrupt remaining teardown without allowing a second
+terminal attempt. The caller or host retaining and awaiting the cleanup task owns any
+deadline or abandonment decision; waiter cancellation does not guarantee callbacks
+drain.
+
+Handler cancellation is requested asynchronously. An immediate retry may run
+resource callbacks before a prior terminal handler observes cancellation; the
+cancellation path has no handler-drain or ordering guarantee.
+
+Uninitialized or partially initialized sessions still run registered resource
+callbacks. Callbacks run in reverse registration order, tolerate errors, and may run
+again on repeated cleanup, so they must be idempotent. Error tolerance does not make
+cleanup cancellation-proof. Hooks and cleanup callbacks must not recursively await
+`session.cleanup()`, because the outer cleanup is awaiting them and would form an
+await-dependency cycle; this is a caller contract, not a runtime-enforced guard.
+
 ### `on_session_ready(coordinator)` — Optional
 
 ```python
