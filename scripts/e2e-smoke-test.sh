@@ -306,11 +306,12 @@ log " Timeout: ${TIMEOUT_SECONDS}s"
 log "============================================================"
 echo ""
 
-# Run the smoke test; capture output even if timeout exits non-zero
+# Foundation provides the recipe-author agent required by the default prompt.
+# Run the smoke test; capture output even if timeout exits non-zero.
 SMOKE_EXIT_CODE=0
 SMOKE_OUTPUT=$(docker exec "$CONTAINER_NAME" bash -c "
     export PATH=/root/.local/bin:\$PATH
-    timeout $TIMEOUT_SECONDS amplifier run '$SMOKE_PROMPT' 2>&1
+    timeout $TIMEOUT_SECONDS amplifier run --bundle foundation '$SMOKE_PROMPT' 2>&1
 " 2>&1) || SMOKE_EXIT_CODE=$?
 
 # ---------------------------------------------------------------------------
