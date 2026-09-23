@@ -22,7 +22,7 @@ set -euo pipefail
 # Environment variables:
 #   SMOKE_PROVIDER   anthropic (default) or openai
 #   SMOKE_MODEL      Optional model override (otherwise use provider default)
-#   SMOKE_BUNDLE     Optional bundle override (otherwise use CLI default)
+#   SMOKE_BUNDLE     Optional bundle override (default: foundation)
 #   ANTHROPIC_BASE_URL / OPENAI_BASE_URL  Optional selected provider endpoint
 #   SMOKE_PROMPT     Override the default test prompt
 #   SMOKE_TIMEOUT    Override the timeout in seconds (default: 360)
@@ -84,7 +84,7 @@ while [[ $# -gt 0 ]]; do
             echo "Environment variables:"
             echo "  SMOKE_PROVIDER    anthropic (default) or openai"
             echo "  SMOKE_MODEL       Optional model override"
-            echo "  SMOKE_BUNDLE      Optional bundle override"
+            echo "  SMOKE_BUNDLE      Optional bundle override (default: foundation)"
             echo "  Selected provider API key required (environment or ~/.amplifier/keys.env)"
             echo "  ANTHROPIC_BASE_URL / OPENAI_BASE_URL  Optional selected provider endpoint"
             echo "  SMOKE_PROMPT       Test prompt (default: 'Ask recipe author to run one of its example recipes')"

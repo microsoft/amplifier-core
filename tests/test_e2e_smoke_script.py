@@ -134,7 +134,7 @@ def test_default_anthropic_keeps_optional_model_and_endpoint(smoke):
     assert result.returncode == 0, result.stdout + result.stderr
     call = cli_call(calls)
     assert call["args"] == [
-        "run", "--provider", "anthropic", "--",
+        "run", "--provider", "anthropic", "--bundle", "foundation", "--",
         "Ask recipe author to run one of its example recipes",
     ]
     assert call["provider_env"] == {"ANTHROPIC_API_KEY": "fixture-anthropic"}
@@ -154,7 +154,10 @@ def test_selected_family_only_with_endpoint_model_and_literal_arguments(smoke, t
     }, keys="exit 87\n")
     assert result.returncode == 0, result.stdout + result.stderr
     call = cli_call(calls)
-    assert call["args"] == ["run", "--provider", provider, "--model", model, "--", prompt]
+    assert call["args"] == [
+        "run", "--provider", provider, "--model", model,
+        "--bundle", "foundation", "--", prompt,
+    ]
     assert call["provider_env"] == {
         f"{prefix}_API_KEY": f"fixture-{provider}",
         f"{prefix}_BASE_URL": f"https://{provider}.invalid/" + ("v1" if provider == "openai" else ""),
@@ -166,19 +169,21 @@ def test_selected_family_only_with_endpoint_model_and_literal_arguments(smoke, t
 def test_leading_dash_prompt_cannot_become_cli_help(smoke):
     result, calls = smoke({"ANTHROPIC_API_KEY": "fixture-key", "SMOKE_PROMPT": "--help"})
     assert result.returncode == 0, result.stdout + result.stderr
-    assert cli_call(calls)["args"] == ["run", "--provider", "anthropic", "--", "--help"]
+    assert cli_call(calls)["args"] == [
+        "run", "--provider", "anthropic", "--bundle", "foundation", "--", "--help",
+    ]
 
 
 def test_optional_bundle_uses_supported_cli_argument(smoke):
     result, calls = smoke({
         "OPENAI_API_KEY": "fixture-key", "SMOKE_PROVIDER": "openai",
-        "SMOKE_MODEL": "gpt-5.6-terra", "SMOKE_BUNDLE": "foundation",
+        "SMOKE_MODEL": "gpt-5.6-terra", "SMOKE_BUNDLE": "custom-fixture-bundle",
         "SMOKE_PROMPT": "fixture recipe",
     })
     assert result.returncode == 0, result.stdout + result.stderr
     assert cli_call(calls)["args"] == [
         "run", "--provider", "openai", "--model", "gpt-5.6-terra",
-        "--bundle", "foundation", "--", "fixture recipe",
+        "--bundle", "custom-fixture-bundle", "--", "fixture recipe",
     ]
 
 

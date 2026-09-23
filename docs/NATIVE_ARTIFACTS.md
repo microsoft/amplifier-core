@@ -1,21 +1,22 @@
 # Native Artifact Qualification
 
-## Release-status snapshot
+## Core 2.0.1 release boundary
 
-As of this document's update, `2.0.1` is proposed and PyPI serves `1.6.1`.
-This snapshot must be updated by the release owner when publishing. Until
-then, no artifact is described as published or qualified and no alert is
-described as resolved.
+Core `2.0.1` combines the PyO3 remediation, lifecycle work, and updated
+Actions pins. The PyO3 work is attributed to
+[PR #115](https://github.com/microsoft/amplifier-core/pull/115); the lifecycle
+work is attributed to [PR #114](https://github.com/microsoft/amplifier-core/pull/114).
 
-The proposed binding resolves PyO3 `0.29.2`, `pyo3-async-runtimes` `0.29.0`,
+The binding resolves PyO3 `0.29.2`, `pyo3-async-runtimes` `0.29.0`,
 and `pyo3-log` `0.13.4`, preserving `abi3-py311`, `multiple-pymethods`, and
 `generate-import-lib`. The latter is deprecated by PyO3 0.29 in favor of
-`raw-dylib`, so Windows qualification is required before changing no linkage
-behavior.
+`raw-dylib`; the deprecated feature remains for compatibility, and Windows
+qualification is required before any future linkage migration.
 
-This is not lifecycle PR #114. Although both candidates propose `2.0.1`, the
-security candidate is independently qualified; release ordering and a later
-lifecycle version remain owner decisions.
+A `2.0.1` artifact is a published release only when its exact version is
+available on PyPI, a non-draft GitHub release is published, and that release
+contains the matching qualification receipt. Branch and pull-request artifacts
+are evidence for review, not published release artifacts.
 
 ## Security and support boundary
 
@@ -51,12 +52,12 @@ the observed libc at
 
 ## Configured qualification matrix
 
-The workflow builds six families—Linux x64/ARM64, macOS x64/ARM64, and Windows
-x64/ARM64—and configures all 18 normal-GIL CPython 3.11/3.12/3.13 verification
-cells. These are required configured checks, **not validation results yet**.
-Windows ARM64/Python 3.11 download availability remains unknown until its
-green run; it is not a support or publication claim. Linux ARM64/Python 3.13
-must be accepted only with its target and observed-libc report.
+The workflow requires six families—Linux x64/ARM64, macOS x64/ARM64, and
+Windows x64/ARM64—and all 18 normal-GIL CPython 3.11/3.12/3.13 verification
+cells. Every required build and verification cell must pass for the current
+release source SHA; Windows checks are required. Consult the qualification
+reports for the actual platform versions, target facts, and, for Linux, the
+observed libc for that release.
 
 After all six builds and all 18 qualifiers pass, `release-evidence` validates
 the complete set and creates `release-evidence-<source_sha>.zip` plus
@@ -64,8 +65,7 @@ the complete set and creates `release-evidence-<source_sha>.zip` plus
 artifacts only. A tag run first creates a draft GitHub release and attaches
 that evidence before PyPI publication; the PyPI job requires
 `release-evidence`. The final `publish-release` job makes the GitHub release
-public only after PyPI succeeds. This pipeline has not run for the proposed
-release.
+public only after PyPI succeeds.
 
 ## Consumer installation and verification
 
@@ -107,11 +107,11 @@ release.
    assert native_path.is_relative_to(Path(sys.prefix).resolve())
    print("distribution:", metadata_version)
    print("native member:", member_key, loaded_sha256)
-   print("proposed receipt source_sha:", receipt["source_sha"])
+   print("receipt source_sha:", receipt["source_sha"])
    ```
 
 The loaded engine version proves package-version agreement, not a Git revision.
 Use the receipt's `source_sha`, plus its wheel and native-member hash matches,
-to map the installed binary to the proposed source record. Prefer qualified
+to map the installed binary to the release source record. Prefer qualified
 wheels over independently rebuilding native Core for routine application
 releases.

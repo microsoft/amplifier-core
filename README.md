@@ -87,12 +87,13 @@ The kernel provides **capabilities** without **decisions**:
 
 ### For consumers
 
-The current PyPI release is `1.6.1`. Version `2.0.1` is a **proposed**
-security release, not a published release. Do not treat this repository state
-as a released or qualified binary.
+Core `2.0.1` combines the patched PyO3 dependency family, lifecycle contract
+work, and updated Actions pins. It is available only when the exact version is
+on PyPI, a non-draft GitHub release is published, and that release includes
+the matching qualification receipt. Branch and pull-request artifacts are not
+published release artifacts.
 
-After a release is qualified and its official release note names it, install
-the exact version as a binary-only dependency:
+Install an available, qualified version as a binary-only dependency:
 
 ```bash
 python -m pip install --only-binary=:all: amplifier-core==<qualified-release>
@@ -138,20 +139,27 @@ at least 1.92 (PyO3 alone has a 1.83 floor); the project's actual MSRV has not
 been independently validated. This is guidance, not a new minimum-Rust CI
 requirement.
 
-## Proposed native-artifact security release
+## Core 2.0.1 native-artifact and lifecycle release
 
-Proposed version `2.0.1` updates PyO3 to `0.29.2`,
+Version `2.0.1` updates PyO3 to `0.29.2`,
 `pyo3-async-runtimes` to `0.29.0`, and `pyo3-log` to `0.13.4`, outside the
 affected ranges for GHSA-36hh-v3qg-5jq4, GHSA-chgr-c6px-7xpp,
 RustSec-2026-0176, and RustSec-2026-0177.
 
 The binding keeps `abi3-py311`, `multiple-pymethods`, and
-`generate-import-lib` (deprecated in PyO3 0.29 in favor of `raw-dylib`) and
-requires Windows qualification rather than a linkage behavior change. This
-security work is separate from lifecycle PR #114, which also proposes `2.0.1`;
-release sequencing and the lifecycle follow-up version are owner decisions.
-See [Native Artifact Qualification](docs/NATIVE_ARTIFACTS.md) for status,
-evidence, and adoption requirements.
+the deprecated `generate-import-lib` feature for compatibility; Windows
+qualification is required before any future linkage migration to `raw-dylib`.
+The lifecycle work from [PR #114](https://github.com/microsoft/amplifier-core/pull/114)
+and the PyO3 remediation from
+[PR #115](https://github.com/microsoft/amplifier-core/pull/115) retain their
+separate attribution while shipping together in `2.0.1`.
+
+The Rust-backed Python session attempts `session:end` at most once per
+initialized lifetime; cancellation can interrupt delivery, and the host owns
+cleanup completion. See [CONTRACTS.md](CONTRACTS.md) for the authoritative
+lifecycle and registration-ownership contracts. See
+[Native Artifact Qualification](docs/NATIVE_ARTIFACTS.md) for evidence and
+adoption requirements.
 
 ## Core Concepts
 
@@ -277,7 +285,7 @@ For complete module development guide:
 - [Module Source Protocol](docs/MODULE_SOURCE_PROTOCOL.md) - Custom module loading
 - [Rust Core Testing](docs/RUST_CORE_TESTING.md) - Development setup and testing guide
 - [Rust Core Limitations](docs/RUST_CORE_LIMITATIONS.md) - Known limitations
-- [Native Artifact Qualification](docs/NATIVE_ARTIFACTS.md) - proposed security-release evidence and consumer verification
+- [Native Artifact Qualification](docs/NATIVE_ARTIFACTS.md) - release evidence and consumer verification
 
 **Philosophy**:
 
