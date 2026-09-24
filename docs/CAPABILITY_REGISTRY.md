@@ -29,9 +29,19 @@ else:
 |------------|----------|----------|----------|
 | `session.spawn` | `async (agent_name: str, task: str, parent_session) → dict` | amplifier-app-cli | tool-task |
 | `session.resume` | `async (session_id: str, task: str) → dict` | amplifier-app-cli | tool-task |
+| `provider.before_load` | `async (coordinator, provider_spec: dict) → None` | host application | Python session initialization |
 | `provider.load_failure` | `async (coordinator, provider_spec: dict, error: Exception) → None` | host application | Python session initialization |
 
 ### Provider initialization failures
+
+`provider.before_load` is an optional asynchronous host preflight. It receives
+an independent copy of the exact configured entry before loader or mount code
+runs. Returning continues normal loading; raising routes through the same mount
+restoration, observability event and `provider.load_failure` callback as an
+import or mount failure. It lets a host retain a provider whose configuration
+failed validation without attempting it with incomplete or substituted credentials.
+Neither callback changes the configured entry unless the host explicitly edits
+its own session state.
 
 Register `provider.load_failure` before session initialization to apply host
 policy when a configured provider cannot load, mount, or finish instance remapping.
