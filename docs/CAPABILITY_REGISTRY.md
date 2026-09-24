@@ -29,6 +29,31 @@ else:
 |------------|----------|----------|----------|
 | `session.spawn` | `async (agent_name: str, task: str, parent_session) → dict` | amplifier-app-cli | tool-task |
 | `session.resume` | `async (session_id: str, task: str) → dict` | amplifier-app-cli | tool-task |
+| `provider.load_failure` | `async (coordinator, provider_spec: dict, error: Exception) → None` | host application | Python session initialization |
+
+### Provider initialization failures
+
+Register `provider.load_failure` before session initialization to apply host
+policy when a configured provider cannot load, mount, or finish instance remapping.
+It runs once for the failed configuration entry, after restoring the provider
+mount table and emitting `module:load_failed`, and before loading the next entry.
+The spec is a deep copy of that entry, including its source, `instance_id`, and
+configuration. The callback may mount a host-owned unavailable-provider marker,
+record an outcome, or raise to abort initialization. Callback exceptions propagate;
+observability event-handler exceptions do not.
+
+Without a callback, provider failure keeps the existing warn-and-continue policy.
+Core does not select a replacement, prune configuration, reorder providers, or
+decide whether a failed provider is required. Hosts must preserve configured
+identity and implement routing policy themselves. A callback that retains a
+failure marker should use the configured instance identity and a safe reason code;
+the spec and exception may contain secrets and must not be copied to public state.
+
+Restoration covers the provider mount table, including an overwritten default
+slot and mounts added by a failed attempt. It does not undo arbitrary external
+side effects inside third-party mount functions. A failed instance's readiness
+callback is not queued. Rollback failure aborts initialization rather than asking
+the host to recover against a partially restored table.
 
 ## Pattern
 
