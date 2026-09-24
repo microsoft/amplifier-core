@@ -6,4 +6,10 @@ Categories are `invalid_package_layout`, `missing_source`, `invalid_entry_point`
 
 The legacy `error` field remains unchanged for compatibility and is not a safe public diagnostic. Consumers should allowlist `reason_code` and supply their own remediation text. This addition changes neither the provider/tool/hook nonfatal session policy nor host decisions about incomplete configured sessions.
 
+Provider failures also include `instance_id` when one was explicitly configured.
+This distinguishes failed accounts using the same provider module. The optional
+[`provider.load_failure`](CAPABILITY_REGISTRY.md#provider-initialization-failures)
+capability lets hosts apply policy before lifecycle routing; the event itself
+remains an observability mechanism.
+
 Validation used Python source over the installed native kernel: 44 loader and session-initialization tests passed, including fixtures for the four requested categories, unknown and forged codes, and event compatibility. No native code or provider protocol changed.

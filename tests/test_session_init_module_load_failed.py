@@ -61,6 +61,7 @@ def _make_mocks(failing_module_ids, calls=None):
 
     mock_coordinator = MagicMock()
     mock_coordinator.loader = mock_loader
+    mock_coordinator.get_capability.return_value = None
     mock_coordinator.register_cleanup = MagicMock()
     mock_coordinator.get = MagicMock(return_value={})
     mock_coordinator.hooks = MagicMock()

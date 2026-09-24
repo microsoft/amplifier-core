@@ -7,6 +7,7 @@ loader logic in Rust.
 """
 
 import logging
+from copy import deepcopy
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -20,16 +21,20 @@ def _safe_exception_str(e: BaseException) -> str:
 
 
 async def _emit_module_load_failed(
-    coordinator: Any, module_type: str, module_id: str, error: BaseException
+    coordinator: Any,
+    module_type: str,
+    module_id: str,
+    error: BaseException,
+    *,
+    instance_id: str | None = None,
 ) -> None:
     """Emit the module:load_failed observability event for a provider, tool,
     or hook that raised during load/mount.
 
     This is a mechanism only: the kernel makes the failure observable via the
-    canonical event stream. It does not decide whether the session should
-    abort -- that policy choice belongs to a hook module subscribed to this
-    event. Mirrors the on_session_ready failure pattern below: event emission
-    failure must never suppress the original WARNING log.
+    canonical event stream. Event subscribers cannot abort initialization:
+    their failures are isolated from the original WARNING log. Provider abort
+    or recovery policy belongs to the optional provider.load_failure capability.
     """
     from .events import MODULE_LOAD_FAILED
     from .loader import module_failure_reason
@@ -42,6 +47,7 @@ async def _emit_module_load_failed(
                 "module_id": module_id,
                 "error": _safe_exception_str(error),
                 "reason_code": module_failure_reason(error),
+                **({"instance_id": instance_id} if instance_id else {}),
             },
         )
     except Exception:
@@ -159,6 +165,7 @@ async def initialize_session(
         if not module_id:
             continue
         instance_id = provider_config.get("instance_id")  # multi-instance support
+        before_providers = dict(coordinator.get("providers") or {})
         try:
             logger.info(
                 f"Loading provider: {module_id}"
@@ -186,9 +193,6 @@ async def initialize_session(
             cleanup = await provider_mount(coordinator)
             if cleanup:
                 coordinator.register_cleanup(cleanup)
-            # B1 fix: enqueue on_session_ready ONLY after successful mount
-            if on_sr := getattr(provider_mount, "__on_session_ready__", None):
-                loader.enqueue_on_session_ready(on_sr[0], on_sr[1])
 
             # Multi-instance remapping: if instance_id specified, remap mount name
             if instance_id:
@@ -214,12 +218,35 @@ async def initialize_session(
                     logger.info(
                         f"Remapped provider '{default_name}' -> '{instance_id}'"
                     )
+            # Readiness belongs to a successfully mounted and remapped instance.
+            if on_sr := getattr(provider_mount, "__on_session_ready__", None):
+                loader.enqueue_on_session_ready(on_sr[0], on_sr[1])
         except Exception as e:
             logger.warning(
                 f"Failed to load provider '{module_id}': {_safe_exception_str(e)}",
                 exc_info=True,
             )
-            await _emit_module_load_failed(coordinator, "provider", module_id, e)
+            # A provider may mount and then raise. Roll back this attempt before
+            # any host failure policy runs so an unrelated account is not lost.
+            for name in set(coordinator.get("providers") or {}) - set(before_providers):
+                await coordinator.unmount("providers", name=name)
+            # A failed attempt can remove a previous entry as well as overwrite
+            # it. Rebuild only in that case so default iteration order survives.
+            if list(coordinator.get("providers") or {}) != list(before_providers):
+                for name in list(coordinator.get("providers") or {}):
+                    await coordinator.unmount("providers", name=name)
+            for name, previous in before_providers.items():
+                if (coordinator.get("providers") or {}).get(name) is not previous:
+                    await coordinator.mount("providers", previous, name=name)
+            await _emit_module_load_failed(
+                coordinator, "provider", module_id, e, instance_id=instance_id
+            )
+            # Optional app policy, installed before initialization. Unlike an
+            # observability subscriber, this callback can deliberately abort.
+            # The kernel does not select another provider or change config.
+            handler = coordinator.get_capability("provider.load_failure")
+            if handler is not None:
+                await handler(coordinator, deepcopy(provider_config), e)
 
     # Load tools
     for tool_config in config.get("tools", []):
