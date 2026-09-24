@@ -218,3 +218,44 @@ async def test_remap_failure_restores_default_and_existing_named_slot():
     )
     assert failures == ["account"]
     loader.enqueue_on_session_ready.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_host_preflight_rejects_exact_account_before_loader(coordinator):
+    before_calls = []
+    failures = []
+
+    async def preflight(c, spec):
+        before_calls.append(spec["instance_id"])
+        if spec["instance_id"] == "invalid":
+            spec["config"]["api_key"] = "callback-local-only"
+            raise ValueError("host preflight failed")
+
+    async def failed(c, spec, error):
+        failures.append(spec)
+        assert spec["config"]["api_key"] == "synthetic-value"
+
+    coordinator.register_capability("provider.before_load", preflight)
+    coordinator.register_capability("provider.load_failure", failed)
+
+    async def mount(c):
+        await c.mount("providers", "healthy", name="x")
+
+    loader = loader_for(coordinator, mount)
+    specs = [
+        {
+            "module": "provider-x",
+            "instance_id": "invalid",
+            "config": {"api_key": "synthetic-value"},
+        },
+        {"module": "provider-x", "instance_id": "valid", "config": {}},
+    ]
+    original = copy.deepcopy(specs)
+    await initialize_session({"providers": specs}, coordinator, "test", None)
+    assert specs == original
+    assert before_calls == ["invalid", "valid"]
+    assert failures == specs[:1]
+    assert coordinator.get("providers") == {"valid": "healthy"}
+    assert [call.args[0] for call in loader.load.await_args_list].count(
+        "provider-x"
+    ) == 1

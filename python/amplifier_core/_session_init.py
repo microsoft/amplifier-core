@@ -167,6 +167,9 @@ async def initialize_session(
         instance_id = provider_config.get("instance_id")  # multi-instance support
         before_providers = dict(coordinator.get("providers") or {})
         try:
+            before_load = coordinator.get_capability("provider.before_load")
+            if before_load is not None:
+                await before_load(coordinator, deepcopy(provider_config))
             logger.info(
                 f"Loading provider: {module_id}"
                 + (f" (instance: {instance_id})" if instance_id else "")
