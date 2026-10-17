@@ -45,6 +45,12 @@ its own session state.
 
 Register `provider.load_failure` before session initialization to apply host
 policy when a configured provider cannot load, mount, or finish instance remapping.
+Returning from a provider mount without installing a new provider object is a
+mount failure, including providers that decline missing configuration without
+raising. A named instance must install its new object at the module's default
+mount name before Core remaps it; an older account at that name is never reused
+as the newly requested account. Tool, hook, and other non-provider no-op mounts
+are unaffected.
 It runs once for the failed configuration entry, after restoring the provider
 mount table and emitting `module:load_failed`, and before loading the next entry.
 The spec is a deep copy of that entry, including its source, `instance_id`, and

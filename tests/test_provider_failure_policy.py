@@ -90,6 +90,51 @@ async def test_partial_mount_restored_before_instance_policy_and_event(coordinat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("named", [False, True])
+@pytest.mark.parametrize("existing", [False, True])
+async def test_silent_mount_is_failure_without_stealing_prior_account(coordinator, named, existing):
+    first, second = object(), object()
+    if existing:
+        await coordinator.mount("providers", first, name="openai")
+        await coordinator.mount("providers", second, name="other")
+    before = dict(coordinator.get("providers") or {})
+    mount = AsyncMock(return_value=None)
+    mount.__on_session_ready__ = ("provider-openai", AsyncMock())
+    loader = loader_for(coordinator, mount)
+    observed = []
+    async def policy(c, spec, error):
+        assert list(c.get("providers") or {}) == list(before)
+        assert dict(c.get("providers") or {}) == before
+        assert isinstance(error, ValueError)
+        observed.append(spec)
+    coordinator.register_capability("provider.load_failure", policy)
+    spec = {"module": "provider-openai", "config": {"priority": 7}}
+    if named:
+        spec["instance_id"] = "broken-account"
+    original = copy.deepcopy(spec)
+    await initialize_session({"providers": [spec]}, coordinator, "test", None)
+    assert observed == [original] and spec == original
+    assert dict(coordinator.get("providers") or {}) == before
+    loader.enqueue_on_session_ready.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_named_mount_at_wrong_slot_does_not_remap_existing_default(coordinator):
+    original = object()
+    await coordinator.mount("providers", original, name="openai")
+    async def mount(c):
+        await c.mount("providers", object(), name="wrong-slot")
+    loader = loader_for(coordinator, mount)
+    policy = AsyncMock()
+    coordinator.register_capability("provider.load_failure", policy)
+    await initialize_session({"providers": [{"module": "provider-openai", "instance_id": "account"}]},
+                             coordinator, "test", None)
+    policy.assert_awaited_once()
+    assert coordinator.get("providers") == {"openai": original}
+    loader.enqueue_on_session_ready.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_host_failure_policy_can_abort_without_observability_swallowing_it(
     coordinator,
 ):
