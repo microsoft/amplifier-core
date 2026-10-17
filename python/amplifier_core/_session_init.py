@@ -197,6 +197,16 @@ async def initialize_session(
             if cleanup:
                 coordinator.register_cleanup(cleanup)
 
+            mounted_providers = coordinator.get("providers") or {}
+            if not any(
+                name not in before_providers or provider is not before_providers[name]
+                for name, provider in mounted_providers.items()
+            ):
+                # Some providers decline missing configuration by returning
+                # instead of raising. That is not a successful new mount and
+                # must not remap an earlier account or schedule readiness.
+                raise ValueError("Provider mount did not install a new provider instance")
+
             # Multi-instance remapping: if instance_id specified, remap mount name
             if instance_id:
                 default_name = (
@@ -205,6 +215,12 @@ async def initialize_session(
                     else module_id
                 )
                 providers_dict = coordinator.get("providers") or {}
+                if default_name not in providers_dict or (
+                    providers_dict[default_name] is before_providers.get(default_name)
+                ):
+                    raise ValueError(
+                        "Named provider mount did not install a new instance at its default mount name"
+                    )
                 if default_name in providers_dict and default_name != instance_id:
                     new_instance = providers_dict[default_name]
                     await coordinator.mount("providers", new_instance, name=instance_id)
