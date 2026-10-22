@@ -104,6 +104,13 @@ All extension fields are optional with sensible defaults. Existing providers tha
 
 ## Entry Point Pattern
 
+Current session initialization requires a new mounted provider object, including
+the named-account rules in [provider initialization failures](../CAPABILITY_REGISTRY.md#provider-initialization-failures).
+Returning `None` to decline missing configuration is reported as a provider mount
+failure; the historical graceful-degradation wording below does not imply an
+accepted mount. The [capability-only lifecycle proposal](../plans/2026-10-22-capability-only-provider-lifecycle-design.md)
+is a draft for discussion, not an implemented exception.
+
 ### mount() Function
 
 ```python

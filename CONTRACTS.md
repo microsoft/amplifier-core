@@ -191,6 +191,10 @@ initialisation.
 
 ### `mount(coordinator, config)` — Required
 
+**Draft under discussion:** [Capability-only provider lifecycle](docs/plans/2026-10-22-capability-only-provider-lifecycle-design.md)
+proposes a separate opt-in lifecycle and rejected-mount cleanup. It is not an
+accepted exception to the current [provider initialization contract](docs/CAPABILITY_REGISTRY.md#provider-initialization-failures).
+
 ```python
 from collections.abc import Awaitable, Callable
 from typing import Any
