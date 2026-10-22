@@ -37,9 +37,11 @@ not depend on effects surviving rejection. The independent [library rollback
 fix][library-fix] handles registration errors within the decisions library; it
 does not change Core's mount acceptance.
 
-The current authority is [provider initialization failures][failures]. Older
-provider-guide examples describing `None` as graceful degradation do not waive
-the new-object check. This proposal does not restore silent ordinary mounts.
+The current authority is [provider initialization failures][failures]. The
+provider-guide entrypoint example is corrected in this PR to require explicit
+mounting and report missing required configuration as failure. That correction
+describes existing enforcement; it does not implement this proposal or restore
+silent ordinary mounts.
 
 ## Proposed boundary
 
@@ -62,6 +64,12 @@ the existing ordinary lifecycle. Unknown values, wrong types, or a declaration o
 an ineligible module fail validation; they do not downgrade to ordinary loading.
 User configuration, offline catalog metadata, a returned cleanup callback, and
 changes to the capability registry cannot grant this exception.
+
+Bind this declaration to the exact resolved entrypoint and mount attempt, along
+with its source and account identity. Do not re-resolve it from a shared module
+name or let configuration change the lifecycle between preflight and invocation.
+The static declaration proposed here is suitable only when the entire entrypoint
+uses that lifecycle; it cannot describe a provider that conditionally skips chat.
 
 The same declaration must survive cached, resolver-selected filesystem, direct
 entrypoint, and direct filesystem loads. A cache hit still binds fresh account
@@ -119,6 +127,15 @@ and only then deliver the ordinary failure event and host policy. Do not also
 leave that callback in the session cleanup stack. This closes the rejected-return
 gap for provider mounts; it does not alter successful ordinary provider checks.
 
+Each returned handle has one owner and two exclusive destinations: normal
+teardown after acceptance, or immediate rollback after rejection. Mark the
+rollback attempt consumed **before** invoking or awaiting its handle. It is
+invoked at most once for that rejected attempt, even if it raises or is cancelled.
+Do not register it later, replay it during retry/teardown, or enqueue readiness.
+An interrupted rollback is incomplete, not successful. Retaining and awaiting
+an already-running cleanup task, where one exists, does not authorize starting
+the callback again.
+
 The callback must remove only its own callable registrations and close its owned
 resources, preserving siblings and replacement registrations. Sync callbacks and
 returned coroutines follow the existing cleanup contract; accepting other awaitable
@@ -142,14 +159,31 @@ state from `None` or from a shallow capability-registry comparison. This stricte
 rule is scoped to the new opt-in branch; ordinary missing-config/no-new-provider
 handling is not silently converted into a fatal error.
 
-If returned cleanup or provider-table restoration fails, do not continue to
-readiness, host recovery on that partially restored coordinator, or execution.
-Abort initialization and retain the initiating error plus rollback failure for
-diagnosis, consistent with the existing restoration-failure boundary. Cancellation
-must remain cancellation; no swallowing it into a recoverable provider warning.
+The proposed failure outcomes are:
+
+| Outcome | Reporting and continuation |
+| --- | --- |
+| Mount/acceptance failure, rollback and provider-table restoration complete | Preserve the initiating failure; only then invoke normal failure reporting and host policy. |
+| Cleanup or provider-table restoration fails | Abort initialization. Preserve the initiating mount/acceptance failure and separately report each cleanup/restoration failure through the exception chain or structured diagnostics. Do not replace the initiating error with a successful cleanup result or an ordinary recoverable warning. |
+| Cancellation before return | The module unwinds its partial allocations; cancellation remains cancellation through the public session API. |
+| Cancellation after return or during rollback | Consume any still-local handle through the rollback path at most once. Cancellation remains the control-flow outcome; retain any earlier failure and secondary cleanup failures as diagnostic context. Incomplete cleanup cannot be reported as success. |
+
+On unsafe or incomplete rollback, do not start the next account, enqueue readiness,
+invoke recovery that continues on the contaminated coordinator, or execute its
+backends. Abort and discard the session. A secondary failure must remain observable
+without adding credentials or private configuration to events. Cancellation must
+not be translated into a provider warning or an ordinary exception by the Python
+or Rust-backed session boundary.
+
+A cleanup failure does not waive provider-table restoration: still attempt that
+restoration and retain any additional failure, without allowing continuation.
+Restoring the table alone does not establish that opaque backends are unusable.
+
 No cancellation-proof drain, hidden deadline, or automatic replay is promised.
-The host owns retaining/awaiting cleanup and abandoning or rebuilding the session.
-Exact exception representation and cancellation sequencing need maintainer agreement.
+The host owns retaining/awaiting an existing cleanup task and abandoning or
+rebuilding the session. Exact exception representation and cancellation sequencing
+need maintainer agreement; the outcome and no-continuation rules above are part
+of the proposal, not guarantees of current Core.
 
 Observation contributors are not generic executable-capability leases. This draft
 does not invent an unregister API or claim every contributor mutation is undone.
@@ -190,7 +224,7 @@ Core's acceptance rules.
 | --- | --- |
 | Jev and local-decisions | Declare the accepted lifecycle, guard older Core before side effects, retain saved account/auth/source formats, and qualify real-session success, disabled mode and interrupted partial mounts. No weights or inference server installation is implied. |
 | OpenAI and ordinary Azure chat+decisions | Stay on the strict ordinary path. No module-wide capability-only declaration. |
-| Azure's optional `chat_enabled: false` path | Also lacks a chat mount. It is **not covered** by the narrow Jev/local declaration. Hold this combination unsupported unless separately reviewed as a distinct entrypoint/lifecycle; configuration alone cannot choose Core acceptance semantics. No claim that default Azure has this failure. |
+| Azure's optional `chat_enabled: false` path | Source inspection of [Azure PR #45][azure] at `2f36a9d` shows it skips the chat mount; this is not a new runtime reproduction. It is **not covered** by the narrow Jev/local declaration. Hold this combination unsupported unless separately reviewed as a per-attempt or distinct-entrypoint lifecycle; configuration alone cannot choose Core acceptance semantics. Endpoint-fix clearance does not qualify this mode. No claim that default Azure has this failure. |
 | Unified | Qualify both service and actual packaged worker against accepted Core/provider commits; preserve saved accounts, child/resume credential binding and frozen worker generations. Use the existing explicit component-update path. |
 | CLI / other apps | Updated modules retain provider configuration shape on supported Core. Older Core must reject enabled optional support without side effects. Existing ordinary workflows remain first-class. |
 | UI-use, Work, loops | No new routing or dispatch policy in Core. Preserve explicit opt-in, ordinary default/recovery and Work's single behavior include. |
@@ -208,6 +242,15 @@ persists and rebinds credentials through provider rows, including child/resumed
 sessions. Moving a row earlier can drop credentials; copying it later without its
 binding rules can broaden access. The projection and saved logical account must
 be qualified together. Arbitrary hooks must not acquire provider credentials.
+
+Current hook loading does not invoke `provider.before_load` or
+`provider.load_failure`; a hook failure alone does not preserve the saved account's
+provider policy. The approved host/provider-hook adapter must explicitly preserve
+logical account preflight and failure handling for the exact authorized source,
+instance and configuration, including child/resume snapshots. An unavailable
+selected account must remain unavailable; do not substitute another account or
+credential. This adapter is additional host integration work, not an existing
+Core guarantee or a free hook alias.
 
 A CLI user can explicitly compose the hook with its documented environment
 references on existing Core, but automatic migration of saved provider accounts
@@ -231,10 +274,20 @@ Required tests, not results claimed by this documentation PR:
   and no chat entries; accidental chat-table mutation and invalid returns reject.
 - Direct/resolved/cached loader and validator paths agree, including malformed
   declarations, selected-source conflicts and fresh multi-account configuration.
-- Failed or cancelled partial mounts leave no executable backend; rejected-return
-  cleanup runs before failure policy, preserving sibling/replacement registrations.
-  Cleanup failure or unestablished unwind on the new branch aborts, rejected mounts never become ready, and cleanup is not
-  registered twice. Exercise both session entry paths and actual coordinators.
+- Failed or cancelled partial mounts leave no executable backend; multi-account
+  rejected-return cleanup precedes the next account and failure policy, preserving
+  sibling/replacement registrations and restoring provider-table order/identity.
+  Cleanup failure or unestablished unwind on the new branch aborts. Rejected mounts
+  never become ready; teardown/retry cannot register or replay consumed cleanup.
+  Assert initiating and secondary failures remain separately observable.
+- Exercise enabled success, disabled no-op, failure and cancellation through the
+  actual installed `RustSession`, real coordinator and loader, as well as the
+  Python session entry path. Assert the public session boundary preserves
+  cancellation and failed initialization, including cancellation before return
+  and during rejected-return rollback. Direct helper or mock-coordinator tests
+  alone do not qualify the installed Rust-backed API. Record wheel, source and
+  import provenance for the supported runtime/version, independently of the old
+  Core 2.0.2 rejection reproduction.
 - Real Jev/local lifecycle with fake transports makes zero inference calls during
   mount, disabled mode, validation and cleanup. Older unsupported Core publishes
   nothing; supported Core mounts successfully. No network keys are needed for this.
@@ -252,4 +305,5 @@ application releases do not.
 [local]: https://github.com/microsoft/amplifier-module-provider-local-decisions/tree/75d743fb2f7ea599dd92709625a8e0661dcf7ae8
 [strict]: https://github.com/microsoft/amplifier-core/pull/122
 [library-fix]: https://github.com/microsoft/amplifier-lib-decisions/pull/1
+[azure]: https://github.com/microsoft/amplifier-module-provider-azure-openai/pull/45
 [failures]: ../CAPABILITY_REGISTRY.md#provider-initialization-failures

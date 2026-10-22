@@ -2,7 +2,7 @@
 contract_type: module_specification
 module_type: provider
 contract_version: 1.0.0
-last_modified: 2025-01-29
+last_modified: 2026-10-22
 related_files:
   - path: ../../python/amplifier_core/interfaces.py#Provider
     relationship: protocol_definition
@@ -106,36 +106,59 @@ All extension fields are optional with sensible defaults. Existing providers tha
 
 Current session initialization requires a new mounted provider object, including
 the named-account rules in [provider initialization failures](../CAPABILITY_REGISTRY.md#provider-initialization-failures).
-Returning `None` to decline missing configuration is reported as a provider mount
-failure; the historical graceful-degradation wording below does not imply an
-accepted mount. The [capability-only lifecycle proposal](../plans/2026-10-22-capability-only-provider-lifecycle-design.md)
+The entrypoint must explicitly mount that object. Returning a `Provider` does not
+register it automatically. Returning `None` without a new mounted provider,
+including when required configuration is missing, is a provider mount failure.
+The [capability-only lifecycle proposal](../plans/2026-10-22-capability-only-provider-lifecycle-design.md)
 is a draft for discussion, not an implemented exception.
 
 ### mount() Function
 
 ```python
-async def mount(coordinator: ModuleCoordinator, config: dict) -> Provider | Callable | None:
-    """
-    Initialize and return provider instance.
+import asyncio
+import os
+from collections.abc import Awaitable, Callable
 
-    Returns:
-        - Provider instance (registered automatically)
-        - Cleanup callable (for resource cleanup on unmount)
-        - None for graceful degradation (e.g., missing API key)
-    """
+
+async def mount(
+    coordinator: ModuleCoordinator, config: dict
+) -> Callable[[], Awaitable[None]] | None:
+    """Mount a new provider explicitly; return its resource cleanup callback."""
     api_key = config.get("api_key") or os.environ.get("MY_API_KEY")
     if not api_key:
-        logger.warning("No API key - provider not mounted")
-        return None
+        raise ValueError("Configure api_key or MY_API_KEY for my-provider")
 
     provider = MyProvider(api_key=api_key, config=config)
-    await coordinator.mount("providers", provider, name="my-provider")
+    try:
+        await coordinator.mount("providers", provider, name="my-provider")
+    except BaseException as primary:
+        # No returned handle exists yet: unwind this attempt's own allocation.
+        try:
+            await provider.client.close()
+        except asyncio.CancelledError as cancellation:
+            raise cancellation from primary
+        except BaseException as cleanup_error:
+            raise primary from cleanup_error
+        raise
 
     async def cleanup():
         await provider.client.close()
 
     return cleanup
 ```
+
+An ordinary provider may return `None` **after** mounting a new provider when it
+owns no resource requiring cleanup. For a named account, mount the new object at
+the module's default slot; Core validates it before remapping to `instance_id`.
+Do not reuse a sibling account's provider to satisfy this check.
+
+If initialization fails or is cancelled before returning cleanup, the module owns
+unwinding its partial allocations and registrations. It must preserve the
+initiating failure when reporting any additional cleanup failure. This example
+allocates only a client; modules publishing other capabilities must also undo
+their own registrations. The draft above proposes changes to **Core's** handling
+of a returned cleanup handle after a rejected mount; those changes are not
+available in Core 2.0.2.
 
 ### pyproject.toml
 
@@ -271,7 +294,7 @@ Study this module for:
 
 ### Recommended
 
-- [ ] Graceful degradation on missing config (return None from mount)
+- [ ] Explicit failure on missing required configuration; unwind owned partial allocations on failure/cancellation
 - [ ] Validates tool call/result sequences
 - [ ] Supports debug configuration flags
 - [ ] Registers cleanup function for resource management
