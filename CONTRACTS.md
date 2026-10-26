@@ -235,6 +235,34 @@ but do not prevent the remaining callables from running.
 Source reference: `bindings/python/src/coordinator/mod.rs::cleanup()` and
 `bindings/python/src/coordinator/capabilities.rs::register_cleanup()`.
 
+### Rust-backed Python Session Execution Cancellation
+
+Cancelling and awaiting an active `RustSession.execute()` joins that execution's
+owned Python debug stage, orchestrator stage, and Python hook runners before
+re-raising the caller's `asyncio.CancelledError`. Settlement requires both release
+of the Rust execution scope and completion of its Python tasks, including async
+`finally` blocks. Repeated cancellation requests do not abandon this join.
+Cancellation affects only that execution; it does not cancel unrelated tasks or
+another session, change the cancellation token, or synthesize lifecycle events.
+
+The native execution future starts only when the public coroutine is entered.
+Cancelling a task before that first step cannot start execution or emit lifecycle
+events. Stage coroutines are then created lazily on the calling loop. Submitted
+Python hook owners enroll before their scheduling callback, so cancellation can
+close unstarted hook work before acknowledging settlement. Each hook's exact
+owner controls its cancellation; the execution's cancelled state does not veto
+new hooks awaited by a stage's `finally` block. A detached descendant with stale
+execution context cannot reopen a settled join or invalidate its own later hooks.
+
+Scheduling failures close any coroutine not adopted by a task. The bridge retains
+the calling loop and context per execution, not globally. There is no kernel
+deadline: a module that suppresses cancellation or cannot finish teardown can hold
+the join; the host owns any external deadline or abandonment decision. Settlement
+requires a functioning event loop and Python runtime. If shutdown makes the loop
+unavailable, native drop guards report a fixed warning, not a settlement success.
+
+This execution guarantee does not change the separate cleanup contract below.
+
 ### Rust-backed Python Session Cleanup
 
 For the PyO3 `RustSession`, `cleanup()` claims and then awaits `session:end` at most

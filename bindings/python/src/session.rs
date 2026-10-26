@@ -6,11 +6,53 @@ use std::sync::Arc;
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyTuple};
 use serde_json::Value;
 
 use crate::helpers::{json_dumps_safe, wrap_future_as_coroutine};
 use crate::hooks::PyHookRegistry;
+
+/// Dropping into_future's receiver does not cancel its Python work. This guard
+/// releases exactly one execute scope on its captured loop; the Python public
+/// wrapper joins the acknowledgement because Drop itself cannot await.
+struct ExecutionScope {
+    owner: Py<PyAny>,
+    event_loop: Py<PyAny>,
+    cancel_on_drop: bool,
+}
+
+impl Drop for ExecutionScope {
+    fn drop(&mut self) {
+        let result = Python::try_attach(|py| -> PyResult<()> {
+            let release = self.owner.bind(py).getattr("scope_released")?;
+            self.event_loop
+                .bind(py)
+                .call_method1("call_soon_threadsafe", (release, self.cancel_on_drop))?;
+            Ok(())
+        });
+        if let Some(Err(_)) = result {
+            log::warn!("Could not release owned Python execution scope; event loop unavailable");
+        }
+    }
+}
+
+async fn run_execution_stage(
+    owner: &Py<PyAny>,
+    locals: &pyo3_async_runtimes::TaskLocals,
+    factory: Py<PyAny>,
+    args: Py<PyTuple>,
+) -> PyResult<Py<PyAny>> {
+    let future = Python::try_attach(|py| {
+        // start returns a Future, not a coroutine: even a failed conversion or
+        // a held PyEnsureFuture callback cannot strand an unawaited coroutine.
+        let result = owner
+            .bind(py)
+            .call_method1("start", (factory.bind(py), args.bind(py)))?;
+        pyo3_async_runtimes::into_future_with_locals(locals, result)
+    })
+    .ok_or_else(|| PyRuntimeError::new_err("Failed to attach to Python runtime"))??;
+    future.await
+}
 
 // ---------------------------------------------------------------------------
 // PySession — wraps amplifier_core::Session (Milestone 3)
@@ -358,10 +400,15 @@ impl PySession {
     /// 4. Checks cancellation after execution
     /// 5. Emits cancel:completed event if cancelled
     /// 6. Returns the result string
-    fn execute<'py>(&self, py: Python<'py>, prompt: String) -> PyResult<Bound<'py, PyAny>> {
+    fn execute<'py>(
+        slf: &Bound<'py, PySession>,
+        py: Python<'py>,
+        prompt: String,
+    ) -> PyResult<Bound<'py, PyAny>> {
         // Step 1: Check initialized — fail fast before any async work
         {
-            let session = self.inner.blocking_lock();
+            let this = slf.borrow();
+            let session = this.inner.blocking_lock();
             if !session.is_initialized() {
                 return Err(PyErr::new::<PyRuntimeError, _>(
                     "Session not initialized. Call initialize() first.",
@@ -369,14 +416,34 @@ impl PySession {
             }
         }
 
-        // Step 2: Prepare the Python orchestrator coroutine (we have the GIL here)
-        let helper = py.import("amplifier_core._session_exec")?;
-        let run_fn = helper.getattr("run_orchestrator")?;
-        let raw_fn = helper.getattr("emit_raw_field_if_configured")?;
+        // Return a dormant coroutine. The native future is created only after
+        // the caller enters its protected body, not when execute() is called.
+        py.import("amplifier_core._async_compat")?
+            .getattr("_execute")?
+            .call1((slf.getattr("_start_execute")?, prompt))
+    }
 
-        // Prepare the orchestrator call coroutine
-        let orch_coro = run_fn.call1((self.coordinator.bind(py), &prompt))?;
-        let orch_coro_py: Py<PyAny> = orch_coro.unbind();
+    fn _start_execute<'py>(
+        &self,
+        py: Python<'py>,
+        prompt: String,
+        owner: Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        // The session might have been cleaned up between call and first await.
+        if !self.inner.blocking_lock().is_initialized() {
+            return Err(PyRuntimeError::new_err(
+                "Session not initialized. Call initialize() first.",
+            ));
+        }
+
+        // Keep factories and arguments only. Coroutines are created lazily on
+        // the owning Python loop, never before a preceding stage has completed.
+        let helper = py.import("amplifier_core._session_exec")?;
+        let run_fn = helper.getattr("run_orchestrator")?.unbind();
+        let raw_fn = helper.getattr("emit_raw_field_if_configured")?.unbind();
+        let orch_args = (self.coordinator.bind(py), prompt)
+            .into_pyobject(py)?
+            .unbind();
 
         // Determine event name based on is_resumed
         let event_base = if self.is_resumed {
@@ -385,18 +452,17 @@ impl PySession {
             "session:start"
         };
 
-        // Prepare raw-field emission coroutine (no-op if session.raw=false)
-        let raw_coro = raw_fn.call1((
+        let debug_args = (
             self.coordinator.bind(py),
             self.config.bind(py),
             &self.cached_session_id,
             event_base,
-        ))?;
-        let debug_coro_py: Py<PyAny> = raw_coro.unbind();
+        )
+            .into_pyobject(py)?
+            .unbind();
 
-        // Get the inner HookRegistry for direct Rust emit (avoids PyO3 Future/coroutine mismatch:
-        // calling a #[pymethods] fn that uses future_into_py returns a Future object, but
-        // into_future() expects a native Python coroutine — they are different awaitables).
+        // Keep lifecycle dispatch on the shared kernel registry, without an
+        // extra Python Future roundtrip.
         let hooks_inner: Arc<amplifier_core::HookRegistry> = {
             let coord = self.coordinator.bind(py);
             let hooks = coord.getattr("hooks")?;
@@ -421,10 +487,21 @@ impl PySession {
         // with any concurrent execute() calls.
         let inner_for_lifecycle = Arc::clone(&self.inner);
 
-        // Step 3: Return an awaitable that runs the full execute sequence
-        wrap_future_as_coroutine(
+        let locals = pyo3_async_runtimes::tokio::get_current_locals(py)?;
+        let locals = locals.with_context(owner.getattr("context")?);
+        // Capture the guard outside the async body so even an unpolled future
+        // releases its scope. No execution state is stored on the session.
+        let scope = ExecutionScope {
+            owner: owner.clone().unbind(),
+            event_loop: locals.event_loop(py).unbind(),
+            cancel_on_drop: true,
+        };
+
+        pyo3_async_runtimes::tokio::future_into_py_with_locals(
             py,
-            pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            locals.clone(),
+            pyo3_async_runtimes::tokio::scope(locals.clone(), async move {
+                let mut scope = scope;
                 // 3a: Emit pre-execution event (session:start or session:resume)
                 // once per session lifetime — not once per execute() call.
                 // The core Session tracks the "already emitted" flag atomically;
@@ -435,45 +512,23 @@ impl PySession {
                     session.claim_lifecycle_event()
                 };
                 if should_emit_lifecycle {
-                    // Call inner Rust emit directly — avoids the Future/coroutine
-                    // mismatch that occurs when going through the Python PyO3 bridge
-                    // (future_into_py returns a Future object, but into_future()
-                    // expects a native coroutine).
                     hooks_inner.emit(event_base, pre_event_data).await;
                 }
 
-                // 3b: Emit debug events (delegates to Python for redact_secrets/truncate_values)
-                let debug_future = Python::try_attach(|py| {
-                    pyo3_async_runtimes::tokio::into_future(debug_coro_py.into_bound(py))
-                })
-                .ok_or_else(|| {
-                    PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
-                })?
-                .map_err(|e| {
-                    PyErr::new::<PyRuntimeError, _>(format!(
-                        "Failed to convert debug event coroutine: {e}"
-                    ))
-                })?;
+                // 3b: The debug stage owns nested session.raw hook runners.
+                run_execution_stage(&scope.owner, &locals, raw_fn, debug_args)
+                    .await
+                    .map_err(|e| {
+                        PyErr::new::<PyRuntimeError, _>(format!("Debug event emission failed: {e}"))
+                    })?;
 
-                debug_future.await.map_err(|e| {
-                    PyErr::new::<PyRuntimeError, _>(format!("Debug event emission failed: {e}"))
-                })?;
-
-                // 3c: Call the Python orchestrator (mount point access + orchestrator.execute())
-                let orch_future = Python::try_attach(|py| {
-                    pyo3_async_runtimes::tokio::into_future(orch_coro_py.into_bound(py))
-                })
-                .ok_or_else(|| {
-                    PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
-                })?
-                .map_err(|e| {
-                    PyErr::new::<PyRuntimeError, _>(format!(
-                        "Failed to convert orchestrator coroutine: {e}"
-                    ))
-                })?;
-
-                // Await orchestrator execution outside GIL
-                let orch_result = orch_future.await;
+                // 3c: No orchestrator coroutine exists until debug succeeds.
+                let orch_result =
+                    run_execution_stage(&scope.owner, &locals, run_fn, orch_args).await;
+                // Disarm on completion, including Python execution errors.
+                // scope_released still cancels work accepted before a failed
+                // conversion, if that work has no remaining Rust receiver.
+                scope.cancel_on_drop = false;
 
                 // 3d: Check cancellation and emit cancel:completed if needed
                 let is_cancelled = Python::try_attach(|py| -> PyResult<bool> {
