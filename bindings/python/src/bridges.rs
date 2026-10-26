@@ -63,8 +63,8 @@ impl Drop for OwnedHookTask {
                     .call_method1("call_soon_threadsafe", (cancel,))?;
                 Ok(())
             });
-            if let Some(Err(error)) = result {
-                log::warn!("Could not cancel owned Python hook task: {error}");
+            if let Some(Err(_)) = result {
+                log::warn!("Could not cancel owned Python hook task; event loop unavailable");
             }
         }
     }
@@ -139,7 +139,16 @@ impl HookHandler for PyHookHandlerBridge {
                         .import("amplifier_core._async_compat")?
                         .getattr("_OwnedHookTask")?
                         .call1((py_result_or_coro.bind(py),))?;
-                    let runner = owner.call_method0("run")?;
+                    // Enroll before scheduling the runner. Resolve execution
+                    // from the emitting TaskLocals, not ambient Tokio context.
+                    owner.call_method1("bind_execution", (locals.context(py),))?;
+                    let runner = match owner.call_method0("run") {
+                        Ok(runner) => runner,
+                        Err(error) => {
+                            let _ = owner.call_method0("cancel");
+                            return Err(error);
+                        }
+                    };
                     let future =
                         match pyo3_async_runtimes::into_future_with_locals(&locals, runner.clone())
                         {
