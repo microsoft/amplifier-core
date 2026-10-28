@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pathlib
 
+import pytest
 import yaml
 
 # Root of the amplifier-core submodule
@@ -52,6 +53,17 @@ class TestRustCoreCIWorkflow:
         pr_branches = wf["on"]["pull_request"]["branches"]
         assert "rust-core" in pr_branches
         assert "main" in pr_branches
+
+    @pytest.mark.parametrize("event", ["push", "pull_request"])
+    def test_exact_branch_filters(self, event):
+        trigger = self._load()["on"][event]
+        assert set(trigger["branches"]) == {
+            "rust-core",
+            "main",
+            "integration/core-release-candidate",
+        }
+        # Keep Rust CI unfiltered by paths for either event.
+        assert set(trigger) == {"branches"}
 
     # -- rust-tests job --
 
@@ -184,6 +196,12 @@ class TestBuildWheelsWorkflow:
         wf = self._load()
         assert "workflow_dispatch" in wf["on"]
 
+    def test_exact_release_only_triggers(self):
+        assert self._load()["on"] == {
+            "push": {"tags": ["v*"]},
+            "workflow_dispatch": None,
+        }
+
     # -- build jobs --
 
     def test_has_build_wheels_job(self):
@@ -249,6 +267,18 @@ class TestBuildWheelsWorkflow:
         condition = wf["jobs"]["publish"]["if"]
         assert "refs/tags/v" in condition
 
+    def test_publication_guards_remain_tag_only(self):
+        jobs = self._load()["jobs"]
+        tag_guard = "startsWith(github.ref, 'refs/tags/v')"
+        assert jobs["publish"]["if"] == tag_guard
+        assert jobs["publish-release"]["if"] == tag_guard
+        attachment = next(
+            step
+            for step in jobs["release-evidence"]["steps"]
+            if step.get("name") == "Attach evidence to a draft GitHub release"
+        )
+        assert attachment["if"] == tag_guard
+
     def test_publish_uses_pypi_action(self):
         wf = self._load()
         steps = wf["jobs"]["publish"]["steps"]
@@ -290,6 +320,36 @@ class TestBuildWheelsWorkflow:
         assert "publish" in final["needs"]
         assert "release-evidence" in final["needs"]
         assert "refs/tags/v" in final["if"]
+
+
+class TestProtoSyncCheckWorkflow:
+    """Proto checks cover integration without broadening the path filters."""
+
+    WORKFLOW_PATH = ROOT / ".github" / "workflows" / "proto-check.yml"
+
+    def _load(self) -> dict:
+        return _normalize_on_key(yaml.safe_load(self.WORKFLOW_PATH.read_text()))
+
+    @pytest.mark.parametrize("event", ["push", "pull_request"])
+    def test_exact_branch_filters(self, event):
+        trigger = self._load()["on"][event]
+        assert set(trigger["branches"]) == {
+            "main",
+            "integration/core-release-candidate",
+        }
+
+    @pytest.mark.parametrize("event", ["push", "pull_request"])
+    def test_path_filters_unchanged(self, event):
+        trigger = self._load()["on"][event]
+        assert set(trigger) == {"branches", "paths"}
+        assert trigger["paths"] == [
+            "proto/**",
+            "python/amplifier_core/_grpc_gen/**",
+            "crates/amplifier-core/src/generated/**",
+            "uv.lock",
+            "scripts/generate_grpc_stubs.py",
+            ".github/workflows/proto-check.yml",
+        ]
 
 
 class TestNodeBindingsCIWorkflow:

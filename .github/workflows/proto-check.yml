@@ -2,7 +2,7 @@ name: Proto Sync Check
 
 on:
   push:
-    branches: [main]
+    branches: [main, integration/core-release-candidate]
     paths:
       - 'proto/**'
       - 'python/amplifier_core/_grpc_gen/**'
@@ -11,7 +11,7 @@ on:
       - 'scripts/generate_grpc_stubs.py'
       - '.github/workflows/proto-check.yml'
   pull_request:
-    branches: [main]
+    branches: [main, integration/core-release-candidate]
     paths:
       - 'proto/**'
       - 'python/amplifier_core/_grpc_gen/**'

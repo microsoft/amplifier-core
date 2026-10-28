@@ -2,9 +2,9 @@ name: Rust Core CI
 
 on:
   push:
-    branches: [rust-core, main]
+    branches: [rust-core, main, integration/core-release-candidate]
   pull_request:
-    branches: [rust-core, main]
+    branches: [rust-core, main, integration/core-release-candidate]
 
 jobs:
   rust-tests:
