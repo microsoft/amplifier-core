@@ -47,13 +47,13 @@ unsafe impl Sync for PyHookHandlerBridge {}
 /// into_future_with_locals does not cancel its Python task when the Rust
 /// receiver is dropped. Keep exact ownership so cancellation cannot orphan a
 /// hook callback or affect an unrelated task on the same event loop.
-struct OwnedHookTask {
-    owner: Py<PyAny>,
-    event_loop: Py<PyAny>,
-    cancel_on_drop: bool,
+pub(crate) struct OwnedPythonTask {
+    pub(crate) owner: Py<PyAny>,
+    pub(crate) event_loop: Py<PyAny>,
+    pub(crate) cancel_on_drop: bool,
 }
 
-impl Drop for OwnedHookTask {
+impl Drop for OwnedPythonTask {
     fn drop(&mut self) {
         if self.cancel_on_drop {
             let result = Python::try_attach(|py| -> PyResult<()> {
@@ -64,7 +64,7 @@ impl Drop for OwnedHookTask {
                 Ok(())
             });
             if let Some(Err(error)) = result {
-                log::warn!("Could not cancel owned Python hook task: {error}");
+                log::warn!("Could not cancel owned Python task: {error}");
             }
         }
     }
@@ -154,7 +154,7 @@ impl HookHandler for PyHookHandlerBridge {
                         };
                     Ok((
                         future,
-                        OwnedHookTask {
+                        OwnedPythonTask {
                             owner: owner.unbind(),
                             event_loop: locals.event_loop(py).unbind(),
                             cancel_on_drop: true,

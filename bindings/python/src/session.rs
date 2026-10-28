@@ -9,6 +9,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use serde_json::Value;
 
+use crate::bridges::OwnedPythonTask;
 use crate::helpers::{json_dumps_safe, wrap_future_as_coroutine};
 use crate::hooks::PyHookRegistry;
 
@@ -460,8 +461,31 @@ impl PySession {
                 })?;
 
                 // 3c: Call the Python orchestrator (mount point access + orchestrator.execute())
-                let orch_future = Python::try_attach(|py| {
-                    pyo3_async_runtimes::tokio::into_future(orch_coro_py.into_bound(py))
+                let (orch_future, mut orch_task) = Python::try_attach(|py| -> PyResult<_> {
+                    let locals = pyo3_async_runtimes::tokio::get_current_locals(py)?;
+                    let owner = py
+                        .import("amplifier_core._async_compat")?
+                        .getattr("_OwnedPythonTask")?
+                        .call1((orch_coro_py.bind(py),))?;
+                    let runner = owner.call_method0("run")?;
+                    let future =
+                        match pyo3_async_runtimes::into_future_with_locals(&locals, runner.clone())
+                        {
+                            Ok(future) => future,
+                            Err(error) => {
+                                let _ = runner.call_method0("close");
+                                let _ = owner.call_method0("cancel");
+                                return Err(error);
+                            }
+                        };
+                    Ok((
+                        future,
+                        OwnedPythonTask {
+                            owner: owner.unbind(),
+                            event_loop: locals.event_loop(py).unbind(),
+                            cancel_on_drop: true,
+                        },
+                    ))
                 })
                 .ok_or_else(|| {
                     PyErr::new::<PyRuntimeError, _>("Failed to attach to Python runtime")
@@ -474,6 +498,7 @@ impl PySession {
 
                 // Await orchestrator execution outside GIL
                 let orch_result = orch_future.await;
+                orch_task.cancel_on_drop = false;
 
                 // 3d: Check cancellation and emit cancel:completed if needed
                 let is_cancelled = Python::try_attach(|py| -> PyResult<bool> {
