@@ -9,12 +9,12 @@ methods are drop-in compatible with the old pure-Python async def methods.
 import asyncio
 
 
-class _OwnedHookTask:
-    """Let a dropped Rust hook waiter cancel only its scheduled Python task.
+class _OwnedPythonTask:
+    """Let a dropped Rust waiter cancel only its scheduled Python task.
 
     ``run`` is scheduled by into_future_with_locals, retaining the emitting
     task's context. ``cancel`` must be called on that same event loop. Remember
-    cancellation before startup too: a dropped waiter must not start its hook
+    cancellation before startup too: a dropped waiter must not start its callback
     later merely because the loop has not yet run the scheduled coroutine.
     """
 
@@ -39,6 +39,9 @@ class _OwnedHookTask:
             self._task.cancel()
         else:
             self._coroutine.close()
+
+
+_OwnedHookTask = _OwnedPythonTask  # Compatibility for the existing hook bridge.
 
 
 async def _wrap(awaitable):
