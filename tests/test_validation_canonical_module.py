@@ -88,6 +88,10 @@ class _RecordingCoordinator:
         assert name is not None
         self.mounted[name] = module
 
+    def get(self, mount_point: str) -> dict[str, object]:
+        assert mount_point == "tools"
+        return self.mounted
+
 
 def _write_tool_package(root: Path, package_name: str, token: str) -> Path:
     package = root / package_name

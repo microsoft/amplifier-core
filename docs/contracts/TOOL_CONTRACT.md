@@ -110,6 +110,13 @@ class ToolResult(BaseModel):
 
 ### mount() Function
 
+Source-resolved Python tools are checked on their actual mounted instances; the
+loader does not mount a temporary tool first. A runtime mount that returns `None`
+without adding or replacing a tool is a successful no-op, including graceful
+degradation and an idempotent remount. Explicit `ToolValidator.validate()` remains
+a separate diagnostic and reports failure if it cannot obtain a tool or cleanup
+callable. See [runtime admission and cleanup](../../CONTRACTS.md#source-resolved-python-tool-validation).
+
 ```python
 async def mount(coordinator: ModuleCoordinator, config: dict) -> Tool | Callable | None:
     """

@@ -235,6 +235,40 @@ but do not prevent the remaining callables from running.
 Source reference: `bindings/python/src/coordinator/mod.rs::cleanup()` and
 `bindings/python/src/coordinator/capabilities.rs::register_cleanup()`.
 
+### Source-resolved Python tool validation
+
+The loader checks the selected Python package and lifecycle signatures before
+mounting. For tools, it then calls `mount()` once on the actual coordinator and
+validates the new or replaced tool objects, with the same protocol checks used by
+`ToolValidator.validate()`. Every invocation is checked, including repeated
+configurations of a cached module. Standalone `ToolValidator.validate()` remains
+an explicit diagnostic that mounts and cleans a separate instance.
+That diagnostic uses coordinator cleanup for both returned and registered
+callbacks, including when mounting or inspection fails.
+
+Runtime admission accepts `None` with no new or replaced tool: this permits the
+Tool contract's graceful degradation and an idempotent remount of an existing
+object. There is no new instance to inspect. Standalone diagnostic validation
+still reports failure when it cannot obtain any tool or cleanup callable. This
+deliberately separates a successful no-op runtime mount from a diagnostic that
+could not demonstrate the protocol; it does not accept an invalid contributed tool.
+A successful no-op mount participates in normal `on_session_ready` dispatch.
+
+An invalid actual instance fails at mount admission rather than during a temporary
+diagnostic mount. On rejection, mount failure or cancellation, the loader restores
+the tool mapping's previous slots, objects and order. This relies on serial module
+initialization; it does not undo mutations inside earlier objects, hooks,
+capabilities or external effects. Those remain the module's responsibility.
+Registered cleanup remains owned by normal session teardown. If a successful mount
+returned cleanup before inspection rejected its tools, that cleanup is retained
+too. A successful admission returns cleanup to its caller as before. Cancellation
+propagates; no extra timeout or cancellation shielding is introduced.
+
+Optional tool failure still emits `module:load_failed`, skips readiness for that
+attempt and permits later modules to load. Direct discovery and non-Python loaders
+retain their existing behavior. Provider, hook, context and orchestrator validation
+are unchanged.
+
 ### Rust-backed Python Session Cleanup
 
 For the PyO3 `RustSession`, `cleanup()` claims and then awaits `session:end` at most
