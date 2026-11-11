@@ -7,8 +7,8 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from amplifier_core import HookResult, ModuleCoordinator
-from amplifier_core._session_init import initialize_session
+from amplifier_core import AmplifierSession, HookResult, ModuleCoordinator
+from amplifier_core._session_init import _mount_tool
 from amplifier_core.events import MODULE_LOAD_FAILED
 from amplifier_core.loader import ModuleLoader, ModuleValidationError
 from amplifier_core.validation import ToolValidator
@@ -169,6 +169,8 @@ async def test_load_opens_nothing_then_checks_the_one_runtime_instance(
     original = ToolValidator._check_tool_methods
 
     def observe(self, result, tool):
+        assert coordinator._cleanup_fns == [module.CLEANUPS[0]]
+        assert module.CLOSED == []
         checked.append(tool)
         return original(self, result, tool)
 
@@ -178,14 +180,14 @@ async def test_load_opens_nothing_then_checks_the_one_runtime_instance(
         module = sys.modules[name]
         assert module.HANDLES == []
         assert loader._loaded_modules["tool-admission-single"] is module.mount
-        cleanup = await mount(coordinator)
+        result = await _mount_tool(loader, "tool-admission-single", mount, coordinator)
         tool = coordinator.get("tools")["runtime-tool"]
         assert checked == [tool]
         assert tool is module.INSTANCES[0]
         assert len(module.HANDLES) == 1 and not module.HANDLES[0].closed
-        assert cleanup is module.CLEANUPS[0]
+        assert result is None
+        assert coordinator._cleanup_fns == [module.CLEANUPS[0]]
         assert module.CLOSED == []
-        coordinator.register_cleanup(cleanup)
     assert module.CLOSED == ["runtime-tool"]
     assert module.HANDLES[0].closed
 
@@ -228,9 +230,14 @@ async def test_optional_admission_keeps_cleanup_and_initializes_later_tool(
             {"module": "tool-admission-good", "config": _config(tmp_path, name="good")},
         ],
     }
-    async with _runtime(roots) as (coordinator, loader):
+    session = AmplifierSession(config)
+    coordinator = session.coordinator
+    await coordinator.mount("module-source-resolver", _Resolver(roots))
+    loader = ModuleLoader(coordinator=coordinator)
+    coordinator.loader = loader
+    try:
         coordinator.hooks.register(MODULE_LOAD_FAILED, capture, name="capture-failure")
-        await initialize_session(config, coordinator, "admission-test", None)
+        await session.initialize()
         bad, good = sys.modules[bad_name], sys.modules[good_name]
         assert list(coordinator.get("tools")) == ["good"]
         assert coordinator.get("orchestrator") is not None
@@ -247,12 +254,17 @@ async def test_optional_admission_keeps_cleanup_and_initializes_later_tool(
         assert loader.get_on_session_ready_queue() == []
         assert len(bad.HANDLES) == len(good.HANDLES) == 1
         assert bad.CLOSED == good.CLOSED == []
+    finally:
+        try:
+            await session.cleanup()
+        finally:
+            loader.cleanup()
     assert bad.CLOSED == ["runtime-tool"] and good.CLOSED == ["good"]
     assert bad.HANDLES[0].closed and good.HANDLES[0].closed
 
 
 @pytest.mark.asyncio
-async def test_cached_module_revalidates_changed_config_and_restores_slots(
+async def test_cached_module_revalidates_and_restores_only_new_or_replaced_slots(
     packages, tmp_path
 ):
     add, roots = packages
@@ -261,7 +273,7 @@ async def test_cached_module_revalidates_changed_config_and_restores_slots(
         first = await loader.load(
             "tool-admission-cached", _config(tmp_path, name="replace")
         )
-        coordinator.register_cleanup(await first(coordinator))
+        await _mount_tool(loader, "tool-admission-cached", first, coordinator)
         await coordinator.mount("tools", object(), name="remove")
         await coordinator.mount("tools", object(), name="tail")
         before = list(coordinator.get("tools").items())
@@ -273,8 +285,10 @@ async def test_cached_module_revalidates_changed_config_and_restores_slots(
             ),
         )
         with pytest.raises(ModuleValidationError):
-            await second(coordinator)
-        assert list(coordinator.get("tools").items()) == before
+            await _mount_tool(loader, "tool-admission-cached", second, coordinator)
+        assert list(coordinator.get("tools").items()) == [
+            (key, tool) for key, tool in before if key != "remove"
+        ]
         module = sys.modules[name]
         assert len(module.HANDLES) == 2
         assert module.CLOSED == []
@@ -306,7 +320,9 @@ async def test_interrupted_mount_restores_tools_but_retains_registered_effects(
                     extra_slot=True, side_effects=True, **values),
         )
         if cancel:
-            task = asyncio.create_task(mount(coordinator))
+            task = asyncio.create_task(
+                _mount_tool(loader, "tool-admission-interrupted", mount, coordinator)
+            )
             try:
                 await asyncio.wait_for(entered.wait(), 5)
                 task.cancel("stop-tool")
@@ -318,12 +334,14 @@ async def test_interrupted_mount_restores_tools_but_retains_registered_effects(
                     await asyncio.gather(task, return_exceptions=True)
         else:
             with pytest.raises(RuntimeError) as failure:
-                await mount(coordinator)
+                await _mount_tool(loader, "tool-admission-interrupted", mount, coordinator)
             assert failure.value is error
-        assert list(coordinator.get("tools").items()) == before
+        assert list(coordinator.get("tools").items()) == [
+            (key, tool) for key, tool in before if key != "remove"
+        ]
         module = sys.modules[name]
         assert len(module.HANDLES) == 1 and module.CLOSED == []
-        # Tool slots are restored, not arbitrary module side effects.
+        # Deleted slots, hooks and capabilities remain module-owned effects.
         assert coordinator.get_capability("admission-test") is module.HANDLES[0]
         await coordinator.hooks.emit("admission:test", {})
         assert module.HOOK_CALLS == ["admission:test"]
@@ -332,12 +350,17 @@ async def test_interrupted_mount_restores_tools_but_retains_registered_effects(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["direct", "conditional", "empty"])
-async def test_direct_tool_and_conditional_cleanup_keep_existing_semantics(
-    packages, tmp_path, mode
+@pytest.mark.parametrize("mode", ["valid", "direct", "conditional", "empty"])
+async def test_direct_loader_preserves_return_value_without_instance_admission(
+    packages, tmp_path, monkeypatch, mode
 ):
     add, roots = packages
     name, _ = add("tool-admission-return")
+
+    def unexpected_inspection(self, result, tool):
+        pytest.fail("Direct loader mounting must leave instance admission to its caller")
+
+    monkeypatch.setattr(ToolValidator, "_check_tool_methods", unexpected_inspection)
     async with _runtime(roots) as (coordinator, loader):
         mount = await loader.load("tool-admission-return", _config(tmp_path, mode=mode))
         result = await mount(coordinator)
@@ -349,8 +372,33 @@ async def test_direct_tool_and_conditional_cleanup_keep_existing_semantics(
         else:
             assert result is module.CLEANUPS[0]
             coordinator.register_cleanup(result)
-        assert coordinator.get("tools") == {}
+        if mode == "valid":
+            assert coordinator.get("tools")["runtime-tool"] is module.INSTANCES[0]
+        else:
+            assert coordinator.get("tools") == {}
         assert len(module.HANDLES) == 1 and module.CLOSED == []
+    assert module.CLOSED == ["runtime-tool"]
+    assert module.HANDLES[0].closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["direct", "conditional"])
+async def test_initializer_accepts_direct_tool_and_conditional_cleanup(
+    packages, tmp_path, mode
+):
+    add, roots = packages
+    name, _ = add("tool-admission-conditional")
+    async with _runtime(roots) as (coordinator, loader):
+        mount = await loader.load(
+            "tool-admission-conditional", _config(tmp_path, mode=mode)
+        )
+        assert await _mount_tool(
+            loader, "tool-admission-conditional", mount, coordinator
+        ) is None
+        module = sys.modules[name]
+        assert coordinator._cleanup_fns == [module.CLEANUPS[0]]
+        assert coordinator.get("tools") == {}
+        assert module.CLOSED == []
     assert module.CLOSED == ["runtime-tool"]
     assert module.HANDLES[0].closed
 
@@ -374,9 +422,13 @@ async def test_singleton_remount_with_none_keeps_the_accepted_instance(
             "tool-admission-singleton", _config(tmp_path, mode="singleton")
         )
         module = sys.modules[name]
-        assert await mount(coordinator) is None
+        assert await _mount_tool(
+            loader, "tool-admission-singleton", mount, coordinator
+        ) is None
         assert checked == [module.SINGLETON]
-        assert await mount(coordinator) is None
+        assert await _mount_tool(
+            loader, "tool-admission-singleton", mount, coordinator
+        ) is None
         assert checked == [module.SINGLETON]
         assert list(coordinator.get("tools")) == ["singleton"]
         assert coordinator.get("tools")["singleton"] is module.SINGLETON
@@ -410,7 +462,7 @@ async def test_falsey_unsupported_return_is_not_graceful_none(packages, tmp_path
             _config(tmp_path, mode="unsupported", return_value=value),
         )
         with pytest.raises(ModuleValidationError, match="No tool was mounted"):
-            await mount(coordinator)
+            await _mount_tool(loader, "tool-admission-falsey", mount, coordinator)
         module = sys.modules[name]
         assert not module.HANDLES[0].closed
         assert coordinator.get("tools") == {}
@@ -426,13 +478,14 @@ async def test_inspection_cancellation_retains_returned_cleanup(
     error = asyncio.CancelledError("inspection-stop")
 
     def interrupt(self, result, tool):
+        assert coordinator._cleanup_fns == [sys.modules[name].CLEANUPS[0]]
         raise error
 
     monkeypatch.setattr(ToolValidator, "_check_tool_methods", interrupt)
     async with _runtime(roots) as (coordinator, loader):
         mount = await loader.load("tool-admission-inspection-cancel", _config(tmp_path))
         with pytest.raises(asyncio.CancelledError) as failure:
-            await mount(coordinator)
+            await _mount_tool(loader, "tool-admission-inspection-cancel", mount, coordinator)
         assert failure.value is error
         module = sys.modules[name]
         assert len(module.HANDLES) == 1 and not module.HANDLES[0].closed

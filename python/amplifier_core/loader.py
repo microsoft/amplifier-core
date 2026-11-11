@@ -224,7 +224,10 @@ class ModuleLoader:
                 Python path (backward compatible).
 
         Returns:
-            Mount function for the module
+            Mount function for the module. Source-resolved Python tools receive
+            source/signature checks here; session initialization owns actual
+            instance admission after mounting and registering cleanup. Direct
+            callers retain ownership of the mount result and cleanup.
 
         Raises:
             ValueError: Module not found or failed to load
@@ -260,9 +263,7 @@ class ModuleLoader:
 
             if source_resolver is None or cached_source_path is not None:
                 if cached_source_path is not None:
-                    return self._bind_source_mount(
-                        module_id, raw_fn, config, cached_source_path
-                    )
+                    return self._bind_source_mount(raw_fn, config)
                 async def mount_with_config_cached(
                     coordinator: ModuleCoordinator, fn=raw_fn
                 ):
@@ -389,7 +390,7 @@ class ModuleLoader:
                 self._loaded_modules[module_id] = raw_fn
                 self._loaded_module_paths[module_id] = module_path.resolve()
 
-                return self._bind_source_mount(module_id, raw_fn, config, module_path)
+                return self._bind_source_mount(raw_fn, config)
 
             raise _ModuleDiscoveryError(
                 f"Module '{module_id}' found at {module_path} but failed to load",
@@ -402,49 +403,12 @@ class ModuleLoader:
 
     def _bind_source_mount(
         self,
-        module_id: str,
         raw_fn: Callable,
         config: dict[str, Any] | None,
-        module_path: Path,
     ) -> Callable:
         """Bind one configuration while retaining the canonical raw mount in cache."""
-        from .validation import ToolValidator
-
-        module_type, _ = self._get_module_metadata(module_id, module_path)
-
         async def mount_with_config(coordinator: ModuleCoordinator):
-            if module_type != "tool":
-                return await raw_fn(coordinator, config or {})
-
-            # Initialization mounts modules serially. Retain only tool slots;
-            # hooks, capabilities and external effects remain module-owned.
-            tools = coordinator.get("tools")
-            before = dict(tools)
-            mount_result = None
-            try:
-                mount_result = await raw_fn(coordinator, config or {})
-                contributed = {
-                    name: tool
-                    for name, tool in coordinator.get("tools").items()
-                    if name not in before or before[name] is not tool
-                }
-                result = ToolValidator().validate_mounted(
-                    module_path, contributed, mount_result
-                )
-                self._require_valid_module(module_id, result)
-            except BaseException:
-                # A successful mount may return cleanup before inspection fails.
-                # Keep that ownership, including on cancellation; do not run it
-                # early or undo unrelated plugin effects.
-                if callable(mount_result):
-                    coordinator.register_cleanup(mount_result)
-                tools.clear()
-                tools.update(before)
-                coordinator.mount_points["tools"] = tools
-                raise
-            logger.info(f"[module:validated] {module_id} - {result.summary()}")
-            # The existing caller registers cleanup on successful admission.
-            return mount_result
+            return await raw_fn(coordinator, config or {})
 
         if on_sr := getattr(raw_fn, "__on_session_ready__", None):
             mount_with_config.__on_session_ready__ = on_sr

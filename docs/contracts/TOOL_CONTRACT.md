@@ -110,8 +110,9 @@ class ToolResult(BaseModel):
 
 ### mount() Function
 
-Source-resolved Python tools are checked on their actual mounted instances; the
-loader does not mount a temporary tool first. A runtime mount that returns `None`
+Session initialization checks source-resolved Python tools on their actual mounted
+instances after registering returned cleanup; the loader does not mount a temporary
+tool first. A runtime mount that returns `None`
 without adding or replacing a tool is a successful no-op, including graceful
 degradation and an idempotent remount. Explicit `ToolValidator.validate()` remains
 a separate diagnostic and reports failure if it cannot obtain a tool or cleanup
