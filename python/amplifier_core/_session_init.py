@@ -54,6 +54,52 @@ async def _emit_module_load_failed(
         pass  # Event emission failure must not suppress the original warning
 
 
+async def _mount_tool(loader, module_id, tool_mount, coordinator) -> None:
+    """Own actual tool admission after its cleanup has joined session teardown."""
+    from .loader import ModuleLoader
+    from .validation import ToolValidator
+
+    # Only a source-resolved Python load populates this existing source map.
+    # Direct discovery, custom loaders and non-Python dispatch keep their path.
+    source = (
+        loader._loaded_module_paths.get(module_id)
+        if isinstance(loader, ModuleLoader)
+        else None
+    )
+    is_python_tool = (
+        source is not None and loader._get_module_metadata(module_id, source)[0] == "tool"
+    )
+    if not is_python_tool:
+        cleanup = await tool_mount(coordinator)
+        if cleanup:
+            coordinator.register_cleanup(cleanup)
+        return
+
+    before = dict(coordinator.get("tools"))
+    try:
+        cleanup = await tool_mount(coordinator)
+        if callable(cleanup):
+            coordinator.register_cleanup(cleanup)
+        contributed = {
+            name: tool
+            for name, tool in coordinator.get("tools").items()
+            if name not in before or before[name] is not tool
+        }
+        result = ToolValidator().validate_mounted(source, contributed, cleanup)
+        loader._require_valid_module(module_id, result)
+    except BaseException:
+        # Initialization is serial. Undo only this attempt's new/replaced slots,
+        # not deletions, object mutations, hooks, capabilities or external effects.
+        tools = coordinator.get("tools")
+        for name, tool in list(tools.items()):
+            if name not in before:
+                del tools[name]
+            elif tool is not before[name]:
+                tools[name] = before[name]
+        raise
+    logger.info(f"[module:validated] {module_id} - {result.summary()}")
+
+
 async def initialize_session(
     config: dict[str, Any],
     coordinator: Any,
@@ -280,9 +326,7 @@ async def initialize_session(
                 source_hint=tool_config.get("source"),
                 coordinator=coordinator,
             )
-            cleanup = await tool_mount(coordinator)
-            if cleanup:
-                coordinator.register_cleanup(cleanup)
+            await _mount_tool(loader, module_id, tool_mount, coordinator)
             # B1 fix: enqueue on_session_ready ONLY after successful mount
             if on_sr := getattr(tool_mount, "__on_session_ready__", None):
                 loader.enqueue_on_session_ready(on_sr[0], on_sr[1])

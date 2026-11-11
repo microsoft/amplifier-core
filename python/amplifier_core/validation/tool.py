@@ -56,17 +56,26 @@ class ToolValidator:
         Returns:
             ValidationResult with all checks
         """
+        result, mount_fn = self.validate_module(module_path)
+        if mount_fn is not None:
+            await self._check_protocol_compliance(result, mount_fn, config=config)
+        return result
+
+    def validate_module(
+        self, module_path: str | Path
+    ) -> tuple[ValidationResult, Any]:
+        """Check source and lifecycle signatures without constructing tool resources."""
         result = ValidationResult(module_type="tool", module_path=str(module_path))
 
         # Check 1: Module is importable
         module = self._check_importable(result, module_path)
         if module is None:
-            return result
+            return result, None
 
         # Check 2: mount() function exists
         mount_fn = self._check_mount_exists(result, module)
         if mount_fn is None:
-            return result
+            return result, None
 
         # Check 3: mount() signature is correct
         self._check_mount_signature(result, mount_fn)
@@ -76,10 +85,7 @@ class ToolValidator:
         if on_session_ready_check is not None:
             result.add(on_session_ready_check)
 
-        # Check 4: Protocol compliance (requires calling mount)
-        await self._check_protocol_compliance(result, mount_fn, config=config)
-
-        return result
+        return result, mount_fn
 
     def _check_importable(
         self, result: ValidationResult, module_path: str | Path
@@ -243,64 +249,9 @@ class ToolValidator:
             # Call mount() and get the result (may be a cleanup function)
             mount_result = await mount_fn(coordinator, actual_config)
 
-            # Check what was mounted
-            tools = coordinator.mount_points.get("tools", {})
-            if not tools:
-                # Module might return the instance directly
-                if mount_result is not None and _implements_tool_interface(
-                    mount_result
-                ):
-                    result.add(
-                        ValidationCheck(
-                            name="protocol_compliance",
-                            passed=True,
-                            message="mount() returned a valid Tool instance",
-                            severity="info",
-                        )
-                    )
-                    self._check_tool_methods(result, mount_result)
-                    return
-                if callable(mount_result):
-                    result.add(
-                        ValidationCheck(
-                            name="protocol_compliance",
-                            passed=True,
-                            message="mount() returned a cleanup callable (no tool mounted yet - may be conditional)",
-                            severity="warning",
-                        )
-                    )
-                    return
-                result.add(
-                    ValidationCheck(
-                        name="protocol_compliance",
-                        passed=False,
-                        message="No tool was mounted and mount() did not return a Tool instance",
-                        severity="error",
-                    )
-                )
-                return
-
-            # Check each mounted tool
-            for name, tool in tools.items():
-                if _implements_tool_interface(tool):
-                    result.add(
-                        ValidationCheck(
-                            name="protocol_compliance",
-                            passed=True,
-                            message=f"Tool '{name}' implements Tool interface",
-                            severity="info",
-                        )
-                    )
-                    self._check_tool_methods(result, tool)
-                else:
-                    result.add(
-                        ValidationCheck(
-                            name="protocol_compliance",
-                            passed=False,
-                            message=f"Tool '{name}' does not implement Tool interface (missing name, description, or execute)",
-                            severity="error",
-                        )
-                    )
+            self._check_mounted_tools(
+                result, coordinator.mount_points.get("tools", {}), mount_result
+            )
 
         except Exception as e:
             result.add(
@@ -312,31 +263,103 @@ class ToolValidator:
                 )
             )
         finally:
-            # CRITICAL: Clean up any resources created during mount() to avoid
-            # "Unclosed client session" warnings. Modules like tool-web create
-            # aiohttp.ClientSession instances that must be properly closed.
-            #
-            # Cleanup can come from two sources:
-            # 1. Returned from mount() - the cleanup function is returned directly
-            # 2. Registered via coordinator.register_cleanup() - stored in _cleanup_functions
-            #
-            # We must handle BOTH patterns.
+            # The coordinator owns both registered and returned callbacks. Its
+            # public cleanup handles sync/async callables and error isolation;
+            # the Rust-backed coordinator has no Python _cleanup_functions list.
+            if callable(mount_result):
+                coordinator.register_cleanup(mount_result)
+            await coordinator.cleanup()
 
-            # First, call any cleanup function returned from mount()
-            if mount_result is not None and callable(mount_result):
-                try:
-                    await mount_result()
-                except Exception:
-                    pass  # Ignore cleanup errors during validation
+    def validate_mounted(
+        self, module_path: str | Path, tools: dict[str, Any], mount_result: Any
+    ) -> ValidationResult:
+        """Inspect actual contributions without mounting or cleaning another instance."""
+        result = ValidationResult(module_type="tool", module_path=str(module_path))
+        # Runtime mount permits graceful degradation and idempotent remounts.
+        # With no new object, there is no protocol instance to inspect. Explicit
+        # diagnostic validation still reports that it could not obtain a tool.
+        if not tools and mount_result is None:
+            result.add(
+                ValidationCheck(
+                    name="protocol_compliance",
+                    passed=True,
+                    message="mount() made no new tool contribution",
+                    severity="info",
+                )
+            )
+            return result
+        try:
+            self._check_mounted_tools(result, tools, mount_result)
+        except Exception as e:  # noqa: BLE001 - report arbitrary plugin property failures
+            result.add(
+                ValidationCheck(
+                    name="protocol_compliance",
+                    passed=False,
+                    message=f"Error during protocol compliance check: {e}",
+                    severity="error",
+                )
+            )
+        return result
 
-            # Then, call any cleanup functions registered with the coordinator
-            if hasattr(coordinator, "_cleanup_functions"):
-                for cleanup_fn in coordinator._cleanup_functions:
-                    try:
-                        await cleanup_fn()
-                    except Exception:
-                        pass  # Ignore cleanup errors during validation
+    def _check_mounted_tools(
+        self, result: ValidationResult, tools: dict[str, Any], mount_result: Any
+    ) -> None:
+        if not tools:
+            # Module might return the instance directly
+            if mount_result is not None and _implements_tool_interface(
+                mount_result
+            ):
+                result.add(
+                    ValidationCheck(
+                        name="protocol_compliance",
+                        passed=True,
+                        message="mount() returned a valid Tool instance",
+                        severity="info",
+                    )
+                )
+                self._check_tool_methods(result, mount_result)
+                return
+            if callable(mount_result):
+                result.add(
+                    ValidationCheck(
+                        name="protocol_compliance",
+                        passed=True,
+                        message="mount() returned a cleanup callable (no tool mounted yet - may be conditional)",
+                        severity="warning",
+                    )
+                )
+                return
+            result.add(
+                ValidationCheck(
+                    name="protocol_compliance",
+                    passed=False,
+                    message="No tool was mounted and mount() did not return a Tool instance",
+                    severity="error",
+                )
+            )
+            return
 
+        # Check each mounted tool
+        for name, tool in tools.items():
+            if _implements_tool_interface(tool):
+                result.add(
+                    ValidationCheck(
+                        name="protocol_compliance",
+                        passed=True,
+                        message=f"Tool '{name}' implements Tool interface",
+                        severity="info",
+                    )
+                )
+                self._check_tool_methods(result, tool)
+            else:
+                result.add(
+                    ValidationCheck(
+                        name="protocol_compliance",
+                        passed=False,
+                        message=f"Tool '{name}' does not implement Tool interface (missing name, description, or execute)",
+                        severity="error",
+                    )
+                )
     def _check_tool_methods(self, result: ValidationResult, tool: Any) -> None:
         """Check that tool has all required methods with correct signatures."""
         # Check name property
